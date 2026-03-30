@@ -11,7 +11,7 @@ function getSupportedMimeType() {
   return MIME_TYPES.find(t => MediaRecorder.isTypeSupported(t)) || ''
 }
 
-export default function useMediaRecorder({ onChunk, mode = 'video' }) {
+export default function useMediaRecorder({ mode = 'video' }) {
   const [state, setState] = useState('idle') // idle | requesting | ready | recording | stopped | error
   const [error, setError] = useState(null)
   const [duration, setDuration] = useState(0)
@@ -25,21 +25,25 @@ export default function useMediaRecorder({ onChunk, mode = 'video' }) {
   const animFrameRef = useRef(null)
 
   const startAudioAnalysis = useCallback((stream) => {
-    const ctx = new AudioContext()
-    const src = ctx.createMediaStreamSource(stream)
-    const analyser = ctx.createAnalyser()
-    analyser.fftSize = 256
-    src.connect(analyser)
-    analyserRef.current = analyser
+    try {
+      const ctx = new AudioContext()
+      const src = ctx.createMediaStreamSource(stream)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
+      src.connect(analyser)
+      analyserRef.current = analyser
 
-    const data = new Uint8Array(analyser.frequencyBinCount)
-    const tick = () => {
-      analyser.getByteFrequencyData(data)
-      const avg = data.reduce((a, b) => a + b, 0) / data.length
-      setAudioLevel(Math.min(100, avg * 2))
+      const data = new Uint8Array(analyser.frequencyBinCount)
+      const tick = () => {
+        analyser.getByteFrequencyData(data)
+        const avg = data.reduce((a, b) => a + b, 0) / data.length
+        setAudioLevel(Math.min(100, avg * 2))
+        animFrameRef.current = requestAnimationFrame(tick)
+      }
       animFrameRef.current = requestAnimationFrame(tick)
+    } catch (err) {
+      console.warn('Audio analysis not available:', err)
     }
-    animFrameRef.current = requestAnimationFrame(tick)
   }, [])
 
   const requestPermissions = useCallback(async () => {
@@ -71,13 +75,12 @@ export default function useMediaRecorder({ onChunk, mode = 'video' }) {
 
     chunksRef.current = []
     const mimeType = getSupportedMimeType()
-    const recorder = new MediaRecorder(stream, { mimeType, timeslice: 1000 })
+    const recorder = new MediaRecorder(stream, { mimeType })
     mediaRecorderRef.current = recorder
 
     recorder.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) {
         chunksRef.current.push(e.data)
-        onChunk?.(e.data, chunksRef.current.length - 1)
       }
     }
 
@@ -86,7 +89,8 @@ export default function useMediaRecorder({ onChunk, mode = 'video' }) {
       setState('error')
     }
 
-    recorder.start(1000)
+    // Record without timeslice — collect all data at once for a clean blob
+    recorder.start()
     setState('recording')
     setDuration(0)
     startAudioAnalysis(stream)
@@ -94,15 +98,19 @@ export default function useMediaRecorder({ onChunk, mode = 'video' }) {
     timerRef.current = setInterval(() => {
       setDuration(d => d + 1)
     }, 1000)
-  }, [requestPermissions, onChunk, startAudioAnalysis])
+  }, [requestPermissions, startAudioAnalysis])
 
   const stopRecording = useCallback(() => {
     return new Promise((resolve) => {
       const recorder = mediaRecorderRef.current
       if (!recorder || recorder.state === 'inactive') {
-        resolve(new Blob(chunksRef.current))
+        resolve(null)
         return
       }
+
+      clearInterval(timerRef.current)
+      cancelAnimationFrame(animFrameRef.current)
+      setAudioLevel(0)
 
       recorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType })
@@ -110,10 +118,6 @@ export default function useMediaRecorder({ onChunk, mode = 'video' }) {
         resolve(blob)
       }
       recorder.stop()
-
-      clearInterval(timerRef.current)
-      cancelAnimationFrame(animFrameRef.current)
-      setAudioLevel(0)
     })
   }, [])
 
