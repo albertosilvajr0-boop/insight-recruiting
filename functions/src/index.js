@@ -1,3 +1,4 @@
+import { initializeApp } from 'firebase-admin/app'
 import { onDocumentCreated } from 'firebase-functions/v2/firestore'
 import { onSchedule } from 'firebase-functions/v2/scheduler'
 import { onCall } from 'firebase-functions/v2/https'
@@ -5,8 +6,11 @@ import { scoreResume } from './pipeline/scoreResume.js'
 import { transcribeAndScoreVideo } from './pipeline/transcribeVideo.js'
 import { routeCandidate } from './pipeline/routeCandidate.js'
 import { sendDailyDigest } from './email/dailyDigest.js'
+import { sendReminders } from './email/sendReminder.js'
 import { getAvailableSlots } from './calendar/getAvailableSlots.js'
 import { bookSlot } from './calendar/bookSlot.js'
+
+initializeApp()
 
 // ─── Triggered on new candidate document ───────────────────────────────────
 export const onCandidateCreated = onDocumentCreated(
@@ -21,6 +25,12 @@ export const onCandidateCreated = onDocumentCreated(
       // 1. Score resume
       const resumeResult = await scoreResume(candidateId, candidate)
       console.log(`[pipeline] Resume scored: ${resumeResult.score}`)
+
+      // If auto-disqualified, stop early
+      if (resumeResult.autoDisqualified) {
+        await routeCandidate(candidateId, resumeResult, { score: 0, strengths: [], concerns: ['Auto-disqualified at resume stage'] })
+        return
+      }
 
       // 2. Transcribe + score video
       const videoResult = await transcribeAndScoreVideo(candidateId, candidate)
@@ -41,6 +51,14 @@ export const dailyDigest = onSchedule(
   { schedule: '0 7 * * *', timeZone: 'America/Denver' },
   async () => {
     await sendDailyDigest()
+  }
+)
+
+// ─── Reminders: check every hour for upcoming interviews ───────────────────
+export const interviewReminders = onSchedule(
+  { schedule: '0 * * * *', timeZone: 'America/Denver' },
+  async () => {
+    await sendReminders()
   }
 )
 
