@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
-import { ref, getDownloadURL } from 'firebase/storage'
+import { ref, getDownloadURL, listAll } from 'firebase/storage'
 import { db, storage } from '../firebase'
 import { format } from 'date-fns'
 
@@ -52,9 +52,22 @@ export default function AdminCandidate() {
           for (const [qIndex, path] of Object.entries(data.videoResponses)) {
             if (path && !path.startsWith('skipped')) {
               try {
-                const url = await getDownloadURL(ref(storage, path))
-                urls[qIndex] = url
-              } catch { /* video may not exist */ }
+                // Path is a directory like "videos/uuid_q0" — find the actual video file
+                const dirRef = ref(storage, path)
+                const fileList = await listAll(dirRef)
+
+                // Prefer full_recording.webm, then first .webm chunk
+                const fullRecording = fileList.items.find(f => f.name === 'full_recording.webm')
+                const firstWebm = fileList.items.find(f => f.name.endsWith('.webm'))
+                const videoFile = fullRecording || firstWebm
+
+                if (videoFile) {
+                  const url = await getDownloadURL(videoFile)
+                  urls[qIndex] = url
+                }
+              } catch (err) {
+                console.error(`Failed to load video for Q${qIndex}:`, err)
+              }
             }
           }
           setVideoUrls(urls)
