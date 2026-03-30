@@ -9,11 +9,36 @@ const ROLE_KEYS = [
   { key: "service-advisor", label: "Service Advisor" }
 ]
 
+const APP_URL = "https://insight-recruiting-d37dc.web.app"
+
+const JOB_BOARDS = [
+  { name: "Indeed", url: "https://employers.indeed.com/jobs", free: true },
+  { name: "ZipRecruiter", url: "https://www.ziprecruiter.com/post-a-job", free: false },
+  { name: "LinkedIn", url: "https://www.linkedin.com/jobs/post", free: true },
+  { name: "Google Jobs", url: null, free: true, auto: true },
+  { name: "Craigslist SA", url: "https://sanantonio.craigslist.org/d/jobs/search/jjj", free: true },
+  { name: "Facebook", url: "https://www.facebook.com/marketplace/create/job", free: true }
+]
+
+function generatePostingText(job) {
+  return `${job.title} — San Antonio Dodge
+
+${job.description || ''}
+
+Pay: $${job.payRange?.min?.toLocaleString()} – $${job.payRange?.max?.toLocaleString()}/year
+Location: 18011 Blanco Rd, San Antonio, TX 78258
+Type: Full-time
+
+Apply online: ${APP_URL}/apply/${job.id}`
+}
+
 export default function AdminJobs() {
   const [jobs, setJobs] = useState([])
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({ title: "", roleKey: "bdc-agent", description: "", payRange: { min: 35000, max: 80000 }, status: "active" })
   const [saving, setSaving] = useState(false)
+  const [expandedJob, setExpandedJob] = useState(null)
+  const [copied, setCopied] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -26,16 +51,23 @@ export default function AdminJobs() {
 
   const handleSave = async () => {
     setSaving(true)
-    const data = { ...form, dealership: "San Antonio Dodge", updatedAt: serverTimestamp() }
-    if (editing === "new") {
-      const ref = await addDoc(collection(db, "jobs"), { ...data, createdAt: serverTimestamp() })
-      setJobs(j => [{ id: ref.id, ...data }, ...j])
-    } else {
-      await updateDoc(doc(db, "jobs", editing), data)
-      setJobs(j => j.map(x => x.id === editing ? { ...x, ...data } : x))
+    try {
+      const roleLabel = ROLE_KEYS.find(r => r.key === form.roleKey)?.label || form.title
+      const data = { ...form, title: form.title || roleLabel, dealership: "San Antonio Dodge", updatedAt: serverTimestamp() }
+      if (editing === "new") {
+        const ref = await addDoc(collection(db, "jobs"), { ...data, createdAt: serverTimestamp() })
+        setJobs(j => [{ id: ref.id, ...data }, ...j])
+      } else {
+        await updateDoc(doc(db, "jobs", editing), data)
+        setJobs(j => j.map(x => x.id === editing ? { ...x, ...data } : x))
+      }
+      setEditing(null)
+    } catch (err) {
+      console.error("Failed to save job:", err)
+      alert("Failed to save: " + err.message)
+    } finally {
+      setSaving(false)
     }
-    setEditing(null)
-    setSaving(false)
   }
 
   const toggleStatus = async (job) => {
@@ -99,14 +131,53 @@ export default function AdminJobs() {
                   <h3 className="font-semibold text-gray-900">{job.title}</h3>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${job.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>{job.status}</span>
                 </div>
-                {job.payRange && <p className="text-sm text-gray-500 mt-0.5">${job.payRange.min?.toLocaleString()}�${job.payRange.max?.toLocaleString()}</p>}
+                {job.payRange && <p className="text-sm text-gray-500 mt-0.5">${job.payRange.min?.toLocaleString()} – ${job.payRange.max?.toLocaleString()}</p>}
                 {job.description && <p className="text-sm text-gray-500 mt-1 line-clamp-2">{job.description}</p>}
               </div>
               <div className="flex gap-2 shrink-0">
+                <button onClick={() => setExpandedJob(expandedJob === job.id ? null : job.id)} className="text-xs border border-blue-200 text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg">Distribute</button>
                 <button onClick={() => toggleStatus(job)} className="text-xs border border-gray-200 text-gray-600 hover:bg-gray-50 px-3 py-1.5 rounded-lg">{job.status === "active" ? "Pause" : "Activate"}</button>
                 <button onClick={() => { setEditing(job.id); setForm(job) }} className="text-xs border border-gray-200 text-gray-600 hover:bg-gray-50 px-3 py-1.5 rounded-lg">Edit</button>
               </div>
             </div>
+            {expandedJob === job.id && (
+              <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-gray-700">Post to job boards</p>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(generatePostingText(job)); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    {copied ? "Copied!" : "Copy job description"}
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {JOB_BOARDS.map(board => (
+                    <div key={board.name} className="border border-gray-200 rounded-lg p-3 text-center">
+                      <p className="text-xs font-medium text-gray-900">{board.name}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{board.free ? "Free" : "Paid"}{board.auto ? " (auto)" : ""}</p>
+                      {board.auto ? (
+                        <span className="inline-block mt-1.5 text-[10px] text-green-600 font-medium">Active via JSON-LD</span>
+                      ) : board.url ? (
+                        <a href={board.url} target="_blank" rel="noopener noreferrer" className="inline-block mt-1.5 text-[10px] bg-blue-600 text-white px-2.5 py-1 rounded-md hover:bg-blue-700">Post now</a>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-[10px] font-medium text-gray-500 mb-1">Direct apply link (include in all postings)</p>
+                  <div className="flex items-center gap-2">
+                    <code className="text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded flex-1 truncate">{APP_URL}/apply/{job.id}</code>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(`${APP_URL}/apply/${job.id}`); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+                      className="text-xs text-blue-600 hover:underline shrink-0"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ))}
         {jobs.length === 0 && !editing && (

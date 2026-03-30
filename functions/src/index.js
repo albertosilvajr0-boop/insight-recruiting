@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase-admin/app'
 import { onDocumentCreated } from 'firebase-functions/v2/firestore'
 import { onSchedule } from 'firebase-functions/v2/scheduler'
-import { onCall } from 'firebase-functions/v2/https'
+import { onCall, onRequest } from 'firebase-functions/v2/https'
 import { scoreResume } from './pipeline/scoreResume.js'
 import { transcribeAndScoreVideo } from './pipeline/transcribeVideo.js'
 import { routeCandidate } from './pipeline/routeCandidate.js'
@@ -9,6 +9,7 @@ import { sendDailyDigest } from './email/dailyDigest.js'
 import { sendReminders } from './email/sendReminder.js'
 import { getAvailableSlots } from './calendar/getAvailableSlots.js'
 import { bookSlot } from './calendar/bookSlot.js'
+import { generateJobFeed } from './jobs/jobFeed.js'
 
 initializeApp()
 
@@ -75,3 +76,19 @@ export const bookInterview = onCall(async (request) => {
   if (!token || !slotId) throw new Error('Missing token or slotId')
   return bookSlot(token, slotId)
 })
+
+// ─── XML Job Feed for Indeed / ZipRecruiter crawlers ───────────────────────
+export const jobFeed = onRequest(
+  { cors: true },
+  async (req, res) => {
+    try {
+      const xml = await generateJobFeed()
+      res.set('Content-Type', 'application/xml')
+      res.set('Cache-Control', 'public, max-age=3600')
+      res.send(xml)
+    } catch (err) {
+      console.error('[jobFeed] Error:', err)
+      res.status(500).send('Internal error')
+    }
+  }
+)

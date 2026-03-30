@@ -3,6 +3,63 @@ import { Link } from 'react-router-dom'
 import { collection, query, where, orderBy, getDocs } from 'firebase/firestore'
 import { db } from '../firebase'
 
+const APP_URL = 'https://insight-recruiting-d37dc.web.app'
+
+function injectJobStructuredData(jobs) {
+  // Remove old structured data
+  const old = document.getElementById('job-structured-data')
+  if (old) old.remove()
+
+  if (jobs.length === 0) return
+
+  const jsonLd = jobs.map(job => ({
+    '@context': 'https://schema.org/',
+    '@type': 'JobPosting',
+    title: job.title,
+    description: job.description || `${job.title} position at San Antonio Dodge`,
+    datePosted: job.createdAt?.toDate?.()?.toISOString?.()?.split('T')[0] || new Date().toISOString().split('T')[0],
+    hiringOrganization: {
+      '@type': 'Organization',
+      name: 'San Antonio Dodge',
+      sameAs: APP_URL,
+      logo: `${APP_URL}/logo.png`
+    },
+    jobLocation: {
+      '@type': 'Place',
+      address: {
+        '@type': 'PostalAddress',
+        streetAddress: '18011 Blanco Rd',
+        addressLocality: 'San Antonio',
+        addressRegion: 'TX',
+        postalCode: '78258',
+        addressCountry: 'US'
+      }
+    },
+    baseSalary: job.payRange ? {
+      '@type': 'MonetaryAmount',
+      currency: 'USD',
+      value: {
+        '@type': 'QuantitativeValue',
+        minValue: job.payRange.min,
+        maxValue: job.payRange.max,
+        unitText: 'YEAR'
+      }
+    } : undefined,
+    employmentType: 'FULL_TIME',
+    directApply: true,
+    applicationContact: {
+      '@type': 'ContactPoint',
+      url: `${APP_URL}/apply/${job.id}`
+    }
+  }))
+
+  const script = document.createElement('script')
+  script.id = 'job-structured-data'
+  script.type = 'application/ld+json'
+  script.textContent = JSON.stringify(jsonLd)
+  document.head.appendChild(script)
+}
+
 export default function JobListings() {
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -16,7 +73,9 @@ export default function JobListings() {
           orderBy('createdAt', 'desc')
         )
         const snap = await getDocs(q)
-        setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+        const loadedJobs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        setJobs(loadedJobs)
+        injectJobStructuredData(loadedJobs)
       } catch (err) {
         console.error('Failed to load jobs:', err)
       } finally {
