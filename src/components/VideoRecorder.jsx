@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
+import { ref, uploadBytes } from 'firebase/storage'
+import { storage } from '../firebase'
 import useMediaRecorder from '../hooks/useMediaRecorder'
-import useUploadChunks from '../hooks/useUploadChunks'
 
 const MAX_DURATION = 180 // 3 minutes
 
@@ -24,19 +25,14 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
   const videoPreviewRef = useRef(null)
   const [recorded, setRecorded] = useState(false)
   const [blob, setBlob] = useState(null)
-
-  const { uploadChunk, finalizeUpload, uploadedChunks, failedChunks, uploading, uploadError } = useUploadChunks(
-    `${candidateId}_q${questionIndex}`
-  )
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState(null)
 
   const {
     state, error, duration, audioLevel,
     stream, isSupported,
     requestPermissions, startRecording, stopRecording, releaseStream, reset
-  } = useMediaRecorder({
-    mode,
-    onChunk: (chunk, index) => uploadChunk(chunk, index)
-  })
+  } = useMediaRecorder({ mode })
 
   // Attach stream to video preview
   useEffect(() => {
@@ -62,24 +58,35 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
 
   const handleStop = async () => {
     const recordedBlob = await stopRecording()
-    setBlob(recordedBlob)
-    setRecorded(true)
+    if (recordedBlob && recordedBlob.size > 0) {
+      setBlob(recordedBlob)
+      setRecorded(true)
+    } else {
+      setUploadError('Recording was empty. Please try again.')
+    }
   }
 
   const handleRetake = () => {
     setBlob(null)
     setRecorded(false)
+    setUploadError(null)
     reset()
   }
 
   const handleSubmit = async () => {
+    if (!blob) return
+    setUploading(true)
+    setUploadError(null)
     try {
-      const chunkCount = uploadedChunks
-      const path = await finalizeUpload(chunkCount, blob)
-      onComplete(path, blob)
+      const storagePath = `videos/${candidateId}_q${questionIndex}/recording.webm`
+      const fileRef = ref(storage, storagePath)
+      await uploadBytes(fileRef, blob)
+      const dirPath = `videos/${candidateId}_q${questionIndex}`
+      onComplete(dirPath, blob)
     } catch (err) {
-      console.error('Submit failed:', err)
-      alert('Failed to save recording. Please try again.')
+      console.error('Video upload failed:', err)
+      setUploadError('Upload failed. Please try again.')
+      setUploading(false)
     }
   }
 
@@ -96,7 +103,7 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
       {/* Preview area */}
       {mode === 'video' && (
         <div className="relative bg-gray-900 rounded-xl overflow-hidden aspect-video">
-          {state === 'stopped' && blob ? (
+          {recorded && blob ? (
             <video
               src={URL.createObjectURL(blob)}
               controls
@@ -138,6 +145,13 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
         </div>
       )}
 
+      {/* Voice-only playback */}
+      {mode === 'voice' && recorded && blob && (
+        <div className="bg-gray-100 rounded-xl p-4">
+          <audio src={URL.createObjectURL(blob)} controls className="w-full" />
+        </div>
+      )}
+
       {/* Error */}
       {(error || uploadError) && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
@@ -173,7 +187,8 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
           <>
             <button
               onClick={handleRetake}
-              className="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 px-6 rounded-xl transition-colors"
+              disabled={uploading}
+              className="flex-1 border border-gray-300 hover:bg-gray-50 disabled:opacity-50 text-gray-700 font-medium py-3 px-6 rounded-xl transition-colors"
             >
               Retake
             </button>
@@ -188,11 +203,17 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
         )}
       </div>
 
-      {/* Upload progress */}
-      {state === 'recording' && (uploadedChunks > 0 || failedChunks > 0) && (
+      {/* Recording time */}
+      {state === 'recording' && mode !== 'video' && (
         <p className="text-xs text-gray-500 text-center">
-          {uploadedChunks} chunk{uploadedChunks !== 1 ? 's' : ''} uploaded
-          {failedChunks > 0 && <span className="text-amber-600"> ({failedChunks} will retry on save)</span>}
+          Recording: {formatTime(duration)}
+        </p>
+      )}
+
+      {/* Upload size info */}
+      {recorded && blob && (
+        <p className="text-xs text-gray-400 text-center">
+          Recording: {formatTime(duration)} ({(blob.size / 1024 / 1024).toFixed(1)} MB)
         </p>
       )}
     </div>
