@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import { ref, uploadBytes } from 'firebase/storage'
 import { storage } from '../firebase'
 import useMediaRecorder from '../hooks/useMediaRecorder'
@@ -25,8 +25,10 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
   const videoPreviewRef = useRef(null)
   const [recorded, setRecorded] = useState(false)
   const [blob, setBlob] = useState(null)
+  const [blobUrl, setBlobUrl] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState(null)
+  const [retakeCount, setRetakeCount] = useState(0)
 
   const {
     state, error, duration, audioLevel,
@@ -34,10 +36,22 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
     requestPermissions, startRecording, stopRecording, releaseStream, reset
   } = useMediaRecorder({ mode })
 
-  // Attach stream to video preview
-  useEffect(() => {
-    if (videoPreviewRef.current && stream && mode === 'video') {
+  // Attach stream to video preview — re-runs on stream change AND retake
+  const attachStream = useCallback(() => {
+    if (videoPreviewRef.current && stream && mode === 'video' && !recorded) {
       videoPreviewRef.current.srcObject = stream
+    }
+  }, [stream, mode, recorded])
+
+  useEffect(() => {
+    attachStream()
+  }, [attachStream, retakeCount])
+
+  // Also attach when the ref element appears (after switching from blob to live)
+  const setVideoRef = useCallback((el) => {
+    videoPreviewRef.current = el
+    if (el && stream && mode === 'video') {
+      el.srcObject = stream
     }
   }, [stream, mode])
 
@@ -49,9 +63,15 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
   }, [duration, state])
 
   // Cleanup on unmount
-  useEffect(() => () => releaseStream(), [])
+  useEffect(() => {
+    return () => {
+      releaseStream()
+      if (blobUrl) URL.revokeObjectURL(blobUrl)
+    }
+  }, [])
 
   const handleStart = async () => {
+    setUploadError(null)
     if (state === 'idle') await requestPermissions()
     await startRecording()
   }
@@ -59,18 +79,31 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
   const handleStop = async () => {
     const recordedBlob = await stopRecording()
     if (recordedBlob && recordedBlob.size > 0) {
+      // Revoke old blob URL if exists
+      if (blobUrl) URL.revokeObjectURL(blobUrl)
+      const url = URL.createObjectURL(recordedBlob)
       setBlob(recordedBlob)
+      setBlobUrl(url)
       setRecorded(true)
     } else {
       setUploadError('Recording was empty. Please try again.')
     }
   }
 
-  const handleRetake = () => {
+  const handleRetake = async () => {
+    // Clean up old blob
+    if (blobUrl) URL.revokeObjectURL(blobUrl)
     setBlob(null)
+    setBlobUrl(null)
     setRecorded(false)
     setUploadError(null)
+    setRetakeCount(c => c + 1)
+
+    // Release old stream and get a fresh one
+    releaseStream()
     reset()
+    // Start fresh — request permissions again for a clean stream
+    await requestPermissions()
   }
 
   const handleSubmit = async () => {
@@ -98,20 +131,25 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
     )
   }
 
+  const showLivePreview = !recorded && mode === 'video'
+  const showRecordedPreview = recorded && blobUrl && mode === 'video'
+
   return (
     <div className="space-y-4">
       {/* Preview area */}
       {mode === 'video' && (
         <div className="relative bg-gray-900 rounded-xl overflow-hidden aspect-video">
-          {recorded && blob ? (
+          {showRecordedPreview ? (
             <video
-              src={URL.createObjectURL(blob)}
+              key="playback"
+              src={blobUrl}
               controls
               className="w-full h-full object-cover"
             />
           ) : (
             <video
-              ref={videoPreviewRef}
+              key={`live-${retakeCount}`}
+              ref={setVideoRef}
               autoPlay
               muted
               playsInline
@@ -146,9 +184,9 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
       )}
 
       {/* Voice-only playback */}
-      {mode === 'voice' && recorded && blob && (
+      {mode === 'voice' && recorded && blobUrl && (
         <div className="bg-gray-100 rounded-xl p-4">
-          <audio src={URL.createObjectURL(blob)} controls className="w-full" />
+          <audio src={blobUrl} controls className="w-full" />
         </div>
       )}
 
@@ -203,17 +241,23 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
         )}
       </div>
 
-      {/* Recording time */}
-      {state === 'recording' && mode !== 'video' && (
-        <p className="text-xs text-gray-500 text-center">
-          Recording: {formatTime(duration)}
+      {/* Upload size info */}
+      {recorded && blob && !uploading && (
+        <p className="text-xs text-gray-400 text-center">
+          Recording: {formatTime(duration)} ({(blob.size / 1024 / 1024).toFixed(1)} MB)
         </p>
       )}
 
-      {/* Upload size info */}
-      {recorded && blob && (
-        <p className="text-xs text-gray-400 text-center">
-          Recording: {formatTime(duration)} ({(blob.size / 1024 / 1024).toFixed(1)} MB)
+      {/* Skip option */}
+      {!recorded && state !== 'recording' && (
+        <p className="text-xs text-center text-gray-400">
+          Having trouble recording?{' '}
+          <button
+            className="underline text-gray-500"
+            onClick={() => onComplete(`skipped_q${questionIndex}`, null)}
+          >
+            Skip this question
+          </button>
         </p>
       )}
     </div>
