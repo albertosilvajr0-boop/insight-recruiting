@@ -73,9 +73,14 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
   }
 
   const handleSubmit = async () => {
-    const chunkCount = uploadedChunks
-    const path = await finalizeUpload(chunkCount)
-    onComplete(path, blob)
+    try {
+      const chunkCount = uploadedChunks
+      const path = await finalizeUpload(chunkCount, blob)
+      onComplete(path, blob)
+    } catch (err) {
+      console.error('Submit failed:', err)
+      alert('Failed to save recording. Please try again.')
+    }
   }
 
   if (!isSupported) {

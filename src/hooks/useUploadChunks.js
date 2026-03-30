@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { ref, uploadBytes } from 'firebase/storage'
 import { storage } from '../firebase'
 
 export default function useUploadChunks(candidateId) {
@@ -9,6 +9,7 @@ export default function useUploadChunks(candidateId) {
   const [uploading, setUploading] = useState(false)
   const queueRef = useRef([])
   const processingRef = useRef(false)
+  const failedRef = useRef(0)
 
   const processQueue = useCallback(async () => {
     if (processingRef.current || queueRef.current.length === 0) return
@@ -21,7 +22,10 @@ export default function useUploadChunks(candidateId) {
         await uploadBytes(chunkRef, blob)
         setUploadedChunks(c => c + 1)
       } catch (err) {
-        setUploadError(`Chunk ${index} upload failed: ${err.message}`)
+        console.error(`Chunk ${index} upload failed:`, err)
+        failedRef.current += 1
+        // Don't set error state during recording — it's distracting
+        // We'll handle it at finalize time
       }
     }
 
@@ -33,7 +37,7 @@ export default function useUploadChunks(candidateId) {
     processQueue()
   }, [processQueue])
 
-  const finalizeUpload = useCallback(async (totalChunks) => {
+  const finalizeUpload = useCallback(async (totalChunks, fullBlob) => {
     setUploading(true)
     try {
       // Wait for queue to drain
@@ -46,17 +50,29 @@ export default function useUploadChunks(candidateId) {
         }, 200)
       })
 
-      // Store manifest so Cloud Function knows how many chunks to stitch
+      // If chunk uploads failed or no chunks, upload the full blob as fallback
+      if (fullBlob && (failedRef.current > 0 || totalChunks === 0)) {
+        console.log('[upload] Chunk uploads had issues, uploading full recording as fallback')
+        const fullRef = ref(storage, `videos/${candidateId}/full_recording.webm`)
+        await uploadBytes(fullRef, fullBlob)
+        setUploadedChunks(1)
+      }
+
+      // Store manifest
       const manifestRef = ref(storage, `videos/${candidateId}/manifest.json`)
-      const manifest = JSON.stringify({ totalChunks, candidateId, createdAt: Date.now() })
+      const manifest = JSON.stringify({
+        totalChunks: failedRef.current > 0 ? 0 : totalChunks,
+        hasFullRecording: failedRef.current > 0 || totalChunks === 0,
+        candidateId,
+        createdAt: Date.now()
+      })
       await uploadBytes(manifestRef, new Blob([manifest], { type: 'application/json' }))
 
-      // Return the path — Cloud Function will stitch and produce final URL
       const url = `videos/${candidateId}`
       setFinalUrl(url)
       return url
     } catch (err) {
-      setUploadError(`Finalize failed: ${err.message}`)
+      setUploadError(`Upload failed: ${err.message}`)
       throw err
     } finally {
       setUploading(false)
