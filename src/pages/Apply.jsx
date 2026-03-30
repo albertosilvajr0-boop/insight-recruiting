@@ -106,16 +106,17 @@ export default function Apply() {
   }
 
   const handleVideoComplete = (path, _blob) => {
-    setVideoResponses(prev => ({ ...prev, [currentQuestion]: path }))
+    const updatedResponses = { ...videoResponses, [currentQuestion]: path }
+    setVideoResponses(updatedResponses)
     const questions = INTERVIEW_QUESTIONS[job.roleKey] || []
     if (currentQuestion < questions.length - 1) {
       setCurrentQuestion(q => q + 1)
     } else {
-      handleSubmit()
+      handleSubmit(updatedResponses)
     }
   }
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (finalVideoResponses) => {
     setStep('submitting')
     try {
       await addDoc(collection(db, 'candidates'), {
@@ -127,7 +128,7 @@ export default function Apply() {
         dealership: 'San Antonio Dodge',
         stage: 'applied',
         resumeUrl,
-        videoResponses,
+        videoResponses: finalVideoResponses || videoResponses,
         compositeScore: null,
         resumeScore: null,
         interviewScore: null,
