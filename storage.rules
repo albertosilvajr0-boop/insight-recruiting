@@ -1,16 +1,16 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Resumes — anyone can upload (candidates applying), admin can read
-    match /resumes/{candidateId}/{fileName} {
+    // Resumes — anyone can upload, admin can read
+    match /resumes/{allPaths=**} {
       allow read: if request.auth != null;
-      allow create: if true;
+      allow write: if true;
     }
 
-    // Videos — anyone can upload chunks, admin can read
-    match /videos/{candidateId}/{fileName} {
+    // Videos — anyone can upload chunks/recordings, admin can read
+    match /videos/{allPaths=**} {
       allow read: if request.auth != null;
-      allow create: if true;
+      allow write: if true;
     }
 
     // Everything else — admin only
