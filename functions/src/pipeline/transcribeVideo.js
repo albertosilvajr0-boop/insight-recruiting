@@ -75,8 +75,17 @@ async function transcribeAudio(audioBuffer) {
 async function downloadAndConcatChunks(bucket, videoPath) {
   // videoPath is like "videos/{candidateId}" — list all chunks
   const [files] = await bucket.getFiles({ prefix: videoPath })
+
+  // Prefer full_recording.webm if it exists (fallback upload)
+  const fullRecording = files.find(f => f.name.endsWith('full_recording.webm'))
+  if (fullRecording) {
+    const [buffer] = await fullRecording.download()
+    return buffer
+  }
+
+  // Otherwise concat chunks
   const chunkFiles = files
-    .filter(f => f.name.endsWith('.webm'))
+    .filter(f => f.name.endsWith('.webm') && !f.name.includes('manifest'))
     .sort((a, b) => a.name.localeCompare(b.name))
 
   if (chunkFiles.length === 0) return null
