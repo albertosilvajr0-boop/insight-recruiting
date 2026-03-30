@@ -82,9 +82,16 @@ export default function Apply() {
       return
     }
     setResumeFile(file)
-    const resumeRef = ref(storage, `resumes/${candidateId}/${file.name}`)
-    await uploadBytes(resumeRef, file)
-    setResumeUrl(`resumes/${candidateId}/${file.name}`)
+    try {
+      const resumeRef = ref(storage, `resumes/${candidateId}/${file.name}`)
+      await uploadBytes(resumeRef, file)
+      setResumeUrl(`resumes/${candidateId}/${file.name}`)
+    } catch (err) {
+      console.error('Resume upload failed:', err)
+      alert('Upload failed: ' + err.message)
+      setResumeFile(null)
+      setResumeUrl(null)
+    }
   }
 
   const handleResumeNext = () => {
