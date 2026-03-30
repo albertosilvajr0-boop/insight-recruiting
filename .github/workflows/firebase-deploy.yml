@@ -68,6 +68,11 @@ jobs:
           projectId: insight-recruiting-d37dc
           channelId: live
 
+      - name: Deploy Firestore rules and indexes
+        run: npx firebase-tools deploy --only firestore --force --project insight-recruiting-d37dc
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa-key.json
+
       - name: Deploy Cloud Functions
         run: npx firebase-tools deploy --only functions --force --project insight-recruiting-d37dc
         env:
