@@ -49,9 +49,18 @@ jobs:
       - name: Install functions dependencies
         run: cd functions && npm ci
 
-      - name: Deploy to Firebase
+      - name: Write service account key
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > /tmp/sa-key.json
+
+      - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: insight-recruiting-d37dc
           channelId: live
+
+      - name: Deploy Cloud Functions
+        run: npx firebase-tools deploy --only functions --project insight-recruiting-d37dc
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa-key.json
