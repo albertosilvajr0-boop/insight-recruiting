@@ -43,6 +43,7 @@ export default function Apply() {
   const [formErrors, setFormErrors] = useState({})
   const [resumeFile, setResumeFile] = useState(null)
   const [resumeUrl, setResumeUrl] = useState(null)
+  const [resumeUploading, setResumeUploading] = useState(false)
   const [videoResponses, setVideoResponses] = useState({}) // questionIndex -> storagePath
 
   useEffect(() => {
@@ -82,19 +83,24 @@ export default function Apply() {
       return
     }
     setResumeFile(file)
+    setResumeUrl(null)
+    setResumeUploading(true)
     try {
       const resumeRef = ref(storage, `resumes/${candidateId}/${file.name}`)
       await uploadBytes(resumeRef, file)
       setResumeUrl(`resumes/${candidateId}/${file.name}`)
     } catch (err) {
       console.error('Resume upload failed:', err)
-      alert('Upload failed: ' + err.message)
+      alert('Upload failed. Please try again.')
       setResumeFile(null)
       setResumeUrl(null)
+    } finally {
+      setResumeUploading(false)
     }
   }
 
   const handleResumeNext = () => {
+    if (resumeUploading) { alert('Resume is still uploading. Please wait.'); return }
     if (!resumeUrl) { alert('Please upload your resume to continue.'); return }
     setStep('interview')
   }
@@ -236,17 +242,22 @@ export default function Apply() {
               <h2 className="text-xl font-semibold text-gray-900">Upload your resume</h2>
               <p className="text-sm text-gray-500 mt-1">PDF or Word doc, max 10MB</p>
             </div>
-            <label className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${resumeFile ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'}`}>
-              <input type="file" accept=".pdf,.doc,.docx" onChange={handleResumeUpload} className="hidden" />
-              {resumeFile ? (
+            <label className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${resumeUrl ? 'border-green-400 bg-green-50' : resumeUploading ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'}`}>
+              <input type="file" accept=".pdf,.doc,.docx" onChange={handleResumeUpload} className="hidden" disabled={resumeUploading} />
+              {resumeUploading ? (
+                <div className="space-y-2">
+                  <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+                  <p className="text-sm font-medium text-blue-700">Uploading {resumeFile?.name}...</p>
+                </div>
+              ) : resumeUrl ? (
                 <div className="space-y-1">
-                  <div className="text-green-600 text-2xl">✓</div>
-                  <p className="text-sm font-medium text-green-700">{resumeFile.name}</p>
+                  <div className="text-green-600 text-2xl">&#10003;</div>
+                  <p className="text-sm font-medium text-green-700">{resumeFile?.name}</p>
                   <p className="text-xs text-green-600">Click to replace</p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <div className="text-gray-400 text-2xl">↑</div>
+                  <div className="text-gray-400 text-2xl">&#8593;</div>
                   <p className="text-sm font-medium text-gray-600">Click to upload</p>
                   <p className="text-xs text-gray-400">PDF, DOC, DOCX</p>
                 </div>
@@ -256,8 +267,8 @@ export default function Apply() {
               <button onClick={() => setStep('info')} className="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors">
                 Back
               </button>
-              <button onClick={handleResumeNext} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-colors">
-                Continue
+              <button onClick={handleResumeNext} disabled={resumeUploading || !resumeUrl} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors">
+                {resumeUploading ? 'Uploading...' : 'Continue'}
               </button>
             </div>
           </div>
