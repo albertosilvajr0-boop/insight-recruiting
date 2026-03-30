@@ -1,10 +1,85 @@
-﻿export default function JobListings() {
+import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
+import { collection, query, where, orderBy, getDocs } from 'firebase/firestore'
+import { db } from '../firebase'
+
+export default function JobListings() {
+  const [jobs, setJobs] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadJobs() {
+      try {
+        const q = query(
+          collection(db, 'jobs'),
+          where('status', '==', 'active'),
+          orderBy('createdAt', 'desc')
+        )
+        const snap = await getDocs(q)
+        setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      } catch (err) {
+        console.error('Failed to load jobs:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadJobs()
+  }, [])
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-3xl mx-auto px-4 py-16 text-center">
-        <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4"><span className="text-white text-xl font-bold">SA</span></div>
-        <h1 className="text-3xl font-bold text-gray-900">Join San Antonio Dodge</h1>
-        <p className="text-gray-500 mt-2">Open positions loading...</p>
+      <div className="max-w-3xl mx-auto px-4 py-16">
+        <div className="text-center mb-10">
+          <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <span className="text-white text-xl font-bold">SA</span>
+          </div>
+          <h1 className="text-3xl font-bold text-gray-900">Join San Antonio Dodge</h1>
+          <p className="text-gray-500 mt-2">Explore open positions and apply today</p>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : jobs.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-gray-400">No open positions right now. Check back soon!</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {jobs.map(job => (
+              <Link
+                key={job.id}
+                to={`/apply/${job.id}`}
+                className="block bg-white rounded-2xl border border-gray-200 p-6 hover:border-blue-300 hover:shadow-sm transition-all"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900">{job.title}</h2>
+                    <p className="text-sm text-gray-500 mt-0.5">San Antonio Dodge</p>
+                    {job.payRange && (
+                      <p className="text-sm text-green-700 font-medium mt-1">
+                        ${job.payRange.min?.toLocaleString()} – ${job.payRange.max?.toLocaleString()}/yr
+                      </p>
+                    )}
+                    {job.description && (
+                      <p className="text-sm text-gray-500 mt-2 line-clamp-2">{job.description}</p>
+                    )}
+                  </div>
+                  <span className="shrink-0 bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-xl">
+                    Apply
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+
+        <div className="text-center mt-12">
+          <Link to="/admin/login" className="text-xs text-gray-400 hover:text-gray-600">
+            Admin
+          </Link>
+        </div>
       </div>
     </div>
   )
