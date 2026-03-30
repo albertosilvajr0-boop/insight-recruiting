@@ -25,7 +25,7 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
   const [recorded, setRecorded] = useState(false)
   const [blob, setBlob] = useState(null)
 
-  const { uploadChunk, finalizeUpload, uploadedChunks, uploading, uploadError } = useUploadChunks(
+  const { uploadChunk, finalizeUpload, uploadedChunks, failedChunks, uploading, uploadError } = useUploadChunks(
     `${candidateId}_q${questionIndex}`
   )
 
@@ -189,9 +189,10 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
       </div>
 
       {/* Upload progress */}
-      {state === 'recording' && uploadedChunks > 0 && (
+      {state === 'recording' && (uploadedChunks > 0 || failedChunks > 0) && (
         <p className="text-xs text-gray-500 text-center">
-          {uploadedChunks} second{uploadedChunks !== 1 ? 's' : ''} saved
+          {uploadedChunks} chunk{uploadedChunks !== 1 ? 's' : ''} uploaded
+          {failedChunks > 0 && <span className="text-amber-600"> ({failedChunks} will retry on save)</span>}
         </p>
       )}
     </div>
