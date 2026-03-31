@@ -1,7 +1,8 @@
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, Link } from "react-router-dom"
 import { signInWithEmailAndPassword } from "firebase/auth"
-import { auth } from "../firebase"
+import { doc, getDoc } from "firebase/firestore"
+import { auth, db } from "../firebase"
 
 export default function AdminLogin() {
   const [email, setEmail] = useState("")
@@ -15,7 +16,17 @@ export default function AdminLogin() {
     setError("")
     setLoading(true)
     try {
-      await signInWithEmailAndPassword(auth, email, password)
+      const cred = await signInWithEmailAndPassword(auth, email, password)
+      // Check if user needs verification
+      if (!cred.user.emailVerified) {
+        navigate("/admin/verify")
+        return
+      }
+      const snap = await getDoc(doc(db, "users", cred.user.uid))
+      if (snap.exists() && !snap.data().phoneVerified) {
+        navigate("/admin/verify")
+        return
+      }
       navigate("/admin/dashboard")
     } catch {
       setError("Invalid email or password")
@@ -92,6 +103,11 @@ export default function AdminLogin() {
               "Sign in"
             )}
           </button>
+
+          <p className="text-center text-sm text-gray-500">
+            Don't have an account?{" "}
+            <Link to="/admin/create-account" className="text-blue-600 hover:text-blue-700 font-medium">Create account</Link>
+          </p>
         </form>
 
         <p className="text-center text-xs text-gray-400 mt-6">

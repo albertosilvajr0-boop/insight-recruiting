@@ -4,6 +4,8 @@ import Apply from './pages/Apply'
 import ThankYou from './pages/ThankYou'
 import Schedule from './pages/Schedule'
 import AdminLogin from './pages/AdminLogin'
+import CreateAccount from './pages/CreateAccount'
+import VerifyAccount from './pages/VerifyAccount'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminCandidate from './pages/AdminCandidate'
 import AdminJobs from './pages/AdminJobs'
@@ -23,6 +25,8 @@ export default function App() {
         {/* Admin */}
         <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin/create-account" element={<CreateAccount />} />
+        <Route path="/admin/verify" element={<VerifyAccount />} />
         <Route path="/admin/dashboard" element={
           <ProtectedRoute><AdminDashboard /></ProtectedRoute>
         } />

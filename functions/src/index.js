@@ -11,6 +11,7 @@ import { getAvailableSlots } from './calendar/getAvailableSlots.js'
 import { bookSlot } from './calendar/bookSlot.js'
 import { generateJobFeed } from './jobs/jobFeed.js'
 import { createUserHandler, updateUserHandler, deleteUserHandler } from './users/manageUsers.js'
+import { sendPhoneVerificationHandler, verifyPhoneCodeHandler } from './verification/phoneVerification.js'
 
 initializeApp()
 
@@ -105,4 +106,13 @@ export const updateUser = onCall(async (request) => {
 
 export const deleteUser = onCall(async (request) => {
   return deleteUserHandler(request.data, request)
+})
+
+// ─── Phone Verification ───────────────────────────────────────────────────
+export const sendPhoneVerification = onCall(async (request) => {
+  return sendPhoneVerificationHandler(request.data, request)
+})
+
+export const verifyPhoneCode = onCall(async (request) => {
+  return verifyPhoneCodeHandler(request.data, request)
 })
