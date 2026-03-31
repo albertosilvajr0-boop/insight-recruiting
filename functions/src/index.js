@@ -108,6 +108,45 @@ export const deleteUser = onCall(async (request) => {
   return deleteUserHandler(request.data, request)
 })
 
+// ─── Manual Scoring (admin trigger) ───────────────────────────────────────
+export const scoreCandidate = onCall(async (request) => {
+  if (!request.auth) throw new Error('Authentication required.')
+
+  const { candidateId } = request.data
+  if (!candidateId) throw new Error('Missing candidateId')
+
+  const { getFirestore } = await import('firebase-admin/firestore')
+  const db = getFirestore()
+  const snap = await db.collection('candidates').doc(candidateId).get()
+  if (!snap.exists) throw new Error('Candidate not found.')
+
+  const candidate = snap.data()
+
+  try {
+    // 1. Score resume
+    const resumeResult = await scoreResume(candidateId, candidate)
+    console.log(`[scoreCandidate] Resume scored: ${resumeResult.score}`)
+
+    if (resumeResult.autoDisqualified) {
+      await routeCandidate(candidateId, resumeResult, { score: 0, strengths: [], concerns: ['Auto-disqualified at resume stage'] })
+      return { success: true, autoDisqualified: true }
+    }
+
+    // 2. Transcribe + score video
+    const videoResult = await transcribeAndScoreVideo(candidateId, candidate)
+    console.log(`[scoreCandidate] Video scored: ${videoResult.score}`)
+
+    // 3. Route candidate
+    await routeCandidate(candidateId, resumeResult, videoResult)
+    console.log(`[scoreCandidate] Routing complete`)
+
+    return { success: true, resumeScore: resumeResult.score, interviewScore: videoResult.score }
+  } catch (err) {
+    console.error(`[scoreCandidate] Error:`, err)
+    throw new Error(`Scoring failed: ${err.message}`)
+  }
+})
+
 // ─── Phone Verification ───────────────────────────────────────────────────
 export const sendPhoneVerification = onCall(async (request) => {
   return sendPhoneVerificationHandler(request.data, request)

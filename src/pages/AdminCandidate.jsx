@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
 import { ref, getDownloadURL, listAll } from 'firebase/storage'
-import { db, storage } from '../firebase'
+import { httpsCallable } from 'firebase/functions'
+import { db, storage, functions } from '../firebase'
 import { format } from 'date-fns'
 
 const STAGE_LABELS = {
@@ -11,10 +12,11 @@ const STAGE_LABELS = {
 }
 const STAGE_COLORS = {
   applied: 'bg-blue-100 text-blue-800', screening: 'bg-yellow-100 text-yellow-800',
-  interview_2: 'bg-red-100 text-red-800', scheduling: 'bg-purple-100 text-purple-800',
+  interview_2: 'bg-amber-100 text-amber-800', scheduling: 'bg-purple-100 text-purple-800',
   scheduled: 'bg-green-100 text-green-800', rejected: 'bg-gray-100 text-gray-600',
   hired: 'bg-emerald-100 text-emerald-800'
 }
+const STAGE_FLOW = ['applied', 'screening', 'interview_2', 'scheduling', 'scheduled', 'hired']
 
 export default function AdminCandidate() {
   const { candidateId } = useParams()
@@ -28,6 +30,8 @@ export default function AdminCandidate() {
   const [rating, setRating] = useState(0)
   const [actionLoading, setActionLoading] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [scoring, setScoring] = useState(false)
+  const [scoringError, setScoringError] = useState(null)
 
   useEffect(() => {
     async function load() {
@@ -112,6 +116,32 @@ export default function AdminCandidate() {
     }
   }
 
+  const getNextStage = () => {
+    const idx = STAGE_FLOW.indexOf(candidate?.stage)
+    if (idx === -1 || idx >= STAGE_FLOW.length - 1) return null
+    return STAGE_FLOW[idx + 1]
+  }
+
+  const runScoring = async () => {
+    setScoring(true)
+    setScoringError(null)
+    try {
+      const scoreCandidateFn = httpsCallable(functions, 'scoreCandidate')
+      await scoreCandidateFn({ candidateId })
+      // Reload candidate data to get fresh scores
+      const snap = await getDoc(doc(db, 'candidates', candidateId))
+      if (snap.exists()) {
+        const data = { id: snap.id, ...snap.data() }
+        setCandidate(data)
+      }
+    } catch (err) {
+      console.error('Scoring failed:', err)
+      setScoringError(err.message || 'Scoring failed. Check that API keys are configured.')
+    } finally {
+      setScoring(false)
+    }
+  }
+
   const deleteCandidate = async () => {
     setActionLoading(true)
     try {
@@ -164,24 +194,35 @@ export default function AdminCandidate() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            {candidate.stage === 'interview_2' && (
-              <button onClick={() => updateStage('scheduling')} disabled={actionLoading}
+            {/* Score / Re-score button */}
+            {candidate.stage !== 'rejected' && candidate.stage !== 'hired' && (
+              <button onClick={runScoring} disabled={scoring || actionLoading}
+                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
+                {scoring ? 'Scoring…' : candidate.compositeScore != null ? 'Re-score' : 'Run AI Scoring'}
+              </button>
+            )}
+            {/* Advance to next stage */}
+            {getNextStage() && candidate.stage !== 'rejected' && (
+              <button onClick={() => updateStage(getNextStage())} disabled={actionLoading}
                 className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
-                Advance to scheduling
+                {getNextStage() === 'hired' ? 'Mark as hired' : `Advance to ${STAGE_LABELS[getNextStage()]}`}
               </button>
             )}
-            {candidate.stage === 'scheduled' && (
-              <button onClick={() => updateStage('hired')} disabled={actionLoading}
-                className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
-                Mark as hired
-              </button>
-            )}
+            {/* Reject */}
             {candidate.stage !== 'rejected' && candidate.stage !== 'hired' && (
               <button onClick={() => updateStage('rejected')} disabled={actionLoading}
                 className="border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60 text-xs font-medium px-3 py-1.5 rounded-lg">
                 Reject
               </button>
             )}
+            {/* Un-reject */}
+            {candidate.stage === 'rejected' && (
+              <button onClick={() => updateStage('applied')} disabled={actionLoading}
+                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
+                Restore to Applied
+              </button>
+            )}
+            {/* Delete */}
             <button onClick={() => setShowDeleteConfirm(true)} disabled={actionLoading}
               className="border border-gray-200 text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-60 text-xs font-medium px-3 py-1.5 rounded-lg">
               Delete
@@ -191,6 +232,22 @@ export default function AdminCandidate() {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        {/* Scoring error */}
+        {scoringError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+            <p className="text-sm text-red-700 font-medium">Scoring failed</p>
+            <p className="text-sm text-red-600 mt-0.5">{scoringError}</p>
+          </div>
+        )}
+
+        {/* Scoring in progress */}
+        {scoring && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center gap-3">
+            <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm text-blue-700 font-medium">AI is scoring this candidate's resume and interview responses…</p>
+          </div>
+        )}
+
         {/* Overview Cards */}
         <div className="grid grid-cols-4 gap-4">
           <div className="bg-white rounded-xl border border-gray-200 p-4">
