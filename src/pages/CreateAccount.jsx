@@ -63,8 +63,14 @@ export default function CreateAccount() {
       // Set display name on Auth profile
       await updateProfile(cred.user, { displayName: displayName.trim() })
 
-      // Send email verification
-      await sendEmailVerification(cred.user)
+      // Send email verification (non-blocking — user can resend from verify page)
+      try {
+        await sendEmailVerification(cred.user, {
+          url: window.location.origin + "/admin/verify",
+        })
+      } catch (emailErr) {
+        console.warn("Initial email verification send failed:", emailErr.code)
+      }
 
       // Store user profile in Firestore
       await setDoc(doc(db, "users", cred.user.uid), {
