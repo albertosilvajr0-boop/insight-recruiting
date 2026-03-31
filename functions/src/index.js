@@ -10,6 +10,7 @@ import { sendReminders } from './email/sendReminder.js'
 import { getAvailableSlots } from './calendar/getAvailableSlots.js'
 import { bookSlot } from './calendar/bookSlot.js'
 import { generateJobFeed } from './jobs/jobFeed.js'
+import { createUserHandler, updateUserHandler, deleteUserHandler } from './users/manageUsers.js'
 
 initializeApp()
 
@@ -92,3 +93,16 @@ export const jobFeed = onRequest(
     }
   }
 )
+
+// ─── User Management (admin only) ─────────────────────────────────────────
+export const createUser = onCall(async (request) => {
+  return createUserHandler(request.data, request)
+})
+
+export const updateUser = onCall(async (request) => {
+  return updateUserHandler(request.data, request)
+})
+
+export const deleteUser = onCall(async (request) => {
+  return deleteUserHandler(request.data, request)
+})
