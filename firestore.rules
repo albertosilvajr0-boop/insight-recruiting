@@ -20,10 +20,16 @@ service cloud.firestore {
       allow write: if request.auth != null;
     }
 
-    // Users — authenticated admin read/write
+    // Users — authenticated read; write own doc or admin write any
     match /users/{userId} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update, delete: if request.auth != null;
+    }
+
+    // Verification codes — server-side only (Cloud Functions use Admin SDK)
+    match /verificationCodes/{codeId} {
+      allow read, write: if false;
     }
 
     // Everything else — admin only
