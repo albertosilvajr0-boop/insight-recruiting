@@ -2,21 +2,39 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
 import { ref, getDownloadURL, listAll } from 'firebase/storage'
-import { httpsCallable } from 'firebase/functions'
-import { db, storage, functions } from '../firebase'
+import { db, storage } from '../firebase'
 import { format } from 'date-fns'
 
 const STAGE_LABELS = {
-  applied: 'Applied', screening: 'Screening', interview_2: 'Review needed',
-  scheduling: 'Scheduling', scheduled: 'Scheduled', rejected: 'Rejected', hired: 'Hired'
+  applied: 'Applied', scored: 'Scored', to_schedule: 'To Schedule',
+  scheduled: 'Scheduled', rejected: 'Rejected'
 }
 const STAGE_COLORS = {
-  applied: 'bg-blue-100 text-blue-800', screening: 'bg-yellow-100 text-yellow-800',
-  interview_2: 'bg-amber-100 text-amber-800', scheduling: 'bg-purple-100 text-purple-800',
-  scheduled: 'bg-green-100 text-green-800', rejected: 'bg-gray-100 text-gray-600',
-  hired: 'bg-emerald-100 text-emerald-800'
+  applied: 'bg-blue-100 text-blue-800', scored: 'bg-amber-100 text-amber-800',
+  to_schedule: 'bg-purple-100 text-purple-800', scheduled: 'bg-green-100 text-green-800',
+  rejected: 'bg-gray-100 text-gray-600'
 }
-const STAGE_FLOW = ['applied', 'screening', 'interview_2', 'scheduling', 'scheduled', 'hired']
+const STAGE_FLOW = ['applied', 'scored', 'to_schedule', 'scheduled']
+
+const RESUME_CRITERIA = [
+  { key: 'relevant_experience', label: 'Relevant experience for this role' },
+  { key: 'no_gaps', label: 'No unexplained gaps in employment' },
+  { key: 'accuracy', label: 'Application filled out accurately and completely' },
+  { key: 'tenure', label: 'Good tenure / stability at previous jobs' },
+  { key: 'presentation', label: 'Resume is well-organized and professional' },
+  { key: 'skills_match', label: 'Skills align with job requirements' },
+]
+
+function ScoreButton({ value, selected, onClick }) {
+  return (
+    <button onClick={onClick}
+      className={`w-9 h-9 rounded-lg text-sm font-semibold transition-colors ${
+        selected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+      }`}>
+      {value}
+    </button>
+  )
+}
 
 export default function AdminCandidate() {
   const { candidateId } = useParams()
@@ -27,11 +45,13 @@ export default function AdminCandidate() {
   const [videoUrls, setVideoUrls] = useState({})
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
-  const [rating, setRating] = useState(0)
   const [actionLoading, setActionLoading] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [scoring, setScoring] = useState(false)
-  const [scoringError, setScoringError] = useState(null)
+  const [saving, setSaving] = useState(false)
+
+  // Manual scores
+  const [resumeScores, setResumeScores] = useState({})
+  const [answerScores, setAnswerScores] = useState({})
 
   useEffect(() => {
     async function load() {
@@ -41,9 +61,9 @@ export default function AdminCandidate() {
         const data = { id: snap.id, ...snap.data() }
         setCandidate(data)
         setNotes(data.adminNotes || '')
-        setRating(data.hiringManagerRating || 0)
+        setResumeScores(data.manualResumeScores || {})
+        setAnswerScores(data.manualAnswerScores || {})
 
-        // Get resume download URL
         if (data.resumeUrl) {
           try {
             const url = await getDownloadURL(ref(storage, data.resumeUrl))
@@ -51,21 +71,16 @@ export default function AdminCandidate() {
           } catch { /* resume may not exist */ }
         }
 
-        // Get video URLs for each response
         if (data.videoResponses) {
           const urls = {}
           for (const [qIndex, path] of Object.entries(data.videoResponses)) {
             if (path && !path.startsWith('skipped')) {
               try {
-                // Path is a directory like "videos/uuid_q0" — find the actual video file
                 const dirRef = ref(storage, path)
                 const fileList = await listAll(dirRef)
-
-                // Prefer full_recording.webm, then first .webm chunk
                 const fullRecording = fileList.items.find(f => f.name === 'full_recording.webm')
                 const firstWebm = fileList.items.find(f => f.name.endsWith('.webm'))
                 const videoFile = fullRecording || firstWebm
-
                 if (videoFile) {
                   const url = await getDownloadURL(videoFile)
                   urls[qIndex] = url
@@ -90,30 +105,25 @@ export default function AdminCandidate() {
   const updateStage = async (newStage) => {
     setActionLoading(true)
     try {
-      await updateDoc(doc(db, 'candidates', candidateId), {
-        stage: newStage,
-        updatedAt: serverTimestamp()
-      })
+      await updateDoc(doc(db, 'candidates', candidateId), { stage: newStage, updatedAt: serverTimestamp() })
       setCandidate(c => ({ ...c, stage: newStage }))
-    } catch (err) {
-      alert('Failed to update stage: ' + err.message)
-    } finally {
-      setActionLoading(false)
-    }
+    } catch (err) { alert('Failed to update stage: ' + err.message) }
+    finally { setActionLoading(false) }
   }
 
   const saveNotes = async () => {
     setSavingNotes(true)
     try {
-      await updateDoc(doc(db, 'candidates', candidateId), {
-        adminNotes: notes,
-        updatedAt: serverTimestamp()
-      })
-    } catch (err) {
-      alert('Failed to save notes: ' + err.message)
-    } finally {
-      setSavingNotes(false)
-    }
+      await updateDoc(doc(db, 'candidates', candidateId), { adminNotes: notes, updatedAt: serverTimestamp() })
+    } catch (err) { alert('Failed to save notes: ' + err.message) }
+    finally { setSavingNotes(false) }
+  }
+
+  const deleteCandidate = async () => {
+    setActionLoading(true)
+    try { await deleteDoc(doc(db, 'candidates', candidateId)); navigate('/admin/dashboard') }
+    catch (err) { alert('Failed to delete: ' + err.message) }
+    finally { setActionLoading(false) }
   }
 
   const getNextStage = () => {
@@ -122,44 +132,44 @@ export default function AdminCandidate() {
     return STAGE_FLOW[idx + 1]
   }
 
-  const runScoring = async () => {
-    setScoring(true)
-    setScoringError(null)
-    try {
-      const scoreCandidateFn = httpsCallable(functions, 'scoreCandidate')
-      await scoreCandidateFn({ candidateId })
-      // Reload candidate data to get fresh scores
-      const snap = await getDoc(doc(db, 'candidates', candidateId))
-      if (snap.exists()) {
-        const data = { id: snap.id, ...snap.data() }
-        setCandidate(data)
-      }
-    } catch (err) {
-      console.error('Scoring failed:', err)
-      setScoringError(err.message || 'Scoring failed. Check that API keys are configured.')
-    } finally {
-      setScoring(false)
-    }
+  // Calculate cumulative score
+  const calcCumulativeScore = () => {
+    const allScores = []
+    Object.values(resumeScores).forEach(v => { if (v) allScores.push(v) })
+    Object.values(answerScores).forEach(v => { if (v) allScores.push(v) })
+    if (allScores.length === 0) return null
+    const sum = allScores.reduce((a, b) => a + b, 0)
+    return { sum, count: allScores.length, avg: (sum / allScores.length).toFixed(1), max: allScores.length * 5 }
   }
 
-  const deleteCandidate = async () => {
-    setActionLoading(true)
-    try {
-      await deleteDoc(doc(db, 'candidates', candidateId))
-      navigate('/admin/dashboard')
-    } catch (err) {
-      alert('Failed to delete: ' + err.message)
-    } finally {
-      setActionLoading(false)
-    }
+  const setResumeScore = (key, value) => {
+    setResumeScores(prev => ({ ...prev, [key]: value }))
   }
 
-  const saveRating = async (r) => {
-    setRating(r)
-    await updateDoc(doc(db, 'candidates', candidateId), {
-      hiringManagerRating: r,
-      updatedAt: serverTimestamp()
-    })
+  const setAnswerScore = (qIndex, value) => {
+    setAnswerScores(prev => ({ ...prev, [qIndex]: value }))
+  }
+
+  const saveAllScores = async () => {
+    setSaving(true)
+    try {
+      const cumulative = calcCumulativeScore()
+      await updateDoc(doc(db, 'candidates', candidateId), {
+        manualResumeScores: resumeScores,
+        manualAnswerScores: answerScores,
+        manualScore: cumulative ? { avg: parseFloat(cumulative.avg), sum: cumulative.sum, count: cumulative.count, max: cumulative.max } : null,
+        stage: candidate.stage === 'applied' ? 'scored' : candidate.stage,
+        updatedAt: serverTimestamp()
+      })
+      setCandidate(c => ({
+        ...c,
+        manualResumeScores: resumeScores,
+        manualAnswerScores: answerScores,
+        manualScore: cumulative ? { avg: parseFloat(cumulative.avg), sum: cumulative.sum, count: cumulative.count, max: cumulative.max } : null,
+        stage: c.stage === 'applied' ? 'scored' : c.stage,
+      }))
+    } catch (err) { alert('Failed to save scores: ' + err.message) }
+    finally { setSaving(false) }
   }
 
   if (loading) return (
@@ -167,14 +177,19 @@ export default function AdminCandidate() {
       <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
     </div>
   )
-
   if (!candidate) return null
 
-  const scoreColor = (score) => {
-    if (score == null) return 'text-gray-400'
-    if (score >= 8) return 'text-green-600'
-    if (score >= 5) return 'text-amber-600'
+  const cumulative = calcCumulativeScore()
+  const scoreColor = (avg) => {
+    if (avg == null) return 'text-gray-400'
+    if (avg >= 4) return 'text-green-600'
+    if (avg >= 3) return 'text-amber-600'
     return 'text-red-600'
+  }
+
+  // Determine which questions are "scorable" (not competence puzzle type that's right/wrong)
+  const isScorableQuestion = (qData) => {
+    return qData?.type !== 'text_response'
   }
 
   return (
@@ -183,46 +198,31 @@ export default function AdminCandidate() {
       <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/admin/dashboard')} className="text-sm text-gray-500 hover:text-gray-900">
-              &larr; Back
-            </button>
-            <span className="text-sm font-medium text-gray-900">
-              {candidate.firstName} {candidate.lastName}
-            </span>
+            <button onClick={() => navigate('/admin/dashboard')} className="text-sm text-gray-500 hover:text-gray-900">&larr; Back</button>
+            <span className="text-sm font-medium text-gray-900">{candidate.firstName} {candidate.lastName}</span>
             <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STAGE_COLORS[candidate.stage] || 'bg-gray-100 text-gray-600'}`}>
               {STAGE_LABELS[candidate.stage] || candidate.stage}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            {/* Score / Re-score button */}
-            {candidate.stage !== 'rejected' && candidate.stage !== 'hired' && (
-              <button onClick={runScoring} disabled={scoring || actionLoading}
-                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
-                {scoring ? 'Scoring…' : candidate.compositeScore != null ? 'Re-score' : 'Run AI Scoring'}
-              </button>
-            )}
-            {/* Advance to next stage */}
             {getNextStage() && candidate.stage !== 'rejected' && (
               <button onClick={() => updateStage(getNextStage())} disabled={actionLoading}
                 className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
-                {getNextStage() === 'hired' ? 'Mark as hired' : `Advance to ${STAGE_LABELS[getNextStage()]}`}
+                Move to {STAGE_LABELS[getNextStage()]}
               </button>
             )}
-            {/* Reject */}
-            {candidate.stage !== 'rejected' && candidate.stage !== 'hired' && (
+            {candidate.stage !== 'rejected' && (
               <button onClick={() => updateStage('rejected')} disabled={actionLoading}
                 className="border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60 text-xs font-medium px-3 py-1.5 rounded-lg">
                 Reject
               </button>
             )}
-            {/* Un-reject */}
             {candidate.stage === 'rejected' && (
               <button onClick={() => updateStage('applied')} disabled={actionLoading}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
-                Restore to Applied
+                Restore
               </button>
             )}
-            {/* Delete */}
             <button onClick={() => setShowDeleteConfirm(true)} disabled={actionLoading}
               className="border border-gray-200 text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-60 text-xs font-medium px-3 py-1.5 rounded-lg">
               Delete
@@ -232,41 +232,30 @@ export default function AdminCandidate() {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-        {/* Scoring error */}
-        {scoringError && (
-          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-            <p className="text-sm text-red-700 font-medium">Scoring failed</p>
-            <p className="text-sm text-red-600 mt-0.5">{scoringError}</p>
-          </div>
-        )}
 
-        {/* Scoring in progress */}
-        {scoring && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center gap-3">
-            <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-blue-700 font-medium">AI is scoring this candidate's resume and interview responses…</p>
+        {/* Cumulative Score Card */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Cumulative Score</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Based on manager's manual scoring below</p>
+            </div>
+            {cumulative ? (
+              <div className="text-right">
+                <p className={`text-3xl font-bold ${scoreColor(cumulative.avg)}`}>{cumulative.avg}<span className="text-lg text-gray-400">/5</span></p>
+                <p className="text-xs text-gray-500">{cumulative.sum} of {cumulative.max} points ({cumulative.count} items scored)</p>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400">Not yet scored</p>
+            )}
           </div>
-        )}
+        </div>
 
-        {/* Overview Cards */}
-        <div className="grid grid-cols-4 gap-4">
+        {/* Overview */}
+        <div className="grid grid-cols-3 gap-4">
           <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-500 mb-1">Resume Score</p>
-            <p className={`text-2xl font-semibold ${scoreColor(candidate.resumeScore)}`}>
-              {candidate.resumeScore != null ? `${candidate.resumeScore}/10` : '—'}
-            </p>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-500 mb-1">Interview Score</p>
-            <p className={`text-2xl font-semibold ${scoreColor(candidate.interviewScore)}`}>
-              {candidate.interviewScore != null ? `${candidate.interviewScore}/10` : '—'}
-            </p>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-500 mb-1">Composite Score</p>
-            <p className={`text-2xl font-semibold ${scoreColor(candidate.compositeScore)}`}>
-              {candidate.compositeScore != null ? `${candidate.compositeScore.toFixed(1)}/10` : '—'}
-            </p>
+            <p className="text-xs text-gray-500 mb-1">Position</p>
+            <p className="text-sm font-semibold text-gray-900">{candidate.jobTitle}</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <p className="text-xs text-gray-500 mb-1">Applied</p>
@@ -274,106 +263,62 @@ export default function AdminCandidate() {
               {candidate.createdAt?.toDate ? format(candidate.createdAt.toDate(), 'MMM d, yyyy') : '—'}
             </p>
           </div>
-        </div>
-
-        {/* Contact + Job Info */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-6">
-          <h2 className="text-sm font-semibold text-gray-900 mb-3">Contact Information</h2>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div><span className="text-gray-500">Email:</span> <span className="text-gray-900 ml-1">{candidate.email}</span></div>
-            <div><span className="text-gray-500">Phone:</span> <span className="text-gray-900 ml-1">{candidate.phone}</span></div>
-            <div><span className="text-gray-500">Position:</span> <span className="text-gray-900 ml-1">{candidate.jobTitle}</span></div>
-            <div><span className="text-gray-500">Dealership:</span> <span className="text-gray-900 ml-1">{candidate.dealership}</span></div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <p className="text-xs text-gray-500 mb-1">Contact</p>
+            <p className="text-sm text-gray-900">{candidate.email}</p>
+            <p className="text-xs text-gray-500">{candidate.phone}</p>
           </div>
         </div>
 
-        {/* Resume */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-gray-900">Resume</h2>
+        {/* Resume + Scoring */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-900">Resume Review</h2>
             {resumeDownloadUrl && (
-              <a href={resumeDownloadUrl} target="_blank" rel="noopener noreferrer"
-                className="text-xs text-blue-600 hover:underline">
-                Download resume
-              </a>
+              <a href={resumeDownloadUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">Download</a>
             )}
           </div>
           {resumeDownloadUrl && (
-            <iframe src={resumeDownloadUrl} className="w-full h-96 border border-gray-200 rounded-lg" title="Resume" />
+            <iframe src={resumeDownloadUrl} className="w-full h-80 border border-gray-200 rounded-lg" title="Resume" />
           )}
+
+          <div className="border-t border-gray-100 pt-4">
+            <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Score Resume (1-5)</h3>
+            <div className="space-y-3">
+              {RESUME_CRITERIA.map(({ key, label }) => (
+                <div key={key} className="flex items-center justify-between gap-4">
+                  <p className="text-sm text-gray-700 flex-1">{label}</p>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map(v => (
+                      <ScoreButton key={v} value={v} selected={resumeScores[key] === v} onClick={() => setResumeScore(key, v)} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* AI Analysis */}
-        {(candidate.resumeAnalysis || candidate.interviewAnalysis) && (
-          <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
-            <h2 className="text-sm font-semibold text-gray-900">AI Analysis</h2>
-            {candidate.resumeAnalysis && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 mb-1">Resume Analysis</p>
-                <p className="text-sm text-gray-700 leading-relaxed">{candidate.resumeAnalysis}</p>
-              </div>
-            )}
-            {candidate.interviewAnalysis && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 mb-1">Interview Analysis</p>
-                <p className="text-sm text-gray-700 leading-relaxed">{candidate.interviewAnalysis}</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Strengths & Concerns */}
-        {((candidate.strengths?.length > 0) || (candidate.concerns?.length > 0)) && (
-          <div className="grid grid-cols-2 gap-4">
-            {candidate.strengths?.length > 0 && (
-              <div className="bg-white rounded-2xl border border-gray-200 p-6">
-                <h3 className="text-sm font-semibold text-green-700 mb-3">Strengths</h3>
-                <ul className="space-y-1.5">
-                  {candidate.strengths.map((s, i) => (
-                    <li key={i} className="text-sm text-gray-700 flex items-start gap-2">
-                      <span className="text-green-500 mt-0.5 shrink-0">+</span>{s}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {candidate.concerns?.length > 0 && (
-              <div className="bg-white rounded-2xl border border-gray-200 p-6">
-                <h3 className="text-sm font-semibold text-red-700 mb-3">Concerns</h3>
-                <ul className="space-y-1.5">
-                  {candidate.concerns.map((c, i) => (
-                    <li key={i} className="text-sm text-gray-700 flex items-start gap-2">
-                      <span className="text-red-500 mt-0.5 shrink-0">-</span>{c}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Interview Responses (Video + Text with Questions) */}
-        {(Object.keys(videoUrls).length > 0 || Object.keys(candidate.textResponses || {}).length > 0) && (
+        {/* Interview Responses + Scoring */}
+        {(Object.keys(videoUrls).length > 0 || Object.keys(candidate.textResponses || {}).length > 0 || candidate.questions) && (
           <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-6">
             <h2 className="text-sm font-semibold text-gray-900">Interview Responses</h2>
             {Object.entries(candidate.questions || {}).sort(([a], [b]) => Number(a) - Number(b)).map(([qIndex, qData]) => {
-              const idx = parseInt(qIndex)
               const hasVideo = videoUrls[qIndex]
               const hasText = candidate.textResponses?.[qIndex]
               const isSkipped = candidate.videoResponses?.[qIndex]?.startsWith?.('skipped')
-              const typeBadge = qData.type === 'video_reading'
-                ? 'bg-purple-100 text-purple-700'
-                : qData.type === 'text_response'
-                ? 'bg-amber-100 text-amber-700'
+              const scorable = isScorableQuestion(qData)
+              const typeBadge = qData.type === 'video_reading' ? 'bg-purple-100 text-purple-700'
+                : qData.type === 'text_response' ? 'bg-amber-100 text-amber-700'
                 : 'bg-blue-100 text-blue-700'
               const typeLabel = qData.type === 'video_reading' ? 'Script Reading'
                 : qData.type === 'text_response' ? 'Written Response'
                 : 'Video Response'
 
               return (
-                <div key={qIndex} className="border-b border-gray-100 last:border-0 pb-5 last:pb-0">
-                  <div className="flex items-start gap-3 mb-3">
-                    <span className="text-xs font-bold text-gray-400 bg-gray-100 w-6 h-6 rounded-full flex items-center justify-center shrink-0">{idx + 1}</span>
+                <div key={qIndex} className="border-b border-gray-100 last:border-0 pb-6 last:pb-0 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <span className="text-xs font-bold text-gray-400 bg-gray-100 w-6 h-6 rounded-full flex items-center justify-center shrink-0">{parseInt(qIndex) + 1}</span>
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${typeBadge}`}>{typeLabel}</span>
@@ -395,16 +340,63 @@ export default function AdminCandidate() {
                   {isSkipped && !hasVideo && (
                     <p className="ml-9 text-xs text-gray-400 italic">Skipped</p>
                   )}
+                  {/* Score this answer (not for text/puzzle questions) */}
+                  {scorable && (
+                    <div className="ml-9 flex items-center gap-3">
+                      <span className="text-xs text-gray-500 font-medium">Score:</span>
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4, 5].map(v => (
+                          <ScoreButton key={v} value={v} selected={answerScores[qIndex] === v} onClick={() => setAnswerScore(qIndex, v)} />
+                        ))}
+                      </div>
+                      {answerScores[qIndex] && <span className="text-xs text-gray-400">{answerScores[qIndex]}/5</span>}
+                    </div>
+                  )}
                 </div>
               )
             })}
-            {/* Fallback: show videos without question data (old applications) */}
+            {/* Fallback for old applications without question data */}
             {!candidate.questions && Object.entries(videoUrls).map(([qIndex, url]) => (
-              <div key={qIndex}>
-                <p className="text-xs font-medium text-gray-500 mb-2">Question {parseInt(qIndex) + 1}</p>
+              <div key={qIndex} className="space-y-3">
+                <p className="text-xs font-medium text-gray-500">Question {parseInt(qIndex) + 1}</p>
                 <video controls src={url} className="w-full rounded-lg border border-gray-200" />
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-gray-500 font-medium">Score:</span>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map(v => (
+                      <ScoreButton key={v} value={v} selected={answerScores[qIndex] === v} onClick={() => setAnswerScore(qIndex, v)} />
+                    ))}
+                  </div>
+                </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Save Scores Button */}
+        <div className="flex justify-center">
+          <button onClick={saveAllScores} disabled={saving}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-3 px-8 rounded-xl text-sm transition-colors">
+            {saving ? 'Saving scores…' : candidate.stage === 'applied' ? 'Save Scores & Mark as Scored' : 'Save Scores'}
+          </button>
+        </div>
+
+        {/* AI Analysis (if available) */}
+        {(candidate.resumeAnalysis || candidate.interviewAnalysis) && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
+            <h2 className="text-sm font-semibold text-gray-900">AI Analysis</h2>
+            {candidate.resumeAnalysis && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1">Resume</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{candidate.resumeAnalysis}</p>
+              </div>
+            )}
+            {candidate.interviewAnalysis && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1">Interview</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{candidate.interviewAnalysis}</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -416,32 +408,11 @@ export default function AdminCandidate() {
           </div>
         )}
 
-        {/* Post-Interview Rating */}
-        {(candidate.stage === 'scheduled' || candidate.stage === 'hired') && (
-          <div className="bg-white rounded-2xl border border-gray-200 p-6">
-            <h2 className="text-sm font-semibold text-gray-900 mb-3">Post-Interview Rating</h2>
-            <div className="flex gap-1">
-              {[1, 2, 3, 4, 5].map(r => (
-                <button key={r} onClick={() => saveRating(r)}
-                  className={`w-10 h-10 rounded-lg text-lg transition-colors ${r <= rating ? 'bg-yellow-400 text-white' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>
-                  *
-                </button>
-              ))}
-            </div>
-            {rating > 0 && <p className="text-xs text-gray-500 mt-2">{rating}/5 stars</p>}
-          </div>
-        )}
-
         {/* Admin Notes */}
         <div className="bg-white rounded-2xl border border-gray-200 p-6">
           <h2 className="text-sm font-semibold text-gray-900 mb-3">Notes</h2>
-          <textarea
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            rows={3}
-            placeholder="Add notes about this candidate..."
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Add notes about this candidate..."
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500" />
           <button onClick={saveNotes} disabled={savingNotes}
             className="mt-2 bg-gray-900 hover:bg-gray-800 disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-lg">
             {savingNotes ? 'Saving...' : 'Save notes'}
@@ -449,13 +420,13 @@ export default function AdminCandidate() {
         </div>
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900">Delete application?</h3>
             <p className="text-sm text-gray-500 mt-1">
-              This will permanently delete <span className="font-medium text-gray-700">{candidate.firstName} {candidate.lastName}</span>'s application and all associated data. This cannot be undone.
+              This will permanently delete <span className="font-medium text-gray-700">{candidate.firstName} {candidate.lastName}</span>'s application. This cannot be undone.
             </p>
             <div className="flex items-center justify-end gap-3 mt-6">
               <button onClick={() => setShowDeleteConfirm(false)} className="text-sm text-gray-600 font-medium px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50">Cancel</button>

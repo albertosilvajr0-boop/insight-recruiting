@@ -37,14 +37,19 @@ export default function Apply() {
         setJob(jobData)
 
         // Load questions from Firestore for this role + universal
-        const qSnap = await getDocs(
-          query(collection(db, 'interviewQuestions'), where('active', '==', true), orderBy('order', 'asc'))
-        )
-        const allQuestions = qSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-        const roleQuestions = allQuestions.filter(
-          q => q.roleKey === 'all' || q.roleKey === jobData.roleKey
-        )
-        setQuestions(roleQuestions)
+        try {
+          const qSnap = await getDocs(
+            query(collection(db, 'interviewQuestions'), orderBy('order', 'asc'))
+          )
+          const allQuestions = qSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+          const roleQuestions = allQuestions.filter(
+            q => q.active !== false && (q.roleKey === 'all' || q.roleKey === jobData.roleKey)
+          )
+          setQuestions(roleQuestions)
+        } catch (err) {
+          console.warn('Failed to load questions from Firestore, using empty set:', err)
+          setQuestions([])
+        }
       } catch {
         navigate('/')
       } finally {
