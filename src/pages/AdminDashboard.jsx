@@ -5,8 +5,8 @@ import { signOut } from "firebase/auth"
 import { db, auth } from "../firebase"
 import { format } from "date-fns"
 
-const STAGES = ["applied","screening","interview_2","scheduling","scheduled","rejected"]
-const STAGE_LABELS = { applied:"Applied", screening:"Screening", interview_2:"Review needed", scheduling:"Scheduling", scheduled:"Scheduled", rejected:"Rejected" }
+const STAGES = ["applied","scored","to_schedule","scheduled","rejected"]
+const STAGE_LABELS = { applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", rejected:"Rejected" }
 
 export default function AdminDashboard() {
   const [candidates, setCandidates] = useState([])
@@ -66,7 +66,7 @@ export default function AdminDashboard() {
       <div className="max-w-screen-xl mx-auto px-4 py-6">
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-xl border border-gray-200 p-4"><p className="text-xs text-gray-500 mb-1">Total candidates</p><p className="text-2xl font-semibold">{candidates.length}</p></div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4"><p className="text-xs text-gray-500 mb-1">Needs review</p><p className="text-2xl font-semibold text-amber-600">{candidates.filter(c => c.stage === "interview_2").length}</p></div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4"><p className="text-xs text-gray-500 mb-1">Needs scoring</p><p className="text-2xl font-semibold text-amber-600">{candidates.filter(c => c.stage === "applied").length}</p></div>
           <div className="bg-white rounded-xl border border-gray-200 p-4"><p className="text-xs text-gray-500 mb-1">Scheduled today</p><p className="text-2xl font-semibold text-green-600">{candidates.filter(c => { if (!c.scheduledAt?.toDate) return false; return c.scheduledAt.toDate().toDateString() === new Date().toDateString() }).length}</p></div>
         </div>
         <div className="overflow-x-auto"><div className="flex gap-4 min-w-max">
@@ -91,7 +91,7 @@ export default function AdminDashboard() {
                           <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(c) }} title="Delete" className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600 text-xs">&#x1D5EB;</button>
                         </div>
                       </div>
-                      {c.compositeScore != null && <span className={`text-xs font-semibold px-2 py-0.5 rounded-full mt-1 inline-block ${c.compositeScore >= 8 ? "bg-green-100 text-green-800" : c.compositeScore >= 5 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>{c.compositeScore.toFixed(1)}</span>}
+                      {c.manualScore?.avg != null && <span className={`text-xs font-semibold px-2 py-0.5 rounded-full mt-1 inline-block ${c.manualScore.avg >= 4 ? "bg-green-100 text-green-800" : c.manualScore.avg >= 3 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>{c.manualScore.avg.toFixed(1)}/5</span>}
                     </div>
                   ))}
                 </div>
@@ -137,9 +137,9 @@ export default function AdminDashboard() {
                             <p className="text-xs text-gray-500">{format(dt, "h:mm a")}</p>
                           </td>
                           <td className="px-4 py-3">
-                            {c.compositeScore != null ? (
-                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.compositeScore >= 8 ? "bg-green-100 text-green-800" : c.compositeScore >= 5 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>
-                                {c.compositeScore.toFixed(1)}
+                            {c.manualScore?.avg != null ? (
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.manualScore.avg >= 4 ? "bg-green-100 text-green-800" : c.manualScore.avg >= 3 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>
+                                {c.manualScore.avg.toFixed(1)}/5
                               </span>
                             ) : <span className="text-xs text-gray-400">—</span>}
                           </td>
