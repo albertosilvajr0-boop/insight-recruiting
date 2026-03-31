@@ -191,6 +191,9 @@ export default function VerifyAccount() {
                     <p className="text-sm text-gray-500 mt-1">
                       We sent a verification link to <span className="font-medium text-gray-700">{user?.email}</span>. Click the link to verify.
                     </p>
+                    <p className="text-sm text-amber-600 font-medium mt-2">
+                      Don't see it? Check your Spam or Junk folder!
+                    </p>
                     <div className="mt-3 flex items-center gap-3">
                       <button
                         onClick={handleResendEmail}

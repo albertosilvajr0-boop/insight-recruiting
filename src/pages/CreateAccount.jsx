@@ -123,6 +123,10 @@ export default function CreateAccount() {
             <p className="text-sm text-gray-500 mt-0.5">Sign up for admin portal access.</p>
           </div>
 
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+            <p className="text-sm text-amber-700 font-medium">After signing up, check your Spam/Junk folder for the verification email!</p>
+          </div>
+
           <div className="space-y-4">
             {/* Full Name */}
             <div>
