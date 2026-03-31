@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
-import { ref, uploadBytes } from 'firebase/storage'
+import { ref, uploadBytesResumable } from 'firebase/storage'
 import { storage } from '../firebase'
 import useMediaRecorder from '../hooks/useMediaRecorder'
 
@@ -27,6 +27,7 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
   const [blob, setBlob] = useState(null)
   const [blobUrl, setBlobUrl] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadError, setUploadError] = useState(null)
   const [retakeCount, setRetakeCount] = useState(0)
 
@@ -109,11 +110,22 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
   const handleSubmit = async () => {
     if (!blob) return
     setUploading(true)
+    setUploadProgress(0)
     setUploadError(null)
     try {
       const storagePath = `videos/${candidateId}_q${questionIndex}/recording.webm`
       const fileRef = ref(storage, storagePath)
-      await uploadBytes(fileRef, blob)
+      const uploadTask = uploadBytesResumable(fileRef, blob)
+      await new Promise((resolve, reject) => {
+        uploadTask.on('state_changed',
+          (snapshot) => {
+            const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+            setUploadProgress(pct)
+          },
+          (err) => reject(err),
+          () => resolve()
+        )
+      })
       const dirPath = `videos/${candidateId}_q${questionIndex}`
       onComplete(dirPath, blob)
     } catch (err) {
@@ -235,7 +247,7 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
               disabled={uploading}
               className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-medium py-3 px-6 rounded-xl transition-colors"
             >
-              {uploading ? 'Uploading...' : 'Use This Recording'}
+              {uploading ? `Uploading… ${uploadProgress}%` : 'Use This Recording'}
             </button>
           </>
         )}

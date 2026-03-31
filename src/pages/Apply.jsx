@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore'
-import { ref, uploadBytes } from 'firebase/storage'
+import { ref, uploadBytesResumable } from 'firebase/storage'
 import { v4 as uuidv4 } from 'uuid'
 import { db, storage } from '../firebase'
 import VideoRecorder from '../components/VideoRecorder'
@@ -44,6 +44,7 @@ export default function Apply() {
   const [resumeFile, setResumeFile] = useState(null)
   const [resumeUrl, setResumeUrl] = useState(null)
   const [resumeUploading, setResumeUploading] = useState(false)
+  const [resumeProgress, setResumeProgress] = useState(0)
   const [videoResponses, setVideoResponses] = useState({}) // questionIndex -> storagePath
 
   useEffect(() => {
@@ -85,9 +86,24 @@ export default function Apply() {
     setResumeFile(file)
     setResumeUrl(null)
     setResumeUploading(true)
+    setResumeProgress(0)
     try {
       const resumeRef = ref(storage, `resumes/${candidateId}/${file.name}`)
-      await uploadBytes(resumeRef, file)
+      const uploadTask = uploadBytesResumable(resumeRef, file)
+      await new Promise((resolve, reject) => {
+        uploadTask.on('state_changed',
+          (snapshot) => {
+            const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+            setResumeProgress(pct)
+          },
+          (err) => {
+            reject(err)
+          },
+          () => {
+            resolve()
+          }
+        )
+      })
       setResumeUrl(`resumes/${candidateId}/${file.name}`)
     } catch (err) {
       console.error('Resume upload failed:', err)
@@ -244,11 +260,15 @@ export default function Apply() {
               <p className="text-sm text-gray-500 mt-1">PDF or Word doc, max 10MB</p>
             </div>
             <label className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${resumeUrl ? 'border-green-400 bg-green-50' : resumeUploading ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'}`}>
-              <input type="file" accept=".pdf,.doc,.docx" onChange={handleResumeUpload} className="hidden" disabled={resumeUploading} />
+              <input type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleResumeUpload} className="hidden" disabled={resumeUploading} />
               {resumeUploading ? (
                 <div className="space-y-2">
                   <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
                   <p className="text-sm font-medium text-blue-700">Uploading {resumeFile?.name}...</p>
+                  <div className="w-48 h-2 bg-blue-100 rounded-full mx-auto overflow-hidden">
+                    <div className="h-full bg-blue-600 rounded-full transition-all duration-300" style={{ width: `${resumeProgress}%` }} />
+                  </div>
+                  <p className="text-xs text-blue-500">{resumeProgress}%</p>
                 </div>
               ) : resumeUrl ? (
                 <div className="space-y-1">
