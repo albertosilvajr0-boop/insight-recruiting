@@ -1,13 +1,13 @@
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 
-const db = getFirestore()
-const auth = getAuth()
-
 /**
  * Creates a new Firebase Auth user and stores their profile in Firestore.
  */
 export async function createUserHandler(data, context) {
+  const db = getFirestore()
+  const auth = getAuth()
+
   // Only authenticated users can create users
   if (!context.auth) {
     throw new Error('Authentication required.')
@@ -57,6 +57,9 @@ export async function createUserHandler(data, context) {
  * Updates an existing Firebase Auth user and their Firestore profile.
  */
 export async function updateUserHandler(data, context) {
+  const db = getFirestore()
+  const auth = getAuth()
+
   if (!context.auth) {
     throw new Error('Authentication required.')
   }
@@ -90,6 +93,9 @@ export async function updateUserHandler(data, context) {
  * Deletes a Firebase Auth user and their Firestore profile.
  */
 export async function deleteUserHandler(data, context) {
+  const db = getFirestore()
+  const auth = getAuth()
+
   if (!context.auth) {
     throw new Error('Authentication required.')
   }
