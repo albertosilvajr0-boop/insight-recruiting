@@ -50,16 +50,29 @@ export default function useMediaRecorder({ mode = 'video' }) {
     setState('requesting')
     setError(null)
     try {
-      const constraints = mode === 'video'
-        ? { video: { width: 1280, height: 720, facingMode: 'user' }, audio: true }
-        : { audio: true }
-      const stream = await navigator.mediaDevices.getUserMedia(constraints)
+      let stream
+      if (mode === 'video') {
+        // Try ideal 720p first, fall back to any available camera
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+            audio: true
+          })
+        } catch {
+          // Fallback: accept any camera resolution (mobile compatibility)
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true })
+        }
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      }
       streamRef.current = stream
       setState('ready')
       return stream
     } catch (err) {
       setError(err.name === 'NotAllowedError'
         ? 'Camera/microphone access was denied. Please allow access and try again.'
+        : err.name === 'NotFoundError'
+        ? 'No camera or microphone found. Please check your device.'
         : `Could not access media devices: ${err.message}`)
       setState('error')
       return null
