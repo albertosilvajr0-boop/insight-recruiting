@@ -5,26 +5,19 @@ import { httpsCallable } from "firebase/functions"
 import { db, auth, functions } from "../firebase"
 
 const ROLES = [
-  { value: "admin", label: "Admin", description: "Full access — manage users, candidates, jobs, and settings" },
-  { value: "hiring_manager", label: "Hiring Manager", description: "View candidates, add notes/ratings, manage jobs" },
-  { value: "reviewer", label: "Reviewer", description: "View candidates and add notes — no job or user management" },
-  { value: "viewer", label: "Viewer", description: "Read-only access to dashboard and candidates" },
+  { value: "manager", label: "Manager", description: "Score candidates, schedule interviews, view all candidates and interviews" },
 ]
 
 const PERMISSIONS = [
-  { key: "manage_users", label: "Manage Users" },
-  { key: "manage_jobs", label: "Manage Jobs" },
-  { key: "manage_candidates", label: "Manage Candidates" },
-  { key: "add_notes", label: "Add Notes & Ratings" },
+  { key: "score_candidates", label: "Score Candidates" },
+  { key: "schedule_interviews", label: "Schedule Interviews" },
   { key: "view_candidates", label: "View Candidates" },
   { key: "view_dashboard", label: "View Dashboard" },
 ]
 
 const ROLE_DEFAULTS = {
-  admin: ["manage_users", "manage_jobs", "manage_candidates", "add_notes", "view_candidates", "view_dashboard"],
-  hiring_manager: ["manage_jobs", "manage_candidates", "add_notes", "view_candidates", "view_dashboard"],
-  reviewer: ["add_notes", "view_candidates", "view_dashboard"],
-  viewer: ["view_candidates", "view_dashboard"],
+  superadmin: ["score_candidates", "schedule_interviews", "view_candidates", "view_dashboard"],
+  manager: ["score_candidates", "schedule_interviews", "view_candidates", "view_dashboard"],
 }
 
 export default function AdminUsers() {
@@ -42,8 +35,8 @@ export default function AdminUsers() {
     displayName: "",
     email: "",
     password: "",
-    role: "reviewer",
-    permissions: [...ROLE_DEFAULTS.reviewer],
+    role: "manager",
+    permissions: [...ROLE_DEFAULTS.manager],
     disabled: false,
   })
 
@@ -61,8 +54,8 @@ export default function AdminUsers() {
       displayName: "",
       email: "",
       password: "",
-      role: "reviewer",
-      permissions: [...ROLE_DEFAULTS.reviewer],
+      role: "manager",
+      permissions: [...ROLE_DEFAULTS.manager],
       disabled: false,
     })
     setEditingUser(null)
@@ -182,14 +175,12 @@ export default function AdminUsers() {
 
   const getRoleBadge = (role) => {
     const styles = {
-      admin: "bg-purple-100 text-purple-800",
-      hiring_manager: "bg-blue-100 text-blue-800",
-      reviewer: "bg-amber-100 text-amber-800",
-      viewer: "bg-gray-100 text-gray-700",
+      superadmin: "bg-purple-100 text-purple-800",
+      manager: "bg-blue-100 text-blue-800",
     }
-    const labels = { admin: "Admin", hiring_manager: "Hiring Manager", reviewer: "Reviewer", viewer: "Viewer" }
+    const labels = { superadmin: "Superadmin", manager: "Manager" }
     return (
-      <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${styles[role] || styles.viewer}`}>
+      <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${styles[role] || "bg-gray-100 text-gray-700"}`}>
         {labels[role] || role}
       </span>
     )
@@ -235,12 +226,12 @@ export default function AdminUsers() {
             <p className="text-2xl font-semibold">{users.length}</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-500 mb-1">Admins</p>
-            <p className="text-2xl font-semibold text-purple-600">{users.filter((u) => u.role === "admin").length}</p>
+            <p className="text-xs text-gray-500 mb-1">Managers</p>
+            <p className="text-2xl font-semibold text-blue-600">{users.filter((u) => u.role === "manager").length}</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-500 mb-1">Hiring Managers</p>
-            <p className="text-2xl font-semibold text-blue-600">{users.filter((u) => u.role === "hiring_manager").length}</p>
+            <p className="text-xs text-gray-500 mb-1">Superadmins</p>
+            <p className="text-2xl font-semibold text-purple-600">{users.filter((u) => u.role === "superadmin").length}</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <p className="text-xs text-gray-500 mb-1">Disabled</p>

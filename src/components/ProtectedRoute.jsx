@@ -4,7 +4,7 @@ import { onAuthStateChanged } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase'
 
-const ROLE_HIERARCHY = { admin: 4, hiring_manager: 3, reviewer: 2, viewer: 1 }
+const ROLE_HIERARCHY = { superadmin: 3, manager: 1 }
 
 export default function ProtectedRoute({ children, requiredRole }) {
   const [status, setStatus] = useState('loading')
@@ -15,16 +15,12 @@ export default function ProtectedRoute({ children, requiredRole }) {
         setStatus('unauthed')
         return
       }
-      if (!user.emailVerified) {
-        setStatus('unverified')
-        return
-      }
 
       // If a specific role is required, check it
       if (requiredRole) {
         try {
           const snap = await getDoc(doc(db, 'users', user.uid))
-          const role = snap.exists() ? snap.data().role : 'viewer'
+          const role = snap.exists() ? snap.data().role : 'manager'
           const userLevel = ROLE_HIERARCHY[role] || 0
           const requiredLevel = ROLE_HIERARCHY[requiredRole] || 0
           if (userLevel < requiredLevel) {
@@ -32,7 +28,6 @@ export default function ProtectedRoute({ children, requiredRole }) {
             return
           }
         } catch {
-          // On Firestore error, deny access to role-gated pages
           setStatus('forbidden')
           return
         }
@@ -52,7 +47,6 @@ export default function ProtectedRoute({ children, requiredRole }) {
   }
 
   if (status === 'unauthed') return <Navigate to="/admin/login" replace />
-  if (status === 'unverified') return <Navigate to="/admin/verify" replace />
   if (status === 'forbidden') return <Navigate to="/admin/dashboard" replace />
   return children
 }

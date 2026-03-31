@@ -4,8 +4,6 @@ import Apply from './pages/Apply'
 import ThankYou from './pages/ThankYou'
 import Schedule from './pages/Schedule'
 import AdminLogin from './pages/AdminLogin'
-import CreateAccount from './pages/CreateAccount'
-import VerifyAccount from './pages/VerifyAccount'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminCandidate from './pages/AdminCandidate'
 import AdminJobs from './pages/AdminJobs'
@@ -27,25 +25,24 @@ export default function App() {
         {/* Admin */}
         <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="/admin/login" element={<AdminLogin />} />
-        <Route path="/admin/create-account" element={<CreateAccount />} />
-        <Route path="/admin/verify" element={<VerifyAccount />} />
         <Route path="/admin/dashboard" element={
           <ProtectedRoute><AdminDashboard /></ProtectedRoute>
         } />
         <Route path="/admin/candidates/:candidateId" element={
           <ProtectedRoute><AdminCandidate /></ProtectedRoute>
         } />
+        {/* Superadmin only */}
         <Route path="/admin/jobs" element={
-          <ProtectedRoute requiredRole="hiring_manager"><AdminJobs /></ProtectedRoute>
+          <ProtectedRoute requiredRole="superadmin"><AdminJobs /></ProtectedRoute>
         } />
         <Route path="/admin/users" element={
-          <ProtectedRoute requiredRole="admin"><AdminUsers /></ProtectedRoute>
-        } />
-        <Route path="/admin/availability" element={
-          <ProtectedRoute requiredRole="hiring_manager"><AdminAvailability /></ProtectedRoute>
+          <ProtectedRoute requiredRole="superadmin"><AdminUsers /></ProtectedRoute>
         } />
         <Route path="/admin/questions" element={
-          <ProtectedRoute requiredRole="hiring_manager"><AdminQuestions /></ProtectedRoute>
+          <ProtectedRoute requiredRole="superadmin"><AdminQuestions /></ProtectedRoute>
+        } />
+        <Route path="/admin/availability" element={
+          <ProtectedRoute requiredRole="superadmin"><AdminAvailability /></ProtectedRoute>
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />

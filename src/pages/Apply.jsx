@@ -104,6 +104,11 @@ export default function Apply() {
   const handleResumeNext = () => {
     if (resumeUploading) { alert('Resume is still uploading. Please wait.'); return }
     if (!resumeUrl) { alert('Please upload your resume to continue.'); return }
+    // If no questions configured, skip straight to submit
+    if (questions.length === 0) {
+      handleSubmit({}, {})
+      return
+    }
     setStep('interview')
   }
 
