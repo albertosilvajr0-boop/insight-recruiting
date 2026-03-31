@@ -14,6 +14,7 @@ export default function VerifyAccount() {
   const [emailVerified, setEmailVerified] = useState(false)
   const [emailResending, setEmailResending] = useState(false)
   const [emailResent, setEmailResent] = useState(false)
+  const [emailCooldown, setEmailCooldown] = useState(0)
 
   // Phone verification
   const [phoneCode, setPhoneCode] = useState("")
@@ -22,7 +23,7 @@ export default function VerifyAccount() {
   const [phoneVerifying, setPhoneVerifying] = useState(false)
   const [phoneVerified, setPhoneVerified] = useState(false)
   const [phoneError, setPhoneError] = useState("")
-  const [cooldown, setCooldown] = useState(0)
+  const [phoneCooldown, setPhoneCooldown] = useState(0)
 
   const [error, setError] = useState("")
   const navigate = useNavigate()
@@ -66,15 +67,21 @@ export default function VerifyAccount() {
     return () => clearInterval(interval)
   }, [emailVerified])
 
-  // Cooldown timer for resend
+  // Separate cooldown timers
   useEffect(() => {
-    if (cooldown <= 0) return
-    const timer = setTimeout(() => setCooldown((c) => c - 1), 1000)
+    if (emailCooldown <= 0) return
+    const timer = setTimeout(() => setEmailCooldown((c) => c - 1), 1000)
     return () => clearTimeout(timer)
-  }, [cooldown])
+  }, [emailCooldown])
+
+  useEffect(() => {
+    if (phoneCooldown <= 0) return
+    const timer = setTimeout(() => setPhoneCooldown((c) => c - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [phoneCooldown])
 
   const handleResendEmail = async () => {
-    if (cooldown > 0) return
+    if (emailCooldown > 0) return
     setEmailResending(true)
     setEmailResent(false)
     setError("")
@@ -84,16 +91,15 @@ export default function VerifyAccount() {
         setError("Session expired. Please sign in again.")
         return
       }
-      // Reload to get fresh token before sending
       await currentUser.reload()
       await sendEmailVerification(currentUser, {
         url: window.location.origin + "/admin/verify",
       })
       setEmailResent(true)
-      setCooldown(60)
+      setEmailCooldown(60)
     } catch (err) {
       if (err.code === "auth/too-many-requests") {
-        setError("Too many requests. Please wait a few minutes before trying again.")
+        setError("Too many email requests. Please wait a few minutes before trying again.")
       } else {
         setError(`Failed to send verification email: ${err.code || err.message}`)
       }
@@ -103,21 +109,22 @@ export default function VerifyAccount() {
   }
 
   const handleSendSmsCode = useCallback(async () => {
-    if (!userDoc?.phone || cooldown > 0) return
+    if (!userDoc?.phone || phoneCooldown > 0) return
     setPhoneSending(true)
     setPhoneError("")
-    setPhoneSent(false)
     try {
       const sendCode = httpsCallable(functions, "sendPhoneVerification")
       await sendCode({ uid: user.uid })
       setPhoneSent(true)
-      setCooldown(60)
+      setPhoneCooldown(60)
     } catch (err) {
-      setPhoneError(err.message || "Failed to send verification code.")
+      // Still show the code input so user can enter a code if it arrives late
+      setPhoneSent(true)
+      setPhoneError(err.message || "Failed to send verification code. You can try resending.")
     } finally {
       setPhoneSending(false)
     }
-  }, [userDoc, user, cooldown])
+  }, [userDoc, user, phoneCooldown])
 
   const handleVerifyPhone = async () => {
     if (!phoneCode || phoneCode.length !== 6) {
@@ -197,10 +204,10 @@ export default function VerifyAccount() {
                     <div className="mt-3 flex items-center gap-3">
                       <button
                         onClick={handleResendEmail}
-                        disabled={emailResending || cooldown > 0}
+                        disabled={emailResending || emailCooldown > 0}
                         className="text-sm text-blue-600 hover:text-blue-700 font-medium disabled:text-gray-400"
                       >
-                        {emailResending ? "Sending…" : cooldown > 0 ? `Resend in ${cooldown}s` : "Resend email"}
+                        {emailResending ? "Sending…" : emailCooldown > 0 ? `Resend in ${emailCooldown}s` : "Resend email"}
                       </button>
                       {emailResent && <span className="text-xs text-green-600">Sent!</span>}
                     </div>
@@ -237,27 +244,31 @@ export default function VerifyAccount() {
                       </span>.
                     </p>
 
-                    {!phoneSent ? (
-                      <button
-                        onClick={handleSendSmsCode}
-                        disabled={phoneSending || cooldown > 0}
-                        className="mt-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
-                      >
-                        {phoneSending ? (
-                          <span className="flex items-center gap-2">
-                            <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            Sending…
-                          </span>
-                        ) : cooldown > 0 ? (
-                          `Resend in ${cooldown}s`
-                        ) : (
-                          "Send verification code"
-                        )}
-                      </button>
-                    ) : (
-                      <div className="mt-3 space-y-3">
+                    {/* Send code button */}
+                    <button
+                      onClick={handleSendSmsCode}
+                      disabled={phoneSending || phoneCooldown > 0}
+                      className="mt-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
+                    >
+                      {phoneSending ? (
+                        <span className="flex items-center gap-2">
+                          <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Sending…
+                        </span>
+                      ) : phoneCooldown > 0 ? (
+                        `Resend in ${phoneCooldown}s`
+                      ) : phoneSent ? (
+                        "Resend code"
+                      ) : (
+                        "Send verification code"
+                      )}
+                    </button>
+
+                    {/* Code input — always visible after first send */}
+                    {phoneSent && (
+                      <div className="mt-4 space-y-3">
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Enter 6-digit code</label>
+                          <label className="block text-xs font-medium text-gray-600 mb-1.5">Enter 6-digit code</label>
                           <div className="flex gap-2">
                             <input
                               type="text"
@@ -266,25 +277,18 @@ export default function VerifyAccount() {
                               value={phoneCode}
                               onChange={(e) => setPhoneCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                               placeholder="000000"
-                              className="w-32 border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-center tracking-widest font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                              className="w-36 border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-center tracking-widest font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                               autoFocus
                             />
                             <button
                               onClick={handleVerifyPhone}
                               disabled={phoneVerifying || phoneCode.length !== 6}
-                              className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors"
+                              className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:text-gray-500 text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
                             >
                               {phoneVerifying ? "Verifying…" : "Verify"}
                             </button>
                           </div>
                         </div>
-                        <button
-                          onClick={handleSendSmsCode}
-                          disabled={phoneSending || cooldown > 0}
-                          className="text-xs text-blue-600 hover:text-blue-700 font-medium disabled:text-gray-400"
-                        >
-                          {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
-                        </button>
                       </div>
                     )}
 
