@@ -116,11 +116,6 @@ export default function JobListings() {
                   <div>
                     <h2 className="text-lg font-semibold text-gray-900">{job.title}</h2>
                     <p className="text-sm text-gray-500 mt-0.5">San Antonio Dodge</p>
-                    {job.payRange && (
-                      <p className="text-sm text-green-700 font-medium mt-1">
-                        ${job.payRange.min?.toLocaleString()} – ${job.payRange.max?.toLocaleString()}/yr
-                      </p>
-                    )}
                     {job.description && (
                       <p className="text-sm text-gray-500 mt-2 line-clamp-2">{job.description}</p>
                     )}
@@ -134,7 +129,7 @@ export default function JobListings() {
           </div>
         )}
 
-        <div className="text-center mt-12">
+        <div className="flex justify-end mt-12">
           <Link to="/admin/login" className="text-xs text-gray-400 hover:text-gray-600">
             Admin
           </Link>

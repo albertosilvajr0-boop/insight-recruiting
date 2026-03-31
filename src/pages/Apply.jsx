@@ -1,28 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, getDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, addDoc, collection, query, where, orderBy, getDocs, serverTimestamp } from 'firebase/firestore'
 import { ref, uploadBytesResumable } from 'firebase/storage'
 import { v4 as uuidv4 } from 'uuid'
 import { db, storage } from '../firebase'
 import VideoRecorder from '../components/VideoRecorder'
-
-const INTERVIEW_QUESTIONS = {
-  'bdc-agent': [
-    "Tell me about yourself and why you're interested in this BDC role.",
-    "A customer calls frustrated about a follow-up that was missed. Walk me through how you handle that call.",
-    "How do you stay motivated making high-volume outbound calls?"
-  ],
-  'sales-rep': [
-    "Tell me about yourself and your sales background.",
-    "A customer says the monthly payment is too high. Walk me through your response.",
-    "What does your follow-up process look like after a customer visits but doesn't buy?"
-  ],
-  'service-advisor': [
-    "Tell me about yourself and your service experience.",
-    "A customer is upset their car wasn't ready when promised. How do you handle it?",
-    "How do you upsell additional services without feeling pushy?"
-  ]
-}
 
 const STEPS = ['info', 'resume', 'interview', 'submitting']
 
@@ -34,25 +16,35 @@ export default function Apply() {
   const [loading, setLoading] = useState(true)
   const [step, setStep] = useState('info')
   const [currentQuestion, setCurrentQuestion] = useState(0)
-  const [recordingMode, setRecordingMode] = useState('video') // 'video' | 'voice'
+  const [questions, setQuestions] = useState([])
 
   const [candidateId] = useState(() => uuidv4())
-  const [form, setForm] = useState({
-    firstName: '', lastName: '', email: '', phone: ''
-  })
+  const [form, setForm] = useState({ firstName: '', lastName: '', email: '', phone: '' })
   const [formErrors, setFormErrors] = useState({})
   const [resumeFile, setResumeFile] = useState(null)
   const [resumeUrl, setResumeUrl] = useState(null)
   const [resumeUploading, setResumeUploading] = useState(false)
   const [resumeProgress, setResumeProgress] = useState(0)
-  const [videoResponses, setVideoResponses] = useState({}) // questionIndex -> storagePath
+  const [videoResponses, setVideoResponses] = useState({})
+  const [textResponses, setTextResponses] = useState({})
 
   useEffect(() => {
     async function loadJob() {
       try {
         const snap = await getDoc(doc(db, 'jobs', jobId))
         if (!snap.exists()) { navigate('/'); return }
-        setJob({ id: snap.id, ...snap.data() })
+        const jobData = { id: snap.id, ...snap.data() }
+        setJob(jobData)
+
+        // Load questions from Firestore for this role + universal
+        const qSnap = await getDocs(
+          query(collection(db, 'interviewQuestions'), where('active', '==', true), orderBy('order', 'asc'))
+        )
+        const allQuestions = qSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        const roleQuestions = allQuestions.filter(
+          q => q.roleKey === 'all' || q.roleKey === jobData.roleKey
+        )
+        setQuestions(roleQuestions)
       } catch {
         navigate('/')
       } finally {
@@ -79,10 +71,7 @@ export default function Apply() {
   const handleResumeUpload = async (e) => {
     const file = e.target.files[0]
     if (!file) return
-    if (file.size > 10 * 1024 * 1024) {
-      alert('File too large. Maximum 10MB.')
-      return
-    }
+    if (file.size > 10 * 1024 * 1024) { alert('File too large. Maximum 10MB.'); return }
     setResumeFile(file)
     setResumeUrl(null)
     setResumeUploading(true)
@@ -92,16 +81,8 @@ export default function Apply() {
       const uploadTask = uploadBytesResumable(resumeRef, file)
       await new Promise((resolve, reject) => {
         uploadTask.on('state_changed',
-          (snapshot) => {
-            const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
-            setResumeProgress(pct)
-          },
-          (err) => {
-            reject(err)
-          },
-          () => {
-            resolve()
-          }
+          (snapshot) => setResumeProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)),
+          reject, resolve
         )
       })
       setResumeUrl(`resumes/${candidateId}/${file.name}`)
@@ -121,20 +102,36 @@ export default function Apply() {
     setStep('interview')
   }
 
+  const currentQ = questions[currentQuestion]
+
   const handleVideoComplete = (path, _blob) => {
-    const updatedResponses = { ...videoResponses, [currentQuestion]: path }
-    setVideoResponses(updatedResponses)
-    const questions = INTERVIEW_QUESTIONS[job.roleKey] || []
+    const updated = { ...videoResponses, [currentQuestion]: path }
+    setVideoResponses(updated)
+    advanceQuestion(updated, textResponses)
+  }
+
+  const handleTextSubmit = () => {
+    if (!textResponses[currentQuestion]?.trim()) return
+    advanceQuestion(videoResponses, textResponses)
+  }
+
+  const advanceQuestion = (vids, texts) => {
     if (currentQuestion < questions.length - 1) {
       setCurrentQuestion(q => q + 1)
     } else {
-      handleSubmit(updatedResponses)
+      handleSubmit(vids, texts)
     }
   }
 
-  const handleSubmit = async (finalVideoResponses) => {
+  const handleSubmit = async (finalVideoResponses, finalTextResponses) => {
     setStep('submitting')
     try {
+      // Build question map for storage
+      const questionMap = {}
+      questions.forEach((q, i) => {
+        questionMap[i] = { questionId: q.id, text: q.text, type: q.type, category: q.category }
+      })
+
       await addDoc(collection(db, 'candidates'), {
         candidateId,
         ...form,
@@ -145,6 +142,8 @@ export default function Apply() {
         stage: 'applied',
         resumeUrl,
         videoResponses: finalVideoResponses || videoResponses,
+        textResponses: finalTextResponses || textResponses,
+        questions: questionMap,
         compositeScore: null,
         resumeScore: null,
         interviewScore: null,
@@ -164,7 +163,6 @@ export default function Apply() {
     </div>
   )
 
-  const questions = job ? (INTERVIEW_QUESTIONS[job.roleKey] || []) : []
   const stepIndex = STEPS.indexOf(step)
   const progress = ((stepIndex) / (STEPS.length - 1)) * 100
 
@@ -195,10 +193,7 @@ export default function Apply() {
               </span>
             </div>
             <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-blue-600 rounded-full transition-all duration-500"
-                style={{ width: `${progress}%` }}
-              />
+              <div className="h-full bg-blue-600 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
             </div>
           </div>
         </div>
@@ -219,12 +214,9 @@ export default function Apply() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     {field === 'firstName' ? 'First name' : 'Last name'}
                   </label>
-                  <input
-                    type="text"
-                    value={form[field]}
+                  <input type="text" value={form[field]}
                     onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
-                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${formErrors[field] ? 'border-red-400' : 'border-gray-300'}`}
-                  />
+                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${formErrors[field] ? 'border-red-400' : 'border-gray-300'}`} />
                   {formErrors[field] && <p className="text-xs text-red-500 mt-1">{formErrors[field]}</p>}
                 </div>
               ))}
@@ -234,19 +226,14 @@ export default function Apply() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {field === 'email' ? 'Email address' : 'Phone number'}
                 </label>
-                <input
-                  type={field === 'email' ? 'email' : 'tel'}
-                  value={form[field]}
+                <input type={field === 'email' ? 'email' : 'tel'} value={form[field]}
                   onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
-                  className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${formErrors[field] ? 'border-red-400' : 'border-gray-300'}`}
-                />
+                  className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${formErrors[field] ? 'border-red-400' : 'border-gray-300'}`} />
                 {formErrors[field] && <p className="text-xs text-red-500 mt-1">{formErrors[field]}</p>}
               </div>
             ))}
-            <button
-              onClick={handleInfoNext}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-colors"
-            >
+            <button onClick={handleInfoNext}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-colors">
               Continue
             </button>
           </div>
@@ -285,9 +272,7 @@ export default function Apply() {
               )}
             </label>
             <div className="flex gap-3">
-              <button onClick={() => setStep('info')} className="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors">
-                Back
-              </button>
+              <button onClick={() => setStep('info')} className="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors">Back</button>
               <button onClick={handleResumeNext} disabled={resumeUploading || !resumeUrl} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors">
                 {resumeUploading ? 'Uploading...' : 'Continue'}
               </button>
@@ -295,59 +280,84 @@ export default function Apply() {
           </div>
         )}
 
-        {/* Step 3: Video interview */}
-        {step === 'interview' && (
+        {/* Step 3: Interview Questions */}
+        {step === 'interview' && currentQ && (
           <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">
-                  Question {currentQuestion + 1} of {questions.length}
-                </h2>
-                <p className="text-sm text-gray-500 mt-1">Take your time — up to 3 minutes per answer</p>
-              </div>
-              {/* Mode toggle */}
-              <div className="flex bg-gray-100 rounded-lg p-0.5 text-xs">
-                <button
-                  onClick={() => setRecordingMode('video')}
-                  className={`px-3 py-1.5 rounded-md transition-colors font-medium ${recordingMode === 'video' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-                >
-                  Video
-                </button>
-                <button
-                  onClick={() => setRecordingMode('voice')}
-                  className={`px-3 py-1.5 rounded-md transition-colors font-medium ${recordingMode === 'voice' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-                >
-                  Voice only
-                </button>
-              </div>
-            </div>
-
-            {/* Question */}
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-              <p className="text-blue-900 font-medium text-sm leading-relaxed">
-                "{questions[currentQuestion]}"
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">
+                Question {currentQuestion + 1} of {questions.length}
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">
+                {currentQ.type === 'video_reading'
+                  ? 'Please read the following script on camera clearly and confidently.'
+                  : currentQ.type === 'text_response'
+                  ? 'Please type your answer below.'
+                  : 'Record a video response — take your time, up to 3 minutes.'}
               </p>
             </div>
 
-            {/* Already answered indicator */}
-            {videoResponses[currentQuestion] && (
-              <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2 text-sm text-green-700 flex items-center gap-2">
-                <span>✓</span> Answer recorded — you can re-record below
-              </div>
+            {/* Question text */}
+            <div className={`border rounded-xl p-4 ${currentQ.type === 'video_reading' ? 'bg-purple-50 border-purple-200' : 'bg-blue-50 border-blue-100'}`}>
+              {currentQ.type === 'video_reading' && (
+                <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-2">Read this on camera:</p>
+              )}
+              <p className={`font-medium text-sm leading-relaxed ${currentQ.type === 'video_reading' ? 'text-purple-900 text-base' : 'text-blue-900'}`}>
+                "{currentQ.text}"
+              </p>
+            </div>
+
+            {/* Video response or video reading */}
+            {(currentQ.type === 'video_response' || currentQ.type === 'video_reading') && (
+              <>
+                {videoResponses[currentQuestion] && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2 text-sm text-green-700 flex items-center gap-2">
+                    <span>&#10003;</span> Answer recorded — you can re-record below
+                  </div>
+                )}
+                <VideoRecorder
+                  key={currentQuestion}
+                  candidateId={candidateId}
+                  questionIndex={currentQuestion}
+                  mode="video"
+                  onComplete={handleVideoComplete}
+                />
+                <p className="text-xs text-center text-gray-400">
+                  Having trouble recording?{' '}
+                  <button className="underline text-gray-500" onClick={() => handleVideoComplete(`skipped_q${currentQuestion}`, null)}>Skip this question</button>
+                </p>
+              </>
             )}
 
-            <VideoRecorder
-              key={`${currentQuestion}-${recordingMode}`}
-              candidateId={candidateId}
-              questionIndex={currentQuestion}
-              mode={recordingMode}
-              onComplete={handleVideoComplete}
-            />
+            {/* Text response */}
+            {currentQ.type === 'text_response' && (
+              <div className="space-y-3">
+                <textarea
+                  value={textResponses[currentQuestion] || ''}
+                  onChange={(e) => setTextResponses(prev => ({ ...prev, [currentQuestion]: e.target.value }))}
+                  rows={5}
+                  placeholder="Type your answer here..."
+                  className="w-full border border-gray-300 rounded-lg px-3 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  onClick={handleTextSubmit}
+                  disabled={!textResponses[currentQuestion]?.trim()}
+                  className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors"
+                >
+                  {currentQuestion < questions.length - 1 ? 'Submit & Next Question' : 'Submit & Finish'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
-            {/* Skip (voice fallback only) */}
-            <p className="text-xs text-center text-gray-400">
-              Having trouble recording? <button className="underline text-gray-500" onClick={() => handleVideoComplete(`skipped_q${currentQuestion}`, null)}>Skip this question</button>
-            </p>
+        {/* No questions configured */}
+        {step === 'interview' && questions.length === 0 && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center space-y-3">
+            <p className="text-gray-500">No interview questions are configured for this role yet.</p>
+            <button onClick={() => handleSubmit({}, {})}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-8 rounded-xl">
+              Submit Application
+            </button>
           </div>
         )}
 
@@ -359,7 +369,6 @@ export default function Apply() {
             <p className="text-sm text-gray-400">This only takes a moment</p>
           </div>
         )}
-
       </div>
     </div>
   )

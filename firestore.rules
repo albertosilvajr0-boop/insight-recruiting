@@ -27,6 +27,12 @@ service cloud.firestore {
       allow update, delete: if request.auth != null;
     }
 
+    // Interview questions — public read (for candidate apply flow), admin write
+    match /interviewQuestions/{questionId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
     // Verification codes — server-side only (Cloud Functions use Admin SDK)
     match /verificationCodes/{codeId} {
       allow read, write: if false;
