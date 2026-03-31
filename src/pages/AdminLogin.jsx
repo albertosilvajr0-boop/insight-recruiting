@@ -1,8 +1,7 @@
 import { useState } from "react"
 import { useNavigate, Link } from "react-router-dom"
 import { signInWithEmailAndPassword } from "firebase/auth"
-import { doc, getDoc } from "firebase/firestore"
-import { auth, db } from "../firebase"
+import { auth } from "../firebase"
 
 export default function AdminLogin() {
   const [email, setEmail] = useState("")
@@ -17,13 +16,7 @@ export default function AdminLogin() {
     setLoading(true)
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password)
-      // Check if user needs verification
       if (!cred.user.emailVerified) {
-        navigate("/admin/verify")
-        return
-      }
-      const snap = await getDoc(doc(db, "users", cred.user.uid))
-      if (snap.exists() && !snap.data().phoneVerified) {
         navigate("/admin/verify")
         return
       }

@@ -40,7 +40,8 @@ export default function CreateAccount() {
       return
     }
 
-    if (phone.replace(/\D/g, "").length < 10) {
+    const phoneDigits = phone.replace(/\D/g, "")
+    if (phoneDigits.length > 0 && phoneDigits.length < 10) {
       setError("Please enter a valid 10-digit phone number.")
       return
     }
@@ -160,7 +161,7 @@ export default function CreateAccount() {
 
             {/* Phone */}
             <div>
-              <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+              <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">Phone Number <span className="text-gray-400 font-normal">(optional)</span></label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">+1</span>
                 <input
@@ -170,7 +171,6 @@ export default function CreateAccount() {
                   onChange={handlePhoneChange}
                   placeholder="(555) 123-4567"
                   className="w-full border border-gray-300 rounded-lg pl-10 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-shadow"
-                  required
                   autoComplete="tel-national"
                 />
               </div>
