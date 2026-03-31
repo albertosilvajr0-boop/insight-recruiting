@@ -7,6 +7,7 @@ import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminCandidate from './pages/AdminCandidate'
 import AdminJobs from './pages/AdminJobs'
+import AdminUsers from './pages/AdminUsers'
 import ProtectedRoute from './components/ProtectedRoute'
 
 export default function App() {
@@ -30,6 +31,9 @@ export default function App() {
         } />
         <Route path="/admin/jobs" element={
           <ProtectedRoute><AdminJobs /></ProtectedRoute>
+        } />
+        <Route path="/admin/users" element={
+          <ProtectedRoute><AdminUsers /></ProtectedRoute>
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
