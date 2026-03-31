@@ -1,7 +1,10 @@
 import { useState } from "react"
-import { useNavigate, Link } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { signInWithEmailAndPassword } from "firebase/auth"
-import { auth } from "../firebase"
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore"
+import { auth, db } from "../firebase"
+
+const SUPERADMIN_EMAIL = "albertosilva@silvaconsultinggroup.com"
 
 export default function AdminLogin() {
   const [email, setEmail] = useState("")
@@ -16,10 +19,28 @@ export default function AdminLogin() {
     setLoading(true)
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password)
-      if (!cred.user.emailVerified) {
-        navigate("/admin/verify")
-        return
+
+      // Ensure user doc exists in Firestore with correct role
+      const userRef = doc(db, "users", cred.user.uid)
+      const userSnap = await getDoc(userRef)
+      const isSuperadmin = cred.user.email?.toLowerCase() === SUPERADMIN_EMAIL.toLowerCase()
+
+      if (!userSnap.exists()) {
+        // First login — create the user doc
+        await setDoc(userRef, {
+          uid: cred.user.uid,
+          email: cred.user.email,
+          displayName: cred.user.displayName || "",
+          role: isSuperadmin ? "superadmin" : "manager",
+          disabled: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      } else if (isSuperadmin && userSnap.data().role !== "superadmin") {
+        // Ensure alberto is always superadmin
+        await setDoc(userRef, { role: "superadmin", updatedAt: serverTimestamp() }, { merge: true })
       }
+
       navigate("/admin/dashboard")
     } catch {
       setError("Invalid email or password")
@@ -44,7 +65,7 @@ export default function AdminLogin() {
         <form onSubmit={handleLogin} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Sign in</h2>
-            <p className="text-sm text-gray-500 mt-0.5">Enter your credentials to access the admin portal.</p>
+            <p className="text-sm text-gray-500 mt-0.5">Enter your credentials to access the portal.</p>
           </div>
 
           <div className="space-y-4">
@@ -96,11 +117,6 @@ export default function AdminLogin() {
               "Sign in"
             )}
           </button>
-
-          <p className="text-center text-sm text-gray-500">
-            Don't have an account?{" "}
-            <Link to="/admin/create-account" className="text-blue-600 hover:text-blue-700 font-medium">Create account</Link>
-          </p>
         </form>
 
         <p className="text-center text-xs text-gray-400 mt-6">
