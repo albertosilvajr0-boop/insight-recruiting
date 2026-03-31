@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
 import { ref, getDownloadURL, listAll } from 'firebase/storage'
 import { db, storage } from '../firebase'
 import { format } from 'date-fns'
@@ -27,6 +27,7 @@ export default function AdminCandidate() {
   const [savingNotes, setSavingNotes] = useState(false)
   const [rating, setRating] = useState(0)
   const [actionLoading, setActionLoading] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -111,6 +112,18 @@ export default function AdminCandidate() {
     }
   }
 
+  const deleteCandidate = async () => {
+    setActionLoading(true)
+    try {
+      await deleteDoc(doc(db, 'candidates', candidateId))
+      navigate('/admin/dashboard')
+    } catch (err) {
+      alert('Failed to delete: ' + err.message)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const saveRating = async (r) => {
     setRating(r)
     await updateDoc(doc(db, 'candidates', candidateId), {
@@ -152,16 +165,10 @@ export default function AdminCandidate() {
           </div>
           <div className="flex items-center gap-2">
             {candidate.stage === 'interview_2' && (
-              <>
-                <button onClick={() => updateStage('scheduling')} disabled={actionLoading}
-                  className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
-                  Advance to scheduling
-                </button>
-                <button onClick={() => updateStage('rejected')} disabled={actionLoading}
-                  className="bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
-                  Reject
-                </button>
-              </>
+              <button onClick={() => updateStage('scheduling')} disabled={actionLoading}
+                className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
+                Advance to scheduling
+              </button>
             )}
             {candidate.stage === 'scheduled' && (
               <button onClick={() => updateStage('hired')} disabled={actionLoading}
@@ -169,6 +176,16 @@ export default function AdminCandidate() {
                 Mark as hired
               </button>
             )}
+            {candidate.stage !== 'rejected' && candidate.stage !== 'hired' && (
+              <button onClick={() => updateStage('rejected')} disabled={actionLoading}
+                className="border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60 text-xs font-medium px-3 py-1.5 rounded-lg">
+                Reject
+              </button>
+            )}
+            <button onClick={() => setShowDeleteConfirm(true)} disabled={actionLoading}
+              className="border border-gray-200 text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-60 text-xs font-medium px-3 py-1.5 rounded-lg">
+              Delete
+            </button>
           </div>
         </div>
       </div>
@@ -331,6 +348,24 @@ export default function AdminCandidate() {
           </button>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-sm p-6">
+            <h3 className="text-lg font-semibold text-gray-900">Delete application?</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              This will permanently delete <span className="font-medium text-gray-700">{candidate.firstName} {candidate.lastName}</span>'s application and all associated data. This cannot be undone.
+            </p>
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button onClick={() => setShowDeleteConfirm(false)} className="text-sm text-gray-600 font-medium px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50">Cancel</button>
+              <button onClick={deleteCandidate} disabled={actionLoading} className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white text-sm font-medium px-5 py-2.5 rounded-xl">
+                {actionLoading ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

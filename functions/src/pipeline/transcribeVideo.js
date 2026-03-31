@@ -116,7 +116,7 @@ export async function transcribeAndScoreVideo(candidateId, candidate) {
     }
 
     try {
-      const audioBuffer = await downloadAndConcatChunks(bucket, `videos/${candidateId}`)
+      const audioBuffer = await downloadAndConcatChunks(bucket, path)
       if (audioBuffer) {
         const transcript = await transcribeAudio(audioBuffer)
         fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questions[qIndex] || 'Unknown'}"\nAnswer: ${transcript}\n`

@@ -10,6 +10,7 @@ import AdminDashboard from './pages/AdminDashboard'
 import AdminCandidate from './pages/AdminCandidate'
 import AdminJobs from './pages/AdminJobs'
 import AdminUsers from './pages/AdminUsers'
+import AdminAvailability from './pages/AdminAvailability'
 import ProtectedRoute from './components/ProtectedRoute'
 
 export default function App() {
@@ -38,6 +39,9 @@ export default function App() {
         } />
         <Route path="/admin/users" element={
           <ProtectedRoute requiredRole="admin"><AdminUsers /></ProtectedRoute>
+        } />
+        <Route path="/admin/availability" element={
+          <ProtectedRoute requiredRole="hiring_manager"><AdminAvailability /></ProtectedRoute>
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />

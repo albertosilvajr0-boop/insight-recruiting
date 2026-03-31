@@ -49,9 +49,9 @@ export const onCandidateCreated = onDocumentCreated(
   }
 )
 
-// ─── Daily digest at 7 AM Mountain Time ────────────────────────────────────
+// ─── Daily digest at 7 AM Central Time ─────────────────────────────────────
 export const dailyDigest = onSchedule(
-  { schedule: '0 7 * * *', timeZone: 'America/Denver' },
+  { schedule: '0 7 * * *', timeZone: 'America/Chicago' },
   async () => {
     await sendDailyDigest()
   }
@@ -59,7 +59,7 @@ export const dailyDigest = onSchedule(
 
 // ─── Reminders: check every hour for upcoming interviews ───────────────────
 export const interviewReminders = onSchedule(
-  { schedule: '0 * * * *', timeZone: 'America/Denver' },
+  { schedule: '0 * * * *', timeZone: 'America/Chicago' },
   async () => {
     await sendReminders()
   }
