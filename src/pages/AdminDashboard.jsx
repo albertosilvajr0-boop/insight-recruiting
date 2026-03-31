@@ -7,6 +7,8 @@ import { format } from "date-fns"
 
 const STAGES = ["applied","scored","to_schedule","scheduled","rejected"]
 const STAGE_LABELS = { applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", rejected:"Rejected" }
+// Map old stages to new ones for backwards compatibility
+const STAGE_MIGRATION = { screening: "applied", interview_2: "applied", scheduling: "to_schedule" }
 
 export default function AdminDashboard() {
   const [candidates, setCandidates] = useState([])
@@ -66,12 +68,15 @@ export default function AdminDashboard() {
       <div className="max-w-screen-xl mx-auto px-4 py-6">
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-xl border border-gray-200 p-4"><p className="text-xs text-gray-500 mb-1">Total candidates</p><p className="text-2xl font-semibold">{candidates.length}</p></div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4"><p className="text-xs text-gray-500 mb-1">Needs scoring</p><p className="text-2xl font-semibold text-amber-600">{candidates.filter(c => c.stage === "applied").length}</p></div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4"><p className="text-xs text-gray-500 mb-1">Needs scoring</p><p className="text-2xl font-semibold text-amber-600">{candidates.filter(c => (STAGE_MIGRATION[c.stage] || c.stage) === "applied").length}</p></div>
           <div className="bg-white rounded-xl border border-gray-200 p-4"><p className="text-xs text-gray-500 mb-1">Scheduled today</p><p className="text-2xl font-semibold text-green-600">{candidates.filter(c => { if (!c.scheduledAt?.toDate) return false; return c.scheduledAt.toDate().toDateString() === new Date().toDateString() }).length}</p></div>
         </div>
         <div className="overflow-x-auto"><div className="flex gap-4 min-w-max">
           {STAGES.map(stage => {
-            const cols = candidates.filter(c => c.stage === stage)
+            const cols = candidates.filter(c => {
+              const mapped = STAGE_MIGRATION[c.stage] || c.stage
+              return mapped === stage
+            })
             return (
               <div key={stage} className="w-64 flex-shrink-0">
                 <div className="flex items-center gap-2 mb-3"><span className="text-xs font-semibold text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full">{STAGE_LABELS[stage]}</span><span className="text-xs text-gray-400">{cols.length}</span></div>

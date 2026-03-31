@@ -59,6 +59,9 @@ export default function AdminCandidate() {
         const snap = await getDoc(doc(db, 'candidates', candidateId))
         if (!snap.exists()) { navigate('/admin/dashboard'); return }
         const data = { id: snap.id, ...snap.data() }
+        // Migrate old stages
+        const STAGE_MIGRATION = { screening: 'applied', interview_2: 'applied', scheduling: 'to_schedule', hired: 'scheduled' }
+        if (STAGE_MIGRATION[data.stage]) data.stage = STAGE_MIGRATION[data.stage]
         setCandidate(data)
         setNotes(data.adminNotes || '')
         setResumeScores(data.manualResumeScores || {})
