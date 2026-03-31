@@ -4,7 +4,7 @@ import { format, startOfDay, endOfDay } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
 
 const ADMIN_EMAIL = 'albertosilva@silvaconsultinggroup.com'
-const TZ = 'America/Denver'
+const TZ = 'America/Chicago'
 
 export async function sendDailyDigest() {
   const db = getFirestore()

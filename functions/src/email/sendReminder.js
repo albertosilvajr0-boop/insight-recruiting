@@ -3,7 +3,7 @@ import { sendEmail } from './sendEmail.js'
 import { format, addHours, subHours } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
 
-const TZ = 'America/Denver'
+const TZ = 'America/Chicago'
 
 export async function sendReminders() {
   const db = getFirestore()
