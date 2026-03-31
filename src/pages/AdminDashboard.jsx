@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { collection, query, orderBy, onSnapshot } from "firebase/firestore"
+import { collection, query, orderBy, onSnapshot, doc, getDoc } from "firebase/firestore"
 import { signOut } from "firebase/auth"
 import { db, auth } from "../firebase"
 
@@ -10,12 +10,20 @@ const STAGE_LABELS = { applied:"Applied", screening:"Screening", interview_2:"Re
 export default function AdminDashboard() {
   const [candidates, setCandidates] = useState([])
   const [loading, setLoading] = useState(true)
+  const [userRole, setUserRole] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     const q = query(collection(db, "candidates"), orderBy("createdAt", "desc"))
     const unsub = onSnapshot(q, snap => { setCandidates(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false) })
     return unsub
+  }, [])
+
+  useEffect(() => {
+    if (!auth.currentUser) return
+    getDoc(doc(db, "users", auth.currentUser.uid)).then(snap => {
+      if (snap.exists()) setUserRole(snap.data().role)
+    })
   }, [])
 
   return (
@@ -27,8 +35,12 @@ export default function AdminDashboard() {
             <span className="font-semibold text-gray-900 text-sm">Insight Recruiting</span>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate("/admin/jobs")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Manage jobs</button>
-            <button onClick={() => navigate("/admin/users")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Manage users</button>
+            {(userRole === "admin" || userRole === "hiring_manager") && (
+              <button onClick={() => navigate("/admin/jobs")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Manage jobs</button>
+            )}
+            {userRole === "admin" && (
+              <button onClick={() => navigate("/admin/users")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Manage users</button>
+            )}
             <button onClick={() => navigate("/")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">View site</button>
             <button onClick={() => signOut(auth)} className="text-sm text-gray-400 hover:text-gray-600">Sign out</button>
           </div>

@@ -34,10 +34,10 @@ export default function App() {
           <ProtectedRoute><AdminCandidate /></ProtectedRoute>
         } />
         <Route path="/admin/jobs" element={
-          <ProtectedRoute><AdminJobs /></ProtectedRoute>
+          <ProtectedRoute requiredRole="hiring_manager"><AdminJobs /></ProtectedRoute>
         } />
         <Route path="/admin/users" element={
-          <ProtectedRoute><AdminUsers /></ProtectedRoute>
+          <ProtectedRoute requiredRole="admin"><AdminUsers /></ProtectedRoute>
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
