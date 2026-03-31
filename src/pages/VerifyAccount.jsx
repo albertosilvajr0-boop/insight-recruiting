@@ -74,15 +74,29 @@ export default function VerifyAccount() {
   }, [cooldown])
 
   const handleResendEmail = async () => {
-    if (!user || cooldown > 0) return
+    if (cooldown > 0) return
     setEmailResending(true)
     setEmailResent(false)
+    setError("")
     try {
-      await sendEmailVerification(user)
+      const currentUser = auth.currentUser
+      if (!currentUser) {
+        setError("Session expired. Please sign in again.")
+        return
+      }
+      // Reload to get fresh token before sending
+      await currentUser.reload()
+      await sendEmailVerification(currentUser, {
+        url: window.location.origin + "/admin/verify",
+      })
       setEmailResent(true)
       setCooldown(60)
-    } catch {
-      setError("Failed to resend verification email. Please try again.")
+    } catch (err) {
+      if (err.code === "auth/too-many-requests") {
+        setError("Too many requests. Please wait a few minutes before trying again.")
+      } else {
+        setError(`Failed to send verification email: ${err.code || err.message}`)
+      }
     } finally {
       setEmailResending(false)
     }
