@@ -352,11 +352,54 @@ export default function AdminCandidate() {
           </div>
         )}
 
-        {/* Video Responses */}
-        {Object.keys(videoUrls).length > 0 && (
-          <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
-            <h2 className="text-sm font-semibold text-gray-900">Video Responses</h2>
-            {Object.entries(videoUrls).map(([qIndex, url]) => (
+        {/* Interview Responses (Video + Text with Questions) */}
+        {(Object.keys(videoUrls).length > 0 || Object.keys(candidate.textResponses || {}).length > 0) && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-6">
+            <h2 className="text-sm font-semibold text-gray-900">Interview Responses</h2>
+            {Object.entries(candidate.questions || {}).sort(([a], [b]) => Number(a) - Number(b)).map(([qIndex, qData]) => {
+              const idx = parseInt(qIndex)
+              const hasVideo = videoUrls[qIndex]
+              const hasText = candidate.textResponses?.[qIndex]
+              const isSkipped = candidate.videoResponses?.[qIndex]?.startsWith?.('skipped')
+              const typeBadge = qData.type === 'video_reading'
+                ? 'bg-purple-100 text-purple-700'
+                : qData.type === 'text_response'
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-blue-100 text-blue-700'
+              const typeLabel = qData.type === 'video_reading' ? 'Script Reading'
+                : qData.type === 'text_response' ? 'Written Response'
+                : 'Video Response'
+
+              return (
+                <div key={qIndex} className="border-b border-gray-100 last:border-0 pb-5 last:pb-0">
+                  <div className="flex items-start gap-3 mb-3">
+                    <span className="text-xs font-bold text-gray-400 bg-gray-100 w-6 h-6 rounded-full flex items-center justify-center shrink-0">{idx + 1}</span>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${typeBadge}`}>{typeLabel}</span>
+                        {qData.category && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{qData.category}</span>}
+                      </div>
+                      <p className="text-sm text-gray-900 font-medium leading-relaxed">"{qData.text}"</p>
+                    </div>
+                  </div>
+                  {hasVideo && (
+                    <div className="ml-9">
+                      <video controls src={videoUrls[qIndex]} className="w-full rounded-lg border border-gray-200" />
+                    </div>
+                  )}
+                  {hasText && (
+                    <div className="ml-9 bg-gray-50 rounded-lg p-3">
+                      <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{candidate.textResponses[qIndex]}</p>
+                    </div>
+                  )}
+                  {isSkipped && !hasVideo && (
+                    <p className="ml-9 text-xs text-gray-400 italic">Skipped</p>
+                  )}
+                </div>
+              )
+            })}
+            {/* Fallback: show videos without question data (old applications) */}
+            {!candidate.questions && Object.entries(videoUrls).map(([qIndex, url]) => (
               <div key={qIndex}>
                 <p className="text-xs font-medium text-gray-500 mb-2">Question {parseInt(qIndex) + 1}</p>
                 <video controls src={url} className="w-full rounded-lg border border-gray-200" />

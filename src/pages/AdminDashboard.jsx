@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { collection, query, orderBy, onSnapshot, doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore"
 import { signOut } from "firebase/auth"
 import { db, auth } from "../firebase"
+import { format } from "date-fns"
 
 const STAGES = ["applied","screening","interview_2","scheduling","scheduled","rejected"]
 const STAGE_LABELS = { applied:"Applied", screening:"Screening", interview_2:"Review needed", scheduling:"Scheduling", scheduled:"Scheduled", rejected:"Rejected" }
@@ -49,7 +50,8 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-3">
             {(userRole === "admin" || userRole === "hiring_manager") && (
               <>
-                <button onClick={() => navigate("/admin/jobs")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Manage jobs</button>
+                <button onClick={() => navigate("/admin/jobs")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Jobs</button>
+                <button onClick={() => navigate("/admin/questions")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Questions</button>
                 <button onClick={() => navigate("/admin/availability")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Availability</button>
               </>
             )}
@@ -97,6 +99,59 @@ export default function AdminDashboard() {
             )
           })}
         </div></div>
+
+        {/* Upcoming Interviews — visible to all managers */}
+        {(() => {
+          const scheduled = candidates
+            .filter(c => c.stage === "scheduled" && c.scheduledAt?.toDate)
+            .sort((a, b) => a.scheduledAt.toDate() - b.scheduledAt.toDate())
+          const upcoming = scheduled.filter(c => c.scheduledAt.toDate() >= new Date())
+          if (upcoming.length === 0 && scheduled.length === 0) return null
+          return (
+            <div className="mt-8">
+              <h2 className="text-sm font-semibold text-gray-900 mb-3">Upcoming In-Person Interviews</h2>
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50">
+                      <th className="text-left text-xs font-semibold text-gray-600 px-4 py-3">Candidate</th>
+                      <th className="text-left text-xs font-semibold text-gray-600 px-4 py-3">Position</th>
+                      <th className="text-left text-xs font-semibold text-gray-600 px-4 py-3">Date & Time</th>
+                      <th className="text-left text-xs font-semibold text-gray-600 px-4 py-3">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(upcoming.length > 0 ? upcoming : scheduled).map(c => {
+                      const dt = c.scheduledAt.toDate()
+                      const isPast = dt < new Date()
+                      return (
+                        <tr key={c.id} onClick={() => navigate(`/admin/candidates/${c.id}`)}
+                          className={`border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer ${isPast ? "opacity-50" : ""}`}>
+                          <td className="px-4 py-3">
+                            <p className="text-sm font-medium text-gray-900">{c.firstName} {c.lastName}</p>
+                            <p className="text-xs text-gray-500">{c.email}</p>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">{c.jobTitle}</td>
+                          <td className="px-4 py-3">
+                            <p className="text-sm font-medium text-gray-900">{format(dt, "EEE, MMM d")}</p>
+                            <p className="text-xs text-gray-500">{format(dt, "h:mm a")}</p>
+                          </td>
+                          <td className="px-4 py-3">
+                            {c.compositeScore != null ? (
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.compositeScore >= 8 ? "bg-green-100 text-green-800" : c.compositeScore >= 5 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>
+                                {c.compositeScore.toFixed(1)}
+                              </span>
+                            ) : <span className="text-xs text-gray-400">—</span>}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
+        })()}
       </div>
 
       {/* Delete Confirmation Modal */}
