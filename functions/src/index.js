@@ -7,6 +7,7 @@ import { transcribeAndScoreVideo } from './pipeline/transcribeVideo.js'
 import { routeCandidate } from './pipeline/routeCandidate.js'
 import { sendDailyDigest } from './email/dailyDigest.js'
 import { sendReminders } from './email/sendReminder.js'
+import { sendNewApplicationNotification } from './email/sendNewApplicationNotification.js'
 import { getAvailableSlots } from './calendar/getAvailableSlots.js'
 import { bookSlot } from './calendar/bookSlot.js'
 import { generateJobFeed } from './jobs/jobFeed.js'
@@ -24,6 +25,13 @@ export const onCandidateCreated = onDocumentCreated(
 
     try {
       console.log(`[pipeline] Starting for candidate ${candidateId}`)
+
+      // Notify admin of new application
+      try {
+        await sendNewApplicationNotification(candidate)
+      } catch (emailErr) {
+        console.error(`[pipeline] Failed to send notification email:`, emailErr.message)
+      }
 
       // 1. Score resume
       const resumeResult = await scoreResume(candidateId, candidate)
