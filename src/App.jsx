@@ -10,6 +10,7 @@ import AdminJobs from './pages/AdminJobs'
 import AdminUsers from './pages/AdminUsers'
 import AdminAvailability from './pages/AdminAvailability'
 import AdminQuestions from './pages/AdminQuestions'
+import AdminAnalytics from './pages/AdminAnalytics'
 import ProtectedRoute from './components/ProtectedRoute'
 
 export default function App() {
@@ -43,6 +44,9 @@ export default function App() {
         } />
         <Route path="/admin/availability" element={
           <ProtectedRoute requiredRole="superadmin"><AdminAvailability /></ProtectedRoute>
+        } />
+        <Route path="/admin/analytics" element={
+          <ProtectedRoute requiredRole="superadmin"><AdminAnalytics /></ProtectedRoute>
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />

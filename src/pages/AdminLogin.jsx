@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { signInWithEmailAndPassword } from "firebase/auth"
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore"
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore"
 import { auth, db } from "../firebase"
 
 const SUPERADMIN_EMAIL = "albertosilva@silvaconsultinggroup.com"
@@ -40,6 +40,12 @@ export default function AdminLogin() {
         // Ensure alberto is always superadmin
         await setDoc(userRef, { role: "superadmin", updatedAt: serverTimestamp() }, { merge: true })
       }
+
+      // Track login activity
+      await updateDoc(userRef, {
+        lastLoginAt: serverTimestamp(),
+        loginCount: (userSnap.exists() ? (userSnap.data().loginCount || 0) : 0) + 1,
+      })
 
       navigate("/admin/dashboard")
     } catch {
