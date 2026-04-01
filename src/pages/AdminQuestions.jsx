@@ -42,6 +42,7 @@ export default function AdminQuestions() {
   const [saving, setSaving] = useState(false)
   const [filterRole, setFilterRole] = useState("all")
   const [seeding, setSeeding] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const navigate = useNavigate()
 
   const [form, setForm] = useState({
@@ -171,6 +172,40 @@ export default function AdminQuestions() {
     }
   }
 
+  const clearAllQuestions = async () => {
+    if (!window.confirm(`Delete all ${questions.length} questions? This cannot be undone.`)) return
+    setClearing(true)
+    try {
+      const batch = writeBatch(db)
+      for (const q of questions) {
+        batch.delete(doc(db, "interviewQuestions", q.id))
+      }
+      await batch.commit()
+    } catch (err) {
+      alert("Failed to clear questions: " + err.message)
+    } finally {
+      setClearing(false)
+    }
+  }
+
+  const clearAndReseed = async () => {
+    if (!window.confirm(`This will delete all ${questions.length} existing questions and replace them with the latest defaults. Continue?`)) return
+    setClearing(true)
+    try {
+      const batch = writeBatch(db)
+      for (const q of questions) {
+        batch.delete(doc(db, "interviewQuestions", q.id))
+      }
+      await batch.commit()
+    } catch (err) {
+      alert("Failed to clear questions: " + err.message)
+      setClearing(false)
+      return
+    }
+    setClearing(false)
+    await seedDefaultQuestions()
+  }
+
   const filtered = filterRole === "all"
     ? questions
     : questions.filter((q) => q.roleKey === "all" || q.roleKey === filterRole)
@@ -198,6 +233,16 @@ export default function AdminQuestions() {
             <span className="font-semibold text-gray-900 text-sm">Interview Questions</span>
           </div>
           <div className="flex gap-2">
+            {questions.length > 0 && (
+              <button onClick={clearAllQuestions} disabled={clearing} className="text-sm border border-red-200 text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-50">
+                {clearing ? "Clearing…" : "Clear all"}
+              </button>
+            )}
+            {questions.length > 0 && (
+              <button onClick={clearAndReseed} disabled={clearing || seeding} className="text-sm border border-amber-200 text-amber-700 px-3 py-1.5 rounded-lg hover:bg-amber-50">
+                {clearing || seeding ? "Reloading…" : "Reset to defaults"}
+              </button>
+            )}
             {questions.length === 0 && (
               <button onClick={seedDefaultQuestions} disabled={seeding} className="text-sm border border-green-200 text-green-700 px-3 py-1.5 rounded-lg hover:bg-green-50">
                 {seeding ? "Seeding…" : "Load defaults"}
@@ -265,9 +310,12 @@ export default function AdminQuestions() {
         )}
 
         {questions.length > 0 && (
-          <div className="flex justify-end">
-            <button onClick={seedDefaultQuestions} disabled={seeding} className="text-xs text-gray-400 hover:text-gray-600">
-              {seeding ? "Adding…" : "Add default questions"}
+          <div className="flex justify-center gap-4 pt-2">
+            <button onClick={clearAndReseed} disabled={clearing || seeding} className="text-sm text-amber-600 hover:text-amber-800 font-medium">
+              {clearing || seeding ? "Reloading…" : "Reset to defaults"}
+            </button>
+            <button onClick={clearAllQuestions} disabled={clearing} className="text-sm text-red-500 hover:text-red-700 font-medium">
+              {clearing ? "Clearing…" : "Clear all questions"}
             </button>
           </div>
         )}
