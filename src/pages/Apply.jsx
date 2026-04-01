@@ -27,6 +27,11 @@ export default function Apply() {
   const [resumeProgress, setResumeProgress] = useState(0)
   const [videoResponses, setVideoResponses] = useState({})
   const [textResponses, setTextResponses] = useState({})
+  const [timingData, setTimingData] = useState({})
+  const [questionStartTime, setQuestionStartTime] = useState(null)
+  const [hardTimerRemaining, setHardTimerRemaining] = useState(null)
+  const [softTimerRemaining, setSoftTimerRemaining] = useState(null)
+  const [hardTimerExpired, setHardTimerExpired] = useState(false)
 
   useEffect(() => {
     async function loadJob() {
@@ -58,6 +63,77 @@ export default function Apply() {
     }
     loadJob()
   }, [jobId, navigate])
+
+  // Start silent timer whenever question changes
+  useEffect(() => {
+    if (step === 'interview' && questions.length > 0) {
+      const now = Date.now()
+      setQuestionStartTime(now)
+      setHardTimerExpired(false)
+
+      const q = questions[currentQuestion]
+      if (q?.timerType === 'hard' && q.timerSeconds > 0) {
+        setHardTimerRemaining(q.timerSeconds)
+      } else {
+        setHardTimerRemaining(null)
+      }
+      if (q?.timerType === 'soft' && q.timerSeconds > 0) {
+        setSoftTimerRemaining(q.timerSeconds)
+      } else {
+        setSoftTimerRemaining(null)
+      }
+    }
+  }, [currentQuestion, step, questions])
+
+  // Hard timer countdown
+  useEffect(() => {
+    if (hardTimerRemaining === null || hardTimerRemaining <= 0) return
+    const interval = setInterval(() => {
+      setHardTimerRemaining(prev => {
+        if (prev <= 1) {
+          clearInterval(interval)
+          setHardTimerExpired(true)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [hardTimerRemaining !== null && currentQuestion])
+
+  // Soft timer countdown
+  useEffect(() => {
+    if (softTimerRemaining === null || softTimerRemaining <= 0) return
+    const interval = setInterval(() => {
+      setSoftTimerRemaining(prev => {
+        if (prev <= 1) { clearInterval(interval); return 0 }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [softTimerRemaining !== null && currentQuestion])
+
+  // Auto-submit on hard timer expiry
+  useEffect(() => {
+    if (hardTimerExpired && step === 'interview') {
+      // Record timing then advance
+      recordTiming()
+      advanceQuestion(videoResponses, textResponses)
+    }
+  }, [hardTimerExpired])
+
+  const recordTiming = () => {
+    if (questionStartTime) {
+      const elapsed = Math.round((Date.now() - questionStartTime) / 1000)
+      setTimingData(prev => ({ ...prev, [currentQuestion]: elapsed }))
+    }
+  }
+
+  const formatTimer = (s) => {
+    const m = Math.floor(s / 60)
+    const sec = s % 60
+    return m > 0 ? `${m}:${sec.toString().padStart(2, '0')}` : `${sec}s`
+  }
 
   const validateInfo = () => {
     const errors = {}
@@ -115,6 +191,7 @@ export default function Apply() {
   const currentQ = questions[currentQuestion]
 
   const handleVideoComplete = (path, _blob) => {
+    recordTiming()
     const updated = { ...videoResponses, [currentQuestion]: path }
     setVideoResponses(updated)
     advanceQuestion(updated, textResponses)
@@ -122,6 +199,7 @@ export default function Apply() {
 
   const handleTextSubmit = () => {
     if (!textResponses[currentQuestion]?.trim()) return
+    recordTiming()
     advanceQuestion(videoResponses, textResponses)
   }
 
@@ -154,6 +232,7 @@ export default function Apply() {
         videoResponses: finalVideoResponses || videoResponses,
         textResponses: finalTextResponses || textResponses,
         questions: questionMap,
+        timingData,
         compositeScore: null,
         resumeScore: null,
         interviewScore: null,
@@ -290,20 +369,47 @@ export default function Apply() {
           </div>
         )}
 
+        {/* Total time guidance — shown once at start of interview */}
+        {step === 'interview' && currentQuestion === 0 && !timingData[0] && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+            This should take about 20–30 minutes total. Some questions are timed to simulate real-world decision-making.
+          </div>
+        )}
+
         {/* Step 3: Interview Questions */}
         {step === 'interview' && currentQ && (
           <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">
-                Question {currentQuestion + 1} of {questions.length}
-              </h2>
-              <p className="text-sm text-gray-500 mt-1">
-                {currentQ.type === 'video_reading'
-                  ? 'Please read the following script on camera clearly and confidently.'
-                  : currentQ.type === 'text_response'
-                  ? 'Please type your answer below.'
-                  : 'Record a video response — take your time, up to 3 minutes.'}
-              </p>
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Question {currentQuestion + 1} of {questions.length}
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {currentQ.type === 'video_reading'
+                    ? 'Please read the following script on camera clearly and confidently.'
+                    : currentQ.type === 'text_response'
+                    ? 'Please type your answer below.'
+                    : 'Record a video response — take your time, up to 3 minutes.'}
+                </p>
+              </div>
+              {/* Hard timer badge */}
+              {currentQ.timerType === 'hard' && hardTimerRemaining !== null && (
+                <div className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full font-mono text-sm font-semibold ${
+                  hardTimerRemaining <= 10 ? 'bg-red-100 text-red-700 animate-pulse' : hardTimerRemaining <= 20 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-700'
+                }`}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  {formatTimer(hardTimerRemaining)}
+                </div>
+              )}
+              {/* Soft timer badge */}
+              {currentQ.timerType === 'soft' && softTimerRemaining !== null && (
+                <div className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
+                  softTimerRemaining <= 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-50 text-gray-500'
+                }`}>
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  {softTimerRemaining > 0 ? `~${formatTimer(softTimerRemaining)} suggested` : 'Take your time'}
+                </div>
+              )}
             </div>
 
             {/* Question text */}
@@ -341,20 +447,28 @@ export default function Apply() {
             {/* Text response */}
             {currentQ.type === 'text_response' && (
               <div className="space-y-3">
-                <textarea
-                  value={textResponses[currentQuestion] || ''}
-                  onChange={(e) => setTextResponses(prev => ({ ...prev, [currentQuestion]: e.target.value }))}
-                  rows={5}
-                  placeholder="Type your answer here..."
-                  className="w-full border border-gray-300 rounded-lg px-3 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <button
-                  onClick={handleTextSubmit}
-                  disabled={!textResponses[currentQuestion]?.trim()}
-                  className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors"
-                >
-                  {currentQuestion < questions.length - 1 ? 'Submit & Next Question' : 'Submit & Finish'}
-                </button>
+                {hardTimerExpired && currentQ.timerType === 'hard' ? (
+                  <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 text-center font-medium">
+                    Time's up — moving to next question...
+                  </div>
+                ) : (
+                  <>
+                    <textarea
+                      value={textResponses[currentQuestion] || ''}
+                      onChange={(e) => setTextResponses(prev => ({ ...prev, [currentQuestion]: e.target.value }))}
+                      rows={currentQ.category === 'communication' ? 8 : 5}
+                      placeholder={currentQ.category === 'communication' ? "Text message:\n\n\nEmail:\nSubject:\n\nBody:" : "Type your answer here..."}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={handleTextSubmit}
+                      disabled={!textResponses[currentQuestion]?.trim()}
+                      className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors"
+                    >
+                      {currentQuestion < questions.length - 1 ? 'Submit & Next Question' : 'Submit & Finish'}
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

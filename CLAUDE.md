@@ -185,10 +185,33 @@ sa-recruiting/
 
 ## Interview Questions Per Role
 
-### BDC Agent
-1. "Tell me about yourself and why you're interested in this BDC role."
-2. "A customer calls frustrated about a follow-up that was missed. Walk me through how you handle that call."
-3. "How do you stay motivated making high-volume outbound calls?"
+### BDC Agent (15 questions)
+**Video Responses (no timer):**
+1. "In 60–90 seconds, introduce yourself the way you would want a customer to experience you. Tell us what kind of work environment brings out your best and why a BDC role fits you."
+2. "Tell us about a time a manager or trainer gave you feedback you needed to act on quickly. What was the feedback, what did you change, and what result came from it?"
+3. "What are you looking for in your next role, and what usually keeps you engaged and productive long-term?"
+4. "Tell us about a time you turned around a difficult customer interaction. What was the issue, what did you say, and what was the outcome?"
+5. "High-volume outbound work can be repetitive. What do you do to keep your tone, urgency, and consistency high over a full day of calls?"
+
+**Written Communication (soft timer ~2-3 min):**
+6. "Write a text message and a short email to a lead who asked about a vehicle 48 hours ago and has not responded. Keep the text under 220 characters and the email under 90 words."
+
+**Video Script Readings (no timer):**
+7. "Thank you for calling San Antonio Dodge, this is [Your Name]. How can I assist you in finding a vehicle today?"
+8. "I do have a great idea but I don't want to overpromise and underdeliver — may I put you on hold for a quick second?"
+9. (Voicemail) "Hi John, this is [Your Name] and I have some really really great news to share — please call me when you get this at 210-512-1212, again that's 210-512-1212."
+
+**Timed Cognitive Tests (hard timers):**
+10. "A bat and a ball cost $1.10 total. The bat costs $1 more than the ball. How much does the ball cost?" (30-45s)
+11. "A farmer has 17 sheep. All but 9 run away. How many sheep does he have left?" (20-30s)
+12. "You are told a number. Multiply it by 2, add 10, divide by 2, then subtract the original number. What is the final result?" (45-60s)
+
+**Values & Mindset (no timer):**
+13. "From 1 to 10, how lucky do you feel you are?"
+14. "Outside of money, what do you value most in life? Give a real example of how that value shows up in your daily behavior."
+15. "When you think about success 5–10 years from now, what does it look like — and what are you willing to sacrifice (and not willing to sacrifice) to get there?"
+
+**Timer Strategy:** All questions silently track time spent for hidden signal analysis (fast+correct=elite, fast+wrong=impulsive, slow+correct=thinker, slow+wrong=weak). Total time guidance shown to candidates: "~20-30 minutes."
 
 ### Sales Rep
 1. "Tell me about yourself and your sales background."
