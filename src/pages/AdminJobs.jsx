@@ -4,7 +4,7 @@ import { db } from "../firebase"
 import { useNavigate } from "react-router-dom"
 
 const ROLE_KEYS = [
-  { key: "bdc-agent", label: "BDC Agent" },
+  { key: "bdc-agent", label: "BDC Agent or Telemarketer/Emailer/Texter" },
   { key: "sales-rep", label: "Sales Rep" },
   { key: "service-advisor", label: "Service Advisor" }
 ]
