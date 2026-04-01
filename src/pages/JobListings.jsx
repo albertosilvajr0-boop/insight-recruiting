@@ -93,7 +93,7 @@ export default function JobListings() {
             <span className="text-white text-xl font-bold">SA</span>
           </div>
           <h1 className="text-3xl font-bold text-gray-900">Join San Antonio Dodge</h1>
-          <p className="text-gray-500 mt-2">Explore open positions and start your interview today</p>
+
         </div>
 
         {loading ? (
