@@ -260,18 +260,6 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
         </p>
       )}
 
-      {/* Skip option */}
-      {!recorded && state !== 'recording' && (
-        <p className="text-xs text-center text-gray-400">
-          Having trouble recording?{' '}
-          <button
-            className="underline text-gray-500"
-            onClick={() => onComplete(`skipped_q${questionIndex}`, null)}
-          >
-            Skip this question
-          </button>
-        </p>
-      )}
     </div>
   )
 }
