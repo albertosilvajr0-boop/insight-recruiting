@@ -11,7 +11,7 @@ const QUESTION_TYPES = [
 
 const ROLE_OPTIONS = [
   { value: "all", label: "All Roles" },
-  { value: "bdc-agent", label: "BDC Agent" },
+  { value: "bdc-agent", label: "BDC Agent or Telemarketer/Emailer/Texter" },
   { value: "sales-rep", label: "Sales Rep" },
   { value: "service-advisor", label: "Service Advisor" },
 ]

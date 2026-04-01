@@ -424,7 +424,7 @@ export default function Apply() {
                 <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-2">Read this on camera:</p>
               )}
               <p className={`font-medium text-sm leading-relaxed ${currentQ.type === 'video_reading' ? 'text-purple-900 text-base' : 'text-blue-900'}`}>
-                "{currentQ.text}"
+                {currentQ.text}
               </p>
             </div>
 
@@ -443,10 +443,6 @@ export default function Apply() {
                   mode="video"
                   onComplete={handleVideoComplete}
                 />
-                <p className="text-xs text-center text-gray-400">
-                  Having trouble recording?{' '}
-                  <button className="underline text-gray-500" onClick={() => handleVideoComplete(`skipped_q${currentQuestion}`, null)}>Skip this question</button>
-                </p>
               </>
             )}
 
@@ -463,7 +459,7 @@ export default function Apply() {
                       value={textResponses[currentQuestion] || ''}
                       onChange={(e) => setTextResponses(prev => ({ ...prev, [currentQuestion]: e.target.value }))}
                       rows={currentQ.category === 'communication' ? 8 : 5}
-                      placeholder={currentQ.category === 'communication' ? "Text message:\n\n\nEmail:\nSubject:\n\nBody:" : "Type your answer here..."}
+                      placeholder="Type your answer here..."
                       className="w-full border border-gray-300 rounded-lg px-3 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <button
