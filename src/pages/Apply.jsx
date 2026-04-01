@@ -47,9 +47,15 @@ export default function Apply() {
             query(collection(db, 'interviewQuestions'), orderBy('order', 'asc'))
           )
           const allQuestions = qSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-          const roleQuestions = allQuestions.filter(
-            q => q.active !== false && (q.roleKey === 'all' || q.roleKey === jobData.roleKey)
+          const roleSpecific = allQuestions.filter(
+            q => q.active !== false && q.roleKey === jobData.roleKey
           )
+          const universal = allQuestions.filter(
+            q => q.active !== false && q.roleKey === 'all'
+          )
+          // If the role has a full question set (e.g. BDC 15 questions), use only those.
+          // Otherwise combine universal + role-specific questions.
+          const roleQuestions = roleSpecific.length >= 10 ? roleSpecific : [...universal, ...roleSpecific]
           setQuestions(roleQuestions)
         } catch (err) {
           console.warn('Failed to load questions from Firestore, using empty set:', err)
