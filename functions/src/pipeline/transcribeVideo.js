@@ -5,9 +5,21 @@ import { callClaude } from '../utils/anthropic.js'
 
 const INTERVIEW_QUESTIONS = {
   'bdc-agent': [
-    "Tell me about yourself and why you're interested in this BDC role.",
-    "A customer calls frustrated about a follow-up that was missed. Walk me through how you handle that call.",
-    "How do you stay motivated making high-volume outbound calls?"
+    "In 60\u201390 seconds, introduce yourself the way you would want a customer to experience you. Tell us what kind of work environment brings out your best and why a BDC role fits you.",
+    "Tell us about a time a manager or trainer gave you feedback you needed to act on quickly. What was the feedback, what did you change, and what result came from it?",
+    "What are you looking for in your next role, and what usually keeps you engaged and productive long-term?",
+    "Tell us about a time you turned around a difficult customer interaction. What was the issue, what did you say, and what was the outcome?",
+    "High-volume outbound work can be repetitive. What do you do to keep your tone, urgency, and consistency high over a full day of calls?",
+    "Write a text message and a short email to a lead who asked about a vehicle 48 hours ago and has not responded. Keep the text under 220 characters and the email under 90 words.",
+    "Thank you for calling San Antonio Dodge, this is [Your Name]. How can I assist you in finding a vehicle today?",
+    "I do have a great idea but I don\u2019t want to overpromise and underdeliver \u2014 may I put you on hold for a quick second?",
+    "Hi John, this is [Your Name] and I have some really really great news to share \u2014 please call me when you get this at 210-512-1212, again that\u2019s 210-512-1212.",
+    "A bat and a ball cost $1.10 total. The bat costs $1 more than the ball. How much does the ball cost?",
+    "A farmer has 17 sheep. All but 9 run away. How many sheep does he have left?",
+    "You are told a number. Multiply it by 2, add 10, divide by 2, then subtract the original number. What is the final result?",
+    "From 1 to 10, how lucky do you feel you are?",
+    "Outside of money, what do you value most in life? Give a real example of how that value shows up in your daily behavior.",
+    "When you think about success 5\u201310 years from now, what does it look like \u2014 and what are you willing to sacrifice (and not willing to sacrifice) to get there?"
   ],
   'sales-rep': [
     "Tell me about yourself and your sales background.",
@@ -23,11 +35,16 @@ const INTERVIEW_QUESTIONS = {
 
 const SCORING_PROMPTS = {
   'bdc-agent': `You are evaluating a candidate interview for a BDC Agent role at San Antonio Dodge.
+This interview includes video responses, script readings (word tracks), written communication samples, timed cognitive questions, and values/mindset questions.
+
 Score 1-10 based on:
-- Communication clarity and phone manner (weight: 35%)
-- Customer service orientation and de-escalation (weight: 30%)
-- Call center / outbound experience demonstrated (weight: 20%)
-- Motivation and enthusiasm (weight: 15%)`,
+- Communication clarity, phone manner, and script delivery (weight: 25%)
+- Customer service orientation, de-escalation, and written outreach quality (weight: 25%)
+- Cognitive speed and accuracy on timed questions (weight: 15%)
+- Coachability, motivation, and work discipline (weight: 20%)
+- Values alignment and long-term mindset (weight: 15%)
+
+Note: Questions 10-12 are timed cognitive tests. Evaluate correctness and note if answers appear rushed or overthought. Track timing data if available.`,
 
   'sales-rep': `You are evaluating a candidate interview for a Sales Representative role at San Antonio Dodge.
 Score 1-10 based on:
