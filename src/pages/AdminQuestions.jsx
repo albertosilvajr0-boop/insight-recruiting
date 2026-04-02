@@ -43,6 +43,8 @@ export default function AdminQuestions() {
   const [filterRole, setFilterRole] = useState("all")
   const [seeding, setSeeding] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [dragId, setDragId] = useState(null)
+  const [dragOverId, setDragOverId] = useState(null)
   const navigate = useNavigate()
 
   const [form, setForm] = useState({
@@ -206,6 +208,53 @@ export default function AdminQuestions() {
     await seedDefaultQuestions()
   }
 
+  const handleDragStart = (e, q) => {
+    setDragId(q.id)
+    e.dataTransfer.effectAllowed = "move"
+  }
+
+  const handleDragOver = (e, q) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
+    if (q.id !== dragOverId) setDragOverId(q.id)
+  }
+
+  const handleDragEnd = () => {
+    setDragId(null)
+    setDragOverId(null)
+  }
+
+  const handleDrop = async (e, targetQ) => {
+    e.preventDefault()
+    if (!dragId || dragId === targetQ.id) {
+      handleDragEnd()
+      return
+    }
+
+    const list = [...filtered]
+    const fromIdx = list.findIndex((q) => q.id === dragId)
+    const toIdx = list.findIndex((q) => q.id === targetQ.id)
+    if (fromIdx === -1 || toIdx === -1) {
+      handleDragEnd()
+      return
+    }
+
+    const [moved] = list.splice(fromIdx, 1)
+    list.splice(toIdx, 0, moved)
+
+    // Update order values in Firestore
+    try {
+      const batch = writeBatch(db)
+      list.forEach((q, i) => {
+        batch.update(doc(db, "interviewQuestions", q.id), { order: i, updatedAt: serverTimestamp() })
+      })
+      await batch.commit()
+    } catch (err) {
+      alert("Failed to reorder: " + err.message)
+    }
+    handleDragEnd()
+  }
+
   const filtered = filterRole === "all"
     ? questions
     : questions.filter((q) => q.roleKey === "all" || q.roleKey === filterRole)
@@ -278,9 +327,20 @@ export default function AdminQuestions() {
         ) : (
           <div className="space-y-2">
             {filtered.map((q) => (
-              <div key={q.id} className={`bg-white rounded-xl border border-gray-200 p-4 ${q.active === false ? "opacity-50" : ""}`}>
+              <div key={q.id}
+                draggable
+                onDragStart={(e) => handleDragStart(e, q)}
+                onDragOver={(e) => handleDragOver(e, q)}
+                onDragEnd={handleDragEnd}
+                onDrop={(e) => handleDrop(e, q)}
+                className={`bg-white rounded-xl border-2 p-4 transition-colors ${dragId === q.id ? "opacity-40 border-blue-300" : dragOverId === q.id ? "border-blue-400 bg-blue-50/50" : "border-gray-200"} ${q.active === false ? "opacity-50" : ""}`}
+              >
                 <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <div className="cursor-grab active:cursor-grabbing shrink-0 pt-0.5 text-gray-300 hover:text-gray-500">
+                      <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor"><circle cx="7" cy="4" r="1.5"/><circle cx="13" cy="4" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="13" cy="10" r="1.5"/><circle cx="7" cy="16" r="1.5"/><circle cx="13" cy="16" r="1.5"/></svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-900 leading-relaxed">{q.text}</p>
                     <div className="flex items-center gap-2 mt-2 flex-wrap">
                       {typeBadge(q.type)}
@@ -297,6 +357,7 @@ export default function AdminQuestions() {
                       {q.active === false && (
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-600">Inactive</span>
                       )}
+                    </div>
                     </div>
                   </div>
                   <div className="flex gap-1 shrink-0">
