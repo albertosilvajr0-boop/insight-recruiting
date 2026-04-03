@@ -54,8 +54,10 @@ export default function Apply() {
             q => q.active !== false && q.roleKey === 'all'
           )
           // If the role has a full question set (e.g. BDC 15 questions), use only those.
-          // Otherwise combine universal + role-specific questions.
-          const roleQuestions = roleSpecific.length >= 10 ? roleSpecific : [...universal, ...roleSpecific]
+          // Otherwise combine universal + role-specific, sorted by order field.
+          const roleQuestions = roleSpecific.length >= 10
+            ? roleSpecific
+            : [...universal, ...roleSpecific].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
           setQuestions(roleQuestions)
         } catch (err) {
           console.warn('Failed to load questions from Firestore, using empty set:', err)
@@ -105,7 +107,7 @@ export default function Apply() {
       })
     }, 1000)
     return () => clearInterval(interval)
-  }, [hardTimerRemaining !== null && currentQuestion])
+  }, [hardTimerRemaining, currentQuestion])
 
   // Soft timer countdown
   useEffect(() => {
@@ -117,16 +119,31 @@ export default function Apply() {
       })
     }, 1000)
     return () => clearInterval(interval)
-  }, [softTimerRemaining !== null && currentQuestion])
+  }, [softTimerRemaining, currentQuestion])
 
-  // Auto-submit on hard timer expiry
+  // Auto-submit on hard timer expiry — use functional updater to avoid stale closures
   useEffect(() => {
     if (hardTimerExpired && step === 'interview') {
-      // Record timing then advance
       recordTiming()
-      advanceQuestion(videoResponses, textResponses)
+      // Use setCurrentQuestion to read the true current index, avoiding stale closure
+      setCurrentQuestion(prevQ => {
+        if (prevQ < questions.length - 1) {
+          return prevQ + 1
+        } else {
+          // Last question — trigger submit. We need latest responses, so read from
+          // state updaters as well to avoid stale closure over videoResponses/textResponses.
+          setVideoResponses(vids => {
+            setTextResponses(texts => {
+              handleSubmit(vids, texts)
+              return texts
+            })
+            return vids
+          })
+          return prevQ // don't change question index
+        }
+      })
     }
-  }, [hardTimerExpired])
+  }, [hardTimerExpired, step, questions.length])
 
   const recordTiming = () => {
     if (questionStartTime) {
@@ -226,7 +243,8 @@ export default function Apply() {
         questionMap[i] = { questionId: q.id, text: q.text, type: q.type, category: q.category }
       })
 
-      await addDoc(collection(db, 'candidates'), {
+      // Timeout after 30 seconds to prevent indefinite spinner
+      const submitPromise = addDoc(collection(db, 'candidates'), {
         candidateId,
         ...form,
         jobId: job.id,
@@ -245,8 +263,13 @@ export default function Apply() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       })
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Submission timed out')), 30000)
+      )
+      await Promise.race([submitPromise, timeoutPromise])
       navigate('/thank-you')
     } catch (err) {
+      console.error('Application submission failed:', err)
       alert('Submission failed. Please try again.')
       setStep('interview')
     }
