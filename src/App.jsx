@@ -12,8 +12,10 @@ import AdminAvailability from './pages/AdminAvailability'
 import AdminQuestions from './pages/AdminQuestions'
 import AdminAnalytics from './pages/AdminAnalytics'
 import ProtectedRoute from './components/ProtectedRoute'
+import useForceRefresh from './hooks/useForceRefresh'
 
 export default function App() {
+  useForceRefresh()
   return (
     <BrowserRouter>
       <Routes>

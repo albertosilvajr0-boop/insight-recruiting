@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { collection, query, orderBy, onSnapshot, doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore"
+import { collection, query, orderBy, onSnapshot, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore"
 import { signOut } from "firebase/auth"
 import { db, auth } from "../firebase"
 import { format } from "date-fns"
@@ -15,6 +15,8 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true)
   const [userRole, setUserRole] = useState(null)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [refreshConfirm, setRefreshConfirm] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -41,6 +43,19 @@ export default function AdminDashboard() {
     setDeleteConfirm(null)
   }
 
+  const forceRefreshAllUsers = async () => {
+    setRefreshing(true)
+    try {
+      // Bumping this timestamp broadcasts a reload to every currently-open
+      // tab (admin + candidate) via the useForceRefresh hook.
+      await setDoc(doc(db, "system", "refresh"), { refreshAt: serverTimestamp() }, { merge: true })
+      setRefreshConfirm(false)
+    } catch (err) {
+      alert(`Failed to trigger refresh: ${err.message}`)
+      setRefreshing(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10">
@@ -60,6 +75,13 @@ export default function AdminDashboard() {
               </>
             )}
             <button onClick={() => navigate("/")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">View site</button>
+            <button
+              onClick={() => setRefreshConfirm(true)}
+              title="Force every open tab (admins + candidates) to reload"
+              className="text-sm text-white bg-red-600 hover:bg-red-700 border border-red-600 px-3 py-1.5 rounded-lg"
+            >
+              Refresh all users
+            </button>
             <button onClick={() => signOut(auth)} className="text-sm text-gray-400 hover:text-gray-600">Sign out</button>
           </div>
         </div>
@@ -157,6 +179,34 @@ export default function AdminDashboard() {
           )
         })()}
       </div>
+
+      {/* Force-refresh Confirmation Modal */}
+      {refreshConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-sm p-6">
+            <h3 className="text-lg font-semibold text-gray-900">Refresh all users?</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Every open tab — admins <span className="font-medium text-gray-700">and any candidate currently filling out an application</span> — will reload immediately. Use this after a deploy to force everyone onto the latest version.
+            </p>
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button
+                onClick={() => setRefreshConfirm(false)}
+                disabled={refreshing}
+                className="text-sm text-gray-600 font-medium px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={forceRefreshAllUsers}
+                disabled={refreshing}
+                className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium px-5 py-2.5 rounded-xl"
+              >
+                {refreshing ? "Refreshing…" : "Refresh everyone"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
