@@ -107,32 +107,66 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
     await requestPermissions()
   }
 
+  const uploadBlobOnce = (storagePath, contentType) => {
+    return new Promise((resolve, reject) => {
+      const fileRef = ref(storage, storagePath)
+      const uploadTask = uploadBytesResumable(fileRef, blob, contentType ? { contentType } : undefined)
+      uploadTask.on('state_changed',
+        (snapshot) => {
+          const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+          setUploadProgress(pct)
+        },
+        (err) => reject(err),
+        () => resolve()
+      )
+    })
+  }
+
   const handleSubmit = async () => {
     if (!blob) return
     setUploading(true)
     setUploadProgress(0)
     setUploadError(null)
-    try {
-      const storagePath = `videos/${candidateId}_q${questionIndex}/recording.webm`
-      const fileRef = ref(storage, storagePath)
-      const uploadTask = uploadBytesResumable(fileRef, blob)
-      await new Promise((resolve, reject) => {
-        uploadTask.on('state_changed',
-          (snapshot) => {
-            const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
-            setUploadProgress(pct)
-          },
-          (err) => reject(err),
-          () => resolve()
-        )
-      })
-      const dirPath = `videos/${candidateId}_q${questionIndex}`
-      onComplete(dirPath, blob)
-    } catch (err) {
-      console.error('Video upload failed:', err)
-      setUploadError('Upload failed. Please try again.')
-      setUploading(false)
+
+    // Pick a file extension that matches what the browser actually recorded.
+    // Safari records video/mp4; Chrome/Firefox record video/webm. Using the
+    // correct extension avoids a mismatch between filename and Content-Type.
+    const contentType = blob.type || 'video/webm'
+    const ext = contentType.includes('mp4') ? 'mp4' : 'webm'
+    const dirPath = `videos/${candidateId}_q${questionIndex}`
+    const storagePath = `${dirPath}/recording.${ext}`
+
+    // Retry a couple of times on transient failures — mobile networks drop
+    // connections constantly, and a single hiccup shouldn't force a retake.
+    const MAX_ATTEMPTS = 3
+    let lastErr = null
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        setUploadProgress(0)
+        await uploadBlobOnce(storagePath, contentType)
+        onComplete(dirPath, blob)
+        return
+      } catch (err) {
+        lastErr = err
+        console.error(`Video upload attempt ${attempt}/${MAX_ATTEMPTS} failed:`, err)
+        if (attempt < MAX_ATTEMPTS) {
+          // Exponential backoff: 1s, 2s
+          await new Promise(r => setTimeout(r, 1000 * attempt))
+        }
+      }
     }
+
+    // All retries exhausted — surface a specific message so the candidate
+    // (and Alberto) knows what actually went wrong.
+    const reason = lastErr?.code
+      ? `${lastErr.code}${lastErr.message ? ' — ' + lastErr.message : ''}`
+      : lastErr?.message || 'unknown error'
+    setUploadError(
+      `Upload failed after ${MAX_ATTEMPTS} attempts (${reason}). ` +
+      `Check your internet connection and tap "Use This Recording" again — ` +
+      `your recording is still saved here, you don't need to re-record.`
+    )
+    setUploading(false)
   }
 
   if (!isSupported) {
