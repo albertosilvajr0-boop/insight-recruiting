@@ -58,22 +58,18 @@ jobs:
         run: cd functions && npm ci
 
       - name: Write service account key
-        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > /tmp/sa-key.json
+        run: |
+          cat > /tmp/sa-key.json <<'EOF'
+          ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          EOF
 
-      - name: Deploy to Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          projectId: insight-recruiting-d37dc
-          channelId: live
-
-      - name: Deploy Firestore rules, indexes, and Storage rules
-        run: npx firebase-tools deploy --only firestore,storage --force --project insight-recruiting-d37dc
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa-key.json
-
-      - name: Deploy Cloud Functions
-        run: npx firebase-tools deploy --only functions --force --project insight-recruiting-d37dc
+      # Single deploy call for all targets. Previously this was split across
+      # FirebaseExtended/action-hosting-deploy@v0 + two firebase-tools calls,
+      # and the third-party action was the source of an intermittent exit-2.
+      # Using firebase-tools directly makes failures easier to debug (the
+      # specific target that failed shows up in the log) and avoids the
+      # rolling @v0 tag as a moving dependency.
+      - name: Deploy to Firebase (hosting, firestore, storage, functions)
+        run: npx firebase-tools deploy --only hosting,firestore,storage,functions --force --project insight-recruiting-d37dc --non-interactive
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa-key.json
