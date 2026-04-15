@@ -52,14 +52,16 @@ export default function useMediaRecorder({ mode = 'video' }) {
     try {
       let stream
       if (mode === 'video') {
-        // Try ideal 720p first, fall back to any available camera
+        // Request a modest resolution — keeps file size small enough for
+        // mobile networks and avoids holding giant blobs in memory (which
+        // can trigger tab discards on iOS Safari).
         try {
           stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+            video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 }, facingMode: 'user' },
             audio: true
           })
         } catch {
-          // Fallback: accept any camera resolution (mobile compatibility)
+          // Fallback: accept any camera config the device will give us.
           stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true })
         }
       } else {
@@ -88,7 +90,16 @@ export default function useMediaRecorder({ mode = 'video' }) {
 
     chunksRef.current = []
     const mimeType = getSupportedMimeType()
-    const recorder = new MediaRecorder(stream, { mimeType })
+    // Constrain bitrate so a 3-minute recording stays under ~15 MB — uploads
+    // reliably on mobile networks and keeps memory pressure low on iOS Safari.
+    const recorderOptions = { mimeType, videoBitsPerSecond: 600_000, audioBitsPerSecond: 64_000 }
+    let recorder
+    try {
+      recorder = new MediaRecorder(stream, recorderOptions)
+    } catch {
+      // Some browsers reject explicit bitrates — retry with just the mimeType.
+      recorder = new MediaRecorder(stream, { mimeType })
+    }
     mediaRecorderRef.current = recorder
 
     recorder.ondataavailable = (e) => {
@@ -102,8 +113,10 @@ export default function useMediaRecorder({ mode = 'video' }) {
       setState('error')
     }
 
-    // Record without timeslice — collect all data at once for a clean blob
-    recorder.start()
+    // Use a 1-second timeslice so data is flushed periodically. Without this,
+    // iOS Safari can miss the final `dataavailable` event and we end up with
+    // a 0-byte blob — or, worse, the page gets discarded under memory pressure.
+    recorder.start(1000)
     setState('recording')
     setDuration(0)
     startAudioAnalysis(stream)
@@ -125,12 +138,31 @@ export default function useMediaRecorder({ mode = 'video' }) {
       cancelAnimationFrame(animFrameRef.current)
       setAudioLevel(0)
 
-      recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType })
+      let settled = false
+      const finish = () => {
+        if (settled) return
+        settled = true
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'video/webm' })
         setState('stopped')
         resolve(blob)
       }
-      recorder.stop()
+
+      recorder.onstop = finish
+      // Safety net: if onstop never fires (observed on some mobile browsers),
+      // resolve anyway after a short grace period so the UI doesn't hang.
+      setTimeout(finish, 2000)
+
+      try {
+        // Flush the final chunk before stopping — prevents empty blobs on iOS Safari.
+        if (typeof recorder.requestData === 'function') recorder.requestData()
+      } catch {
+        /* not all browsers implement requestData; ignore */
+      }
+      try {
+        recorder.stop()
+      } catch {
+        finish()
+      }
     })
   }, [])
 
