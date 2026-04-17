@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import JobListings from './pages/JobListings'
 import Apply from './pages/Apply'
 import ThankYou from './pages/ThankYou'
+import Status from './pages/Status'
 import Schedule from './pages/Schedule'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/" element={<JobListings />} />
         <Route path="/apply/:jobId" element={<Apply />} />
         <Route path="/thank-you" element={<ThankYou />} />
+        <Route path="/status/:token" element={<Status />} />
         <Route path="/schedule/:token" element={<Schedule />} />
 
         {/* Admin */}

@@ -8,6 +8,7 @@ import { routeCandidate } from './pipeline/routeCandidate.js'
 import { sendDailyDigest } from './email/dailyDigest.js'
 import { sendReminders } from './email/sendReminder.js'
 import { sendNewApplicationNotification } from './email/sendNewApplicationNotification.js'
+import { sendApplicationReceipt } from './email/sendApplicationReceipt.js'
 import { getAvailableSlots } from './calendar/getAvailableSlots.js'
 import { bookSlot } from './calendar/bookSlot.js'
 import { generateJobFeed } from './jobs/jobFeed.js'
@@ -31,6 +32,15 @@ export const onCandidateCreated = onDocumentCreated(
         await sendNewApplicationNotification(candidate)
       } catch (emailErr) {
         console.error(`[pipeline] Failed to send notification email:`, emailErr.message)
+      }
+
+      // Send candidate-facing receipt with status portal link. Non-fatal;
+      // we never block the pipeline on an email failure.
+      try {
+        const baseUrl = process.env.PUBLIC_BASE_URL || 'https://insight-recruiting.web.app'
+        await sendApplicationReceipt(candidate, baseUrl)
+      } catch (emailErr) {
+        console.error(`[pipeline] Failed to send candidate receipt:`, emailErr.message)
       }
 
       // 1. Score resume

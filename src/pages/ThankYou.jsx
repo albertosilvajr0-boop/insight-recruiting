@@ -1,6 +1,30 @@
-﻿import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+
 export default function ThankYou() {
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const token = params.get('token')
+  const [copied, setCopied] = useState(false)
+
+  const statusUrl = token ? `${window.location.origin}/status/${token}` : null
+
+  // Eagerly put the status URL on the clipboard so a candidate on a shared
+  // device can at least paste it into their notes app. Silent if blocked.
+  useEffect(() => {
+    if (!statusUrl) return
+    try { navigator.clipboard?.writeText(statusUrl).catch(() => {}) } catch { /* ignore */ }
+  }, [statusUrl])
+
+  const copyLink = async () => {
+    if (!statusUrl) return
+    try {
+      await navigator.clipboard.writeText(statusUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* no-op */ }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="max-w-md w-full bg-white rounded-2xl border border-gray-200 p-10 text-center space-y-5">
@@ -9,6 +33,29 @@ export default function ThankYou() {
         </div>
         <h1 className="text-2xl font-bold text-gray-900">Application submitted!</h1>
         <p className="text-gray-500 text-sm">We'll review your application and be in touch within 1 business day.</p>
+
+        {statusUrl && (
+          <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-left space-y-2">
+            <p className="text-xs font-semibold text-blue-900">Track your application</p>
+            <p className="text-xs text-blue-800">Bookmark this link — you can check your status anytime.</p>
+            <div className="flex items-center gap-2">
+              <Link to={`/status/${token}`} className="flex-1 text-xs text-blue-700 underline truncate">{statusUrl}</Link>
+              <button onClick={copyLink} className="text-xs font-medium bg-white border border-blue-200 hover:bg-blue-100 text-blue-700 px-2.5 py-1 rounded-md">
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="text-left bg-gray-50 rounded-xl p-4 space-y-1 text-xs text-gray-600">
+          <p className="font-semibold text-gray-900">What happens next</p>
+          <ol className="list-decimal list-inside space-y-0.5">
+            <li>Our AI reviews your resume + interview responses (usually within the hour).</li>
+            <li>A recruiter confirms the result and, if it's a match, sends you a link to pick an interview time.</li>
+            <li>You meet the team in person at San Antonio Dodge — 18011 Blanco Rd.</li>
+          </ol>
+        </div>
+
         <button onClick={() => navigate('/')} className="text-sm text-gray-500 hover:text-gray-700 underline">View other open positions</button>
       </div>
     </div>

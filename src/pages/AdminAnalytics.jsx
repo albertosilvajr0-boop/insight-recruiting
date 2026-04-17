@@ -68,6 +68,44 @@ export default function AdminAnalytics() {
     return acc
   }, {})
 
+  // Funnel — how the pipeline actually converts from top to bottom.
+  // Each stage counts candidates who reached AT LEAST that stage (so
+  // the Applied count is the entry cohort, Scored is everyone who got
+  // past review, etc.). Rejected pulls from any stage.
+  const stageReached = (c, stage) => {
+    const order = ['applied', 'scored', 'to_schedule', 'scheduled']
+    const mapped = STAGE_LABELS[c.stage] === STAGE_LABELS[stage] ? c.stage : c.stage
+    const current = mapped === 'screening' ? 'applied' : mapped === 'interview_2' ? 'applied' : mapped === 'scheduling' ? 'to_schedule' : mapped
+    const curIdx = order.indexOf(current)
+    const tgtIdx = order.indexOf(stage)
+    if (c.stage === 'rejected') {
+      // Rejected candidates still passed any stage up to where they were last
+      // — we don't track their peak, so assume they hit at least "applied".
+      return stage === 'applied'
+    }
+    if (c.stage === 'hired') return true
+    return curIdx >= tgtIdx
+  }
+  const funnel = [
+    { key: 'applied', label: 'Applied' },
+    { key: 'scored', label: 'Reviewed' },
+    { key: 'to_schedule', label: 'Invited to interview' },
+    { key: 'scheduled', label: 'Scheduled' },
+  ].map(s => ({ ...s, count: rangedCandidates.filter(c => stageReached(c, s.key)).length }))
+  const funnelTop = funnel[0]?.count || 0
+
+  // Avg score by role — surfaces roles where the AI is systematically high/low
+  const scoreByRole = rangedCandidates.reduce((acc, c) => {
+    if (c.compositeScore == null || !c.jobTitle) return acc
+    if (!acc[c.jobTitle]) acc[c.jobTitle] = { sum: 0, count: 0 }
+    acc[c.jobTitle].sum += c.compositeScore
+    acc[c.jobTitle].count += 1
+    return acc
+  }, {})
+  const avgScoreByRole = Object.entries(scoreByRole).map(([role, { sum, count }]) => ({
+    role, avg: (sum / count), count
+  })).sort((a, b) => b.avg - a.avg)
+
   // Applications per day (last N days)
   const dailyApps = {}
   const days = Number(dateRange)
@@ -162,6 +200,63 @@ export default function AdminAnalytics() {
                 <KpiCard label={`Active (last ${dateRange}d)`} value={activeAdmins.length} color="green" />
                 <KpiCard label="Total Logins" value={users.reduce((s, u) => s + (u.loginCount || 0), 0)} color="blue" />
                 <KpiCard label="Superadmins" value={users.filter((u) => u.role === "superadmin").length} color="purple" />
+              </div>
+            )}
+
+            {/* ─── Conversion Funnel ────────────────────────────────── */}
+            {showCandidates && funnelTop > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-gray-900">Conversion funnel</h3>
+                  <p className="text-xs text-gray-500">Applied → Scheduled</p>
+                </div>
+                <div className="space-y-2">
+                  {funnel.map((s, i) => {
+                    const prev = i === 0 ? s.count : funnel[i - 1].count
+                    const pctOfTop = funnelTop > 0 ? (s.count / funnelTop) * 100 : 0
+                    const pctOfPrev = prev > 0 ? (s.count / prev) * 100 : 0
+                    return (
+                      <div key={s.key} className="flex items-center gap-3">
+                        <span className="text-xs text-gray-600 w-32 shrink-0">{s.label}</span>
+                        <div className="flex-1 bg-gray-100 rounded-full h-6 overflow-hidden relative">
+                          <div
+                            className={`h-full rounded-full flex items-center justify-end pr-2 text-[11px] font-semibold text-white ${
+                              i === 0 ? 'bg-blue-500' : i === 1 ? 'bg-indigo-500' : i === 2 ? 'bg-purple-500' : 'bg-green-500'
+                            }`}
+                            style={{ width: `${Math.max(pctOfTop, 4)}%` }}
+                          >
+                            {s.count}
+                          </div>
+                        </div>
+                        <span className="text-xs text-gray-500 w-16 text-right">
+                          {i === 0 ? '100%' : `${pctOfPrev.toFixed(0)}%`}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+                <p className="text-xs text-gray-500 mt-4">
+                  Overall conversion (applied → scheduled): <span className="font-semibold text-gray-900">{funnel[3]?.count && funnelTop ? ((funnel[3].count / funnelTop) * 100).toFixed(1) : '0'}%</span>
+                </p>
+              </div>
+            )}
+
+            {/* ─── Avg Score by Role ────────────────────────────────── */}
+            {showCandidates && avgScoreByRole.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3">AI score by role</h3>
+                <div className="space-y-2">
+                  {avgScoreByRole.map(({ role, avg, count }) => (
+                    <div key={role} className="flex items-center gap-3">
+                      <span className="text-xs text-gray-600 w-40 shrink-0 truncate">{role}</span>
+                      <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                        <div className={`h-full rounded-full ${avg >= 8 ? 'bg-green-500' : avg >= 5 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${(avg / 10) * 100}%` }} />
+                      </div>
+                      <span className="text-xs font-semibold text-gray-700 w-10 text-right">{avg.toFixed(1)}</span>
+                      <span className="text-[10px] text-gray-400 w-10 text-right">n={count}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
