@@ -21,7 +21,7 @@ function WaveformBar({ level, index, total }) {
   )
 }
 
-export default function VideoRecorder({ candidateId, questionIndex, onComplete, mode = 'video' }) {
+export default function VideoRecorder({ candidateId, questionIndex, onComplete, onUploadProgress, mode = 'video' }) {
   const videoPreviewRef = useRef(null)
   const [recorded, setRecorded] = useState(false)
   const [blob, setBlob] = useState(null)
@@ -115,9 +115,15 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
         (snapshot) => {
           const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
           setUploadProgress(pct)
+          // Report upstream so parent can render an aggregate progress bar
+          // that isn't wiped when the recorder unmounts between questions.
+          try { onUploadProgress?.(questionIndex, pct, snapshot.bytesTransferred, snapshot.totalBytes) } catch { /* ignore */ }
         },
         (err) => reject(err),
-        () => resolve()
+        () => {
+          try { onUploadProgress?.(questionIndex, 100, blob?.size || 0, blob?.size || 0) } catch { /* ignore */ }
+          resolve()
+        }
       )
     })
   }
@@ -136,12 +142,25 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
     const dirPath = `videos/${candidateId}_q${questionIndex}`
     const storagePath = `${dirPath}/recording.${ext}`
 
-    // Retry a couple of times on transient failures — mobile networks drop
+    // Retry several times on transient failures — mobile networks drop
     // connections constantly, and a single hiccup shouldn't force a retake.
-    const MAX_ATTEMPTS = 3
+    // We also wait for the network to come back if the device is offline,
+    // which is the #1 cause of "upload failed" on parking-lot wifi.
+    const MAX_ATTEMPTS = 5
     let lastErr = null
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
+        // If the browser reports offline, wait for 'online' (up to 30s)
+        // before trying — saves a guaranteed-fail attempt against the backoff.
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          setUploadError('You appear to be offline — waiting for your connection to come back…')
+          await new Promise(resolve => {
+            const onOnline = () => { window.removeEventListener('online', onOnline); resolve() }
+            window.addEventListener('online', onOnline)
+            setTimeout(() => { window.removeEventListener('online', onOnline); resolve() }, 30_000)
+          })
+          setUploadError(null)
+        }
         setUploadProgress(0)
         await uploadBlobOnce(storagePath, contentType)
         onComplete(dirPath, blob)
@@ -150,8 +169,11 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
         lastErr = err
         console.error(`Video upload attempt ${attempt}/${MAX_ATTEMPTS} failed:`, err)
         if (attempt < MAX_ATTEMPTS) {
-          // Exponential backoff: 1s, 2s
-          await new Promise(r => setTimeout(r, 1000 * attempt))
+          // Exponential backoff: 1s, 2s, 4s, 8s
+          const delay = Math.min(8000, 1000 * Math.pow(2, attempt - 1))
+          setUploadError(`Connection hiccup — retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1}/${MAX_ATTEMPTS})`)
+          await new Promise(r => setTimeout(r, delay))
+          setUploadError(null)
         }
       }
     }

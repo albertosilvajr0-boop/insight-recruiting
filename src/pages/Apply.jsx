@@ -1,12 +1,22 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc, addDoc, collection, query, where, orderBy, getDocs, serverTimestamp } from 'firebase/firestore'
 import { ref, uploadBytesResumable } from 'firebase/storage'
 import { v4 as uuidv4 } from 'uuid'
 import { db, storage } from '../firebase'
 import VideoRecorder from '../components/VideoRecorder'
+import DeviceCheck from '../components/DeviceCheck'
 
 const STEPS = ['info', 'resume', 'interview', 'submitting']
+const DRAFT_KEY_PREFIX = 'apply_draft_v1_'
+// Total length of interview we estimate — used for the progress map.
+function summarizeQuestionTime(q) {
+  if (q?.timerType === 'hard' && q.timerSeconds) return q.timerSeconds
+  if (q?.timerType === 'soft' && q.timerSeconds) return q.timerSeconds
+  if (q?.type === 'text_response') return 180
+  if (q?.type === 'video_reading') return 60
+  return 120
+}
 
 export default function Apply() {
   const { jobId } = useParams()
@@ -18,11 +28,22 @@ export default function Apply() {
   const [currentQuestion, setCurrentQuestion] = useState(0)
   const [questions, setQuestions] = useState([])
 
-  const [candidateId] = useState(() => uuidv4())
+  // Candidate ID is stable across reloads — we derive it from localStorage so
+  // that video uploads, resume uploads, and the draft all point at the same
+  // record if the user drops off and returns.
+  const draftKey = `${DRAFT_KEY_PREFIX}${jobId}`
+  const [candidateId] = useState(() => {
+    try {
+      const existing = JSON.parse(localStorage.getItem(draftKey) || 'null')
+      if (existing?.candidateId) return existing.candidateId
+    } catch { /* corrupt draft — fall through */ }
+    return uuidv4()
+  })
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', phone: '' })
   const [formErrors, setFormErrors] = useState({})
   const [resumeFile, setResumeFile] = useState(null)
   const [resumeUrl, setResumeUrl] = useState(null)
+  const [resumeFileName, setResumeFileName] = useState(null)
   const [resumeUploading, setResumeUploading] = useState(false)
   const [resumeProgress, setResumeProgress] = useState(0)
   const [videoResponses, setVideoResponses] = useState({})
@@ -32,6 +53,66 @@ export default function Apply() {
   const [hardTimerRemaining, setHardTimerRemaining] = useState(null)
   const [softTimerRemaining, setSoftTimerRemaining] = useState(null)
   const [hardTimerExpired, setHardTimerExpired] = useState(false)
+  const [hardTimerWarned, setHardTimerWarned] = useState(false)
+  const [draftRestored, setDraftRestored] = useState(false)
+  const [deviceCheckPassed, setDeviceCheckPassed] = useState(false)
+  const [videoUploadProgress, setVideoUploadProgress] = useState({}) // { qIndex: pct }
+  // State (not ref) so the save effect can't run until AFTER restored state
+  // has been committed to React. Using a ref would race against the first
+  // save effect pass, briefly clobbering the persisted draft with empty state.
+  const [draftLoaded, setDraftLoaded] = useState(false)
+  const draftLoadedRef = useRef(false)
+
+  // Restore draft once on mount (before loading job so UI flashes at the right step).
+  useEffect(() => {
+    if (draftLoadedRef.current) return
+    draftLoadedRef.current = true
+    try {
+      const raw = localStorage.getItem(draftKey)
+      if (!raw) return
+      const draft = JSON.parse(raw)
+      if (draft.form) setForm(draft.form)
+      if (draft.resumeUrl) setResumeUrl(draft.resumeUrl)
+      if (draft.resumeFileName) setResumeFileName(draft.resumeFileName)
+      if (draft.videoResponses) setVideoResponses(draft.videoResponses)
+      if (draft.textResponses) setTextResponses(draft.textResponses)
+      if (typeof draft.currentQuestion === 'number') setCurrentQuestion(draft.currentQuestion)
+      if (draft.step && STEPS.includes(draft.step) && draft.step !== 'submitting') setStep(draft.step)
+      if (draft.form?.firstName || draft.resumeUrl || Object.keys(draft.videoResponses || {}).length > 0) {
+        setDraftRestored(true)
+      }
+    } catch (err) {
+      console.warn('Failed to restore draft:', err)
+    } finally {
+      // Defer flipping the "ready to save" flag to the next tick so any
+      // setState calls above get committed first.
+      setTimeout(() => setDraftLoaded(true), 0)
+    }
+  }, [draftKey])
+
+  // Persist draft on any meaningful change. We intentionally don't store
+  // binary blobs — just storage paths and primitive form fields — so the
+  // draft stays well under localStorage's 5MB budget.
+  useEffect(() => {
+    if (!draftLoaded) return
+    if (step === 'submitting') return
+    try {
+      const draft = {
+        candidateId,
+        form,
+        resumeUrl,
+        resumeFileName,
+        videoResponses,
+        textResponses,
+        currentQuestion,
+        step,
+        savedAt: Date.now()
+      }
+      localStorage.setItem(draftKey, JSON.stringify(draft))
+    } catch {
+      /* quota errors are non-fatal — the candidate just loses resume-on-reload */
+    }
+  }, [draftLoaded, candidateId, form, resumeUrl, resumeFileName, videoResponses, textResponses, currentQuestion, step, draftKey])
 
   useEffect(() => {
     async function loadJob() {
@@ -76,6 +157,7 @@ export default function Apply() {
       const now = Date.now()
       setQuestionStartTime(now)
       setHardTimerExpired(false)
+      setHardTimerWarned(false)
 
       const q = questions[currentQuestion]
       if (q?.timerType === 'hard' && q.timerSeconds > 0) {
@@ -91,7 +173,8 @@ export default function Apply() {
     }
   }, [currentQuestion, step, questions])
 
-  // Hard timer countdown
+  // Hard timer countdown — also fires a one-time "30s remaining" warning so
+  // candidates aren't blindsided by auto-submit on short hard timers.
   useEffect(() => {
     if (hardTimerRemaining === null || hardTimerRemaining <= 0) return
     const interval = setInterval(() => {
@@ -100,6 +183,24 @@ export default function Apply() {
           clearInterval(interval)
           setHardTimerExpired(true)
           return 0
+        }
+        // Threshold depends on total timer — 30s warning on longer timers,
+        // 10s on short ones so we don't warn at the same instant we start.
+        const origSec = questions[currentQuestion]?.timerSeconds || 0
+        const warnAt = origSec >= 60 ? 30 : origSec >= 30 ? 10 : 5
+        if (prev - 1 === warnAt && !hardTimerWarned) {
+          setHardTimerWarned(true)
+          try {
+            // Soft audible cue — safe-guarded; some browsers block autoplay.
+            const ctx = new (window.AudioContext || window.webkitAudioContext)()
+            const osc = ctx.createOscillator()
+            const gain = ctx.createGain()
+            gain.gain.value = 0.08
+            osc.frequency.value = 880
+            osc.connect(gain).connect(ctx.destination)
+            osc.start()
+            setTimeout(() => { osc.stop(); ctx.close() }, 200)
+          } catch { /* audio not critical */ }
         }
         return prev - 1
       })
@@ -160,6 +261,7 @@ export default function Apply() {
     if (!file) return
     if (file.size > 10 * 1024 * 1024) { alert('File too large. Maximum 10MB.'); return }
     setResumeFile(file)
+    setResumeFileName(file.name)
     setResumeUrl(null)
     setResumeUploading(true)
     setResumeProgress(0)
@@ -177,10 +279,20 @@ export default function Apply() {
       console.error('Resume upload failed:', err)
       alert('Upload failed. Please try again.')
       setResumeFile(null)
+      setResumeFileName(null)
       setResumeUrl(null)
     } finally {
       setResumeUploading(false)
     }
+  }
+
+  const clearDraft = () => {
+    try { localStorage.removeItem(draftKey) } catch { /* ignore */ }
+  }
+
+  const discardDraft = () => {
+    clearDraft()
+    window.location.reload()
   }
 
   const handleResumeNext = () => {
@@ -226,6 +338,9 @@ export default function Apply() {
         questionMap[i] = { questionId: q.id, text: q.text, type: q.type, category: q.category }
       })
 
+      // Status portal token — lets the candidate check their application
+      // status later without needing an account.
+      const statusToken = uuidv4()
       await addDoc(collection(db, 'candidates'), {
         candidateId,
         ...form,
@@ -239,13 +354,15 @@ export default function Apply() {
         textResponses: finalTextResponses || textResponses,
         questions: questionMap,
         timingData,
+        statusToken,
         compositeScore: null,
         resumeScore: null,
         interviewScore: null,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       })
-      navigate('/thank-you')
+      clearDraft()
+      navigate(`/thank-you?token=${statusToken}`)
     } catch (err) {
       alert('Submission failed. Please try again.')
       setStep('interview')
@@ -295,6 +412,20 @@ export default function Apply() {
       )}
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+
+        {/* Draft restored banner */}
+        {draftRestored && step !== 'submitting' && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-amber-900">We picked up where you left off</p>
+              <p className="text-xs text-amber-700 mt-0.5">Your answers were saved to this device. You can keep going or start over.</p>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button onClick={() => setDraftRestored(false)} className="text-xs font-medium text-amber-900 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg">Continue</button>
+              <button onClick={discardDraft} className="text-xs font-medium text-gray-600 hover:text-gray-900">Start over</button>
+            </div>
+          </div>
+        )}
 
         {/* Step 1: Personal info */}
         {step === 'info' && (
@@ -375,15 +506,98 @@ export default function Apply() {
           </div>
         )}
 
-        {/* Total time guidance — shown once at start of interview */}
-        {step === 'interview' && currentQuestion === 0 && !timingData[0] && (
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
-            This should take about 20–30 minutes total. Some questions are timed to simulate real-world decision-making.
+        {/* Total time guidance + full question map — shown once at start of interview */}
+        {step === 'interview' && currentQuestion === 0 && !videoResponses[0] && !textResponses[0] && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800 space-y-3">
+            <div>
+              <p className="font-semibold">Here's what's coming</p>
+              <p className="text-xs text-blue-700 mt-0.5">
+                {questions.length} questions · about {Math.max(5, Math.round(questions.reduce((s, q) => s + summarizeQuestionTime(q), 0) / 60))} minutes total.
+                A few are timed — you'll see a countdown when they start.
+              </p>
+            </div>
+            <ol className="text-xs text-blue-900 space-y-1 list-decimal list-inside max-h-40 overflow-y-auto">
+              {questions.map((q, i) => {
+                const typeLabel = q.type === 'video_reading' ? 'Script reading'
+                  : q.type === 'text_response' ? 'Written'
+                  : 'Video'
+                const timerLabel = q.timerType === 'hard' ? ` · ${q.timerSeconds}s timer` : q.timerType === 'soft' ? ` · ~${q.timerSeconds}s suggested` : ''
+                return (
+                  <li key={q.id || i} className="truncate">
+                    <span className="font-medium">{typeLabel}</span>{timerLabel}
+                  </li>
+                )
+              })}
+            </ol>
           </div>
         )}
 
+        {/* Offline banner — visible anywhere during the apply flow */}
+        {step !== 'submitting' && <OfflineBanner />}
+
+        {/* Aggregate upload progress during interview */}
+        {step === 'interview' && Object.keys(videoUploadProgress).length > 0 && (() => {
+          const entries = Object.entries(videoUploadProgress)
+          const done = entries.filter(([, p]) => p >= 100).length
+          const avg = Math.round(entries.reduce((s, [, p]) => s + p, 0) / entries.length)
+          const active = entries.find(([, p]) => p > 0 && p < 100)
+          if (done === entries.length && !active) return null
+          return (
+            <div className="bg-white border border-gray-200 rounded-xl p-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-xs font-medium text-gray-700">Saving your recordings</p>
+                <p className="text-xs text-gray-500">{done}/{entries.length} uploaded</p>
+              </div>
+              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-500 rounded-full transition-all duration-200" style={{ width: `${avg}%` }} />
+              </div>
+              {active && <p className="text-[11px] text-gray-400 mt-1">Keep this tab open while we upload your answer.</p>}
+            </div>
+          )
+        })()}
+
+        {/* Persistent per-question progress map during interview */}
+        {step === 'interview' && questions.length > 0 && currentQuestion > 0 && (
+          <div className="bg-white border border-gray-200 rounded-xl p-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-gray-500">Interview progress</p>
+              <p className="text-xs text-gray-400">{currentQuestion + 1} / {questions.length}</p>
+            </div>
+            <div className="flex gap-1">
+              {questions.map((_, i) => {
+                const answered = videoResponses[i] || textResponses[i]
+                const isCurrent = i === currentQuestion
+                return (
+                  <div key={i}
+                    className={`h-1.5 flex-1 rounded-full ${isCurrent ? 'bg-blue-500' : answered ? 'bg-green-400' : 'bg-gray-200'}`}
+                    title={`Question ${i + 1}`}
+                  />
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 30s hard timer warning toast */}
+        {step === 'interview' && hardTimerWarned && hardTimerRemaining > 0 && (
+          <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 text-sm text-amber-900 flex items-center gap-2 animate-pulse">
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z" /></svg>
+            <span>Heads up — {formatTimer(hardTimerRemaining)} left before this question auto-submits.</span>
+          </div>
+        )}
+
+        {/* Device check — shown once before the first video-type question */}
+        {step === 'interview' && currentQ && !deviceCheckPassed && currentQuestion === 0 &&
+         (currentQ.type === 'video_response' || currentQ.type === 'video_reading') && (
+          <DeviceCheck
+            mode="video"
+            onReady={() => setDeviceCheckPassed(true)}
+            onSkip={() => setDeviceCheckPassed(true)}
+          />
+        )}
+
         {/* Step 3: Interview Questions */}
-        {step === 'interview' && currentQ && (
+        {step === 'interview' && currentQ && (deviceCheckPassed || currentQuestion > 0 || (currentQ.type !== 'video_response' && currentQ.type !== 'video_reading')) && (
           <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
             <div className="flex items-start justify-between">
               <div>
@@ -442,6 +656,7 @@ export default function Apply() {
                   questionIndex={currentQuestion}
                   mode="video"
                   onComplete={handleVideoComplete}
+                  onUploadProgress={(qi, pct) => setVideoUploadProgress(prev => ({ ...prev, [qi]: pct }))}
                 />
               </>
             )}
@@ -496,6 +711,27 @@ export default function Apply() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function OfflineBanner() {
+  const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine)
+  useEffect(() => {
+    const up = () => setOnline(true)
+    const down = () => setOnline(false)
+    window.addEventListener('online', up)
+    window.addEventListener('offline', down)
+    return () => {
+      window.removeEventListener('online', up)
+      window.removeEventListener('offline', down)
+    }
+  }, [])
+  if (online) return null
+  return (
+    <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 text-sm text-amber-900 flex items-center gap-2">
+      <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636L5.636 18.364m0-12.728l12.728 12.728" /></svg>
+      <span>You're offline. Don't worry — your answers are saved locally and will upload once you're back online.</span>
     </div>
   )
 }

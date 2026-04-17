@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
 import { ref, getDownloadURL, listAll } from 'firebase/storage'
 import { db, storage } from '../firebase'
 import { format } from 'date-fns'
+import ResumeViewer from '../components/ResumeViewer'
 
 const STAGE_LABELS = {
   applied: 'Applied', scored: 'Scored', to_schedule: 'To Schedule',
@@ -52,6 +53,11 @@ export default function AdminCandidate() {
   // Manual scores
   const [resumeScores, setResumeScores] = useState({})
   const [answerScores, setAnswerScores] = useState({})
+  const [expandedTranscripts, setExpandedTranscripts] = useState({})
+  const [saveStatus, setSaveStatus] = useState('idle') // idle | saving | saved
+  const videoElRefs = useRef({})
+  const saveTimerRef = useRef(null)
+  const dirtyRef = useRef(false)
 
   useEffect(() => {
     async function load() {
@@ -147,10 +153,46 @@ export default function AdminCandidate() {
 
   const setResumeScore = (key, value) => {
     setResumeScores(prev => ({ ...prev, [key]: value }))
+    dirtyRef.current = true
   }
 
   const setAnswerScore = (qIndex, value) => {
     setAnswerScores(prev => ({ ...prev, [qIndex]: value }))
+    dirtyRef.current = true
+  }
+
+  // Auto-save scores ~800ms after the last change. Keeps manual evaluation
+  // incremental — evaluators never lose work mid-review.
+  useEffect(() => {
+    if (!candidate) return
+    if (!dirtyRef.current) return
+    clearTimeout(saveTimerRef.current)
+    setSaveStatus('saving')
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        const cumulative = calcCumulativeScore()
+        await updateDoc(doc(db, 'candidates', candidateId), {
+          manualResumeScores: resumeScores,
+          manualAnswerScores: answerScores,
+          manualScore: cumulative ? { avg: parseFloat(cumulative.avg), sum: cumulative.sum, count: cumulative.count, max: cumulative.max } : null,
+          updatedAt: serverTimestamp()
+        })
+        dirtyRef.current = false
+        setSaveStatus('saved')
+        setTimeout(() => setSaveStatus(s => s === 'saved' ? 'idle' : s), 1500)
+      } catch (err) {
+        console.error('Auto-save failed:', err)
+        setSaveStatus('idle')
+      }
+    }, 800)
+    return () => clearTimeout(saveTimerRef.current)
+  }, [resumeScores, answerScores]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleFlag = async () => {
+    try {
+      await updateDoc(doc(db, 'candidates', candidateId), { needsReview: !candidate.needsReview, updatedAt: serverTimestamp() })
+      setCandidate(c => ({ ...c, needsReview: !c.needsReview }))
+    } catch (err) { alert('Failed to flag: ' + err.message) }
   }
 
   const saveAllScores = async () => {
@@ -208,6 +250,15 @@ export default function AdminCandidate() {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            {saveStatus !== 'idle' && (
+              <span className={`text-[11px] px-2 py-1 rounded-full font-medium ${saveStatus === 'saving' ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-700'}`}>
+                {saveStatus === 'saving' ? 'Saving…' : 'Saved'}
+              </span>
+            )}
+            <button onClick={toggleFlag} title={candidate.needsReview ? 'Unflag' : 'Flag for second opinion'}
+              className={`text-xs font-medium px-3 py-1.5 rounded-lg border ${candidate.needsReview ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-white text-gray-600 border-gray-200 hover:bg-amber-50 hover:text-amber-700'}`}>
+              {candidate.needsReview ? '⚑ Flagged' : 'Flag'}
+            </button>
             {getNextStage() && candidate.stage !== 'rejected' && (
               <button onClick={() => updateStage(getNextStage())} disabled={actionLoading}
                 className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
@@ -236,21 +287,50 @@ export default function AdminCandidate() {
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
 
-        {/* Cumulative Score Card */}
+        {/* Cumulative Score Card — side-by-side with AI composite where available */}
         <div className="bg-white rounded-2xl border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
+          <div className="grid grid-cols-2 gap-6">
             <div>
-              <h2 className="text-sm font-semibold text-gray-900">Cumulative Score</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Based on manager's manual scoring below</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Your score</p>
+              <p className="text-xs text-gray-500 mt-0.5">Manual scoring below</p>
+              {cumulative ? (
+                <div className="mt-2">
+                  <p className={`text-3xl font-bold ${scoreColor(cumulative.avg)}`}>{cumulative.avg}<span className="text-lg text-gray-400">/5</span></p>
+                  <p className="text-xs text-gray-500">{cumulative.sum} of {cumulative.max} points ({cumulative.count} items)</p>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 mt-2">Not yet scored</p>
+              )}
             </div>
-            {cumulative ? (
-              <div className="text-right">
-                <p className={`text-3xl font-bold ${scoreColor(cumulative.avg)}`}>{cumulative.avg}<span className="text-lg text-gray-400">/5</span></p>
-                <p className="text-xs text-gray-500">{cumulative.sum} of {cumulative.max} points ({cumulative.count} items scored)</p>
-              </div>
-            ) : (
-              <p className="text-sm text-gray-400">Not yet scored</p>
-            )}
+            <div className="border-l border-gray-100 pl-6">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">AI score</p>
+              <p className="text-xs text-gray-500 mt-0.5">Claude's blended assessment</p>
+              {candidate.compositeScore != null ? (
+                <div className="mt-2">
+                  <p className={`text-3xl font-bold ${
+                    candidate.compositeScore >= 8 ? 'text-green-600' : candidate.compositeScore >= 5 ? 'text-amber-600' : 'text-red-600'
+                  }`}>{candidate.compositeScore.toFixed(1)}<span className="text-lg text-gray-400">/10</span></p>
+                  <p className="text-xs text-gray-500">
+                    Resume {candidate.resumeScore ?? '—'}/10 · Interview {candidate.interviewScore ?? '—'}/10
+                  </p>
+                  {(() => {
+                    // Flag large disagreements (>2 on a normalized scale)
+                    // so the evaluator knows to look closer.
+                    if (!cumulative || candidate.compositeScore == null) return null
+                    const normalizedManual = parseFloat(cumulative.avg) * 2 // 5-scale → 10-scale
+                    const delta = Math.abs(normalizedManual - candidate.compositeScore)
+                    if (delta < 2) return null
+                    return (
+                      <p className="mt-2 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                        ⚠ You and the AI disagree by {delta.toFixed(1)} points — worth a second look.
+                      </p>
+                    )
+                  })()}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 mt-2">AI scoring pending</p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -282,7 +362,7 @@ export default function AdminCandidate() {
             )}
           </div>
           {resumeDownloadUrl && (
-            <iframe src={resumeDownloadUrl} className="w-full h-80 border border-gray-200 rounded-lg" title="Resume" />
+            <ResumeViewer url={resumeDownloadUrl} fileName={candidate.resumeUrl} />
           )}
 
           <div className="border-t border-gray-100 pt-4">
@@ -331,8 +411,50 @@ export default function AdminCandidate() {
                     </div>
                   </div>
                   {hasVideo && (
-                    <div className="ml-9">
-                      <video controls src={videoUrls[qIndex]} className="w-full rounded-lg border border-gray-200" />
+                    <div className="ml-9 space-y-2">
+                      <video
+                        ref={el => { if (el) videoElRefs.current[qIndex] = el }}
+                        controls src={videoUrls[qIndex]}
+                        className="w-full rounded-lg border border-gray-200" />
+                      {candidate.videoTranscripts?.[qIndex] && (
+                        <div className="bg-gray-50 border border-gray-200 rounded-lg">
+                          <button
+                            onClick={() => setExpandedTranscripts(p => ({ ...p, [qIndex]: !p[qIndex] }))}
+                            className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg"
+                          >
+                            <span className="flex items-center gap-2">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                              Transcript
+                            </span>
+                            <span className="text-gray-400">{expandedTranscripts[qIndex] ? 'Hide' : 'Show'}</span>
+                          </button>
+                          {expandedTranscripts[qIndex] && (
+                            <div className="px-3 pb-3 space-y-1 max-h-64 overflow-y-auto">
+                              {(candidate.videoTranscripts[qIndex].segments || []).length > 0
+                                ? candidate.videoTranscripts[qIndex].segments.map((seg, i) => (
+                                    <button
+                                      key={i}
+                                      onClick={() => {
+                                        const el = videoElRefs.current[qIndex]
+                                        if (el) { el.currentTime = seg.start; el.play?.() }
+                                      }}
+                                      className="flex items-start gap-2 w-full text-left hover:bg-white rounded px-1.5 py-1"
+                                    >
+                                      <span className="text-[11px] font-mono text-blue-600 shrink-0 w-10">
+                                        {Math.floor(seg.start / 60)}:{String(Math.floor(seg.start % 60)).padStart(2, '0')}
+                                      </span>
+                                      <span className="text-xs text-gray-700 leading-relaxed">{seg.text}</span>
+                                    </button>
+                                  ))
+                                : (
+                                  <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">
+                                    {candidate.videoTranscripts[qIndex].transcript || '(No transcript available)'}
+                                  </p>
+                                )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                   {hasText && (
@@ -376,13 +498,15 @@ export default function AdminCandidate() {
           </div>
         )}
 
-        {/* Save Scores Button */}
-        <div className="flex justify-center">
-          <button onClick={saveAllScores} disabled={saving}
-            className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-3 px-8 rounded-xl text-sm transition-colors">
-            {saving ? 'Saving scores…' : candidate.stage === 'applied' ? 'Save Scores & Mark as Scored' : 'Save Scores'}
-          </button>
-        </div>
+        {/* Mark as scored — only relevant while still in Applied */}
+        {candidate.stage === 'applied' && (
+          <div className="flex justify-center">
+            <button onClick={saveAllScores} disabled={saving}
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-3 px-8 rounded-xl text-sm transition-colors">
+              {saving ? 'Saving…' : 'Mark as Scored'}
+            </button>
+          </div>
+        )}
 
         {/* AI Analysis (if available) */}
         {(candidate.resumeAnalysis || candidate.interviewAnalysis) && (

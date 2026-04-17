@@ -61,13 +61,17 @@ Score 1-10 based on:
 - Motivation and enthusiasm (weight: 15%)`
 }
 
-async function transcribeAudio(audioBuffer) {
+async function transcribeAudio(audioBuffer, mimeHint) {
   const speech = google.speech('v1')
   const auth = new google.auth.GoogleAuth({
     scopes: ['https://www.googleapis.com/auth/cloud-platform']
   })
   const authClient = await auth.getClient()
 
+  // Pick encoding based on what the browser actually recorded. Safari
+  // uploads MP4/AAC; Chrome/Firefox WEBM/Opus. Hardcoding WEBM_OPUS
+  // silently produced empty transcripts for any iOS applicant.
+  const encoding = mimeHint && mimeHint.includes('mp4') ? 'MP4' : 'WEBM_OPUS'
   const request = {
     auth: authClient,
     requestBody: {
@@ -75,10 +79,11 @@ async function transcribeAudio(audioBuffer) {
         content: audioBuffer.toString('base64')
       },
       config: {
-        encoding: 'WEBM_OPUS',
-        sampleRateHertz: 48000,
+        encoding,
+        sampleRateHertz: encoding === 'MP4' ? 44100 : 48000,
         languageCode: 'en-US',
         enableAutomaticPunctuation: true,
+        enableWordTimeOffsets: true,
         model: 'latest_long'
       }
     }
@@ -86,23 +91,47 @@ async function transcribeAudio(audioBuffer) {
 
   const response = await speech.speech.recognize(request)
   const results = response.data.results || []
-  return results.map(r => r.alternatives?.[0]?.transcript || '').join(' ')
+  const transcript = results.map(r => r.alternatives?.[0]?.transcript || '').join(' ')
+  // Collect timestamps for the first alternative of each result so the
+  // admin UI can render a skimmable, click-to-seek view.
+  const words = []
+  for (const r of results) {
+    const alt = r.alternatives?.[0]
+    if (!alt?.words) continue
+    for (const w of alt.words) {
+      const start = parseFloat((w.startTime || '0s').toString().replace('s', ''))
+      words.push({ word: w.word, start })
+    }
+  }
+  // Reduce to sentence-level segments so the UI isn't overwhelming —
+  // group every ~12 words with their starting timestamp.
+  const segments = []
+  for (let i = 0; i < words.length; i += 12) {
+    const slice = words.slice(i, i + 12)
+    if (slice.length === 0) continue
+    segments.push({ start: slice[0].start, text: slice.map(w => w.word).join(' ') })
+  }
+  return { transcript, segments }
 }
 
 async function downloadAndConcatChunks(bucket, videoPath) {
   // videoPath is like "videos/{candidateId}" — list all chunks
   const [files] = await bucket.getFiles({ prefix: videoPath })
 
-  // Prefer full_recording.webm if it exists (fallback upload)
-  const fullRecording = files.find(f => f.name.endsWith('full_recording.webm'))
-  if (fullRecording) {
-    const [buffer] = await fullRecording.download()
-    return buffer
+  // Prefer full_recording.webm / recording.{webm,mp4} if it exists (single-file upload)
+  const single = files.find(f =>
+    f.name.endsWith('full_recording.webm') ||
+    f.name.endsWith('recording.webm') ||
+    f.name.endsWith('recording.mp4')
+  )
+  if (single) {
+    const [buffer] = await single.download()
+    return { buffer, mime: single.metadata?.contentType || (single.name.endsWith('.mp4') ? 'video/mp4' : 'video/webm') }
   }
 
   // Otherwise concat chunks
   const chunkFiles = files
-    .filter(f => f.name.endsWith('.webm') && !f.name.includes('manifest'))
+    .filter(f => (f.name.endsWith('.webm') || f.name.endsWith('.mp4')) && !f.name.includes('manifest'))
     .sort((a, b) => a.name.localeCompare(b.name))
 
   if (chunkFiles.length === 0) return null
@@ -113,7 +142,7 @@ async function downloadAndConcatChunks(bucket, videoPath) {
     buffers.push(buffer)
   }
 
-  return Buffer.concat(buffers)
+  return { buffer: Buffer.concat(buffers), mime: chunkFiles[0].name.endsWith('.mp4') ? 'video/mp4' : 'video/webm' }
 }
 
 export async function transcribeAndScoreVideo(candidateId, candidate) {
@@ -124,25 +153,30 @@ export async function transcribeAndScoreVideo(candidateId, candidate) {
   const questions = INTERVIEW_QUESTIONS[roleKey] || INTERVIEW_QUESTIONS['sales-rep']
 
   let fullTranscript = ''
+  const perQuestion = {} // { [qIndex]: { transcript, segments } }
 
   // Transcribe each video response
   for (const [qIndex, path] of Object.entries(videoResponses)) {
     if (!path || path.startsWith('skipped')) {
       fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questions[qIndex] || 'Unknown'}"\nAnswer: [Skipped]\n`
+      perQuestion[qIndex] = { transcript: '[Skipped]', segments: [] }
       continue
     }
 
     try {
-      const audioBuffer = await downloadAndConcatChunks(bucket, path)
-      if (audioBuffer) {
-        const transcript = await transcribeAudio(audioBuffer)
+      const downloaded = await downloadAndConcatChunks(bucket, path)
+      if (downloaded) {
+        const { transcript, segments } = await transcribeAudio(downloaded.buffer, downloaded.mime)
         fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questions[qIndex] || 'Unknown'}"\nAnswer: ${transcript}\n`
+        perQuestion[qIndex] = { transcript, segments }
       } else {
         fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questions[qIndex] || 'Unknown'}"\nAnswer: [No audio captured]\n`
+        perQuestion[qIndex] = { transcript: '[No audio captured]', segments: [] }
       }
     } catch (err) {
       console.error(`[transcribe] Error for question ${qIndex}:`, err.message)
       fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questions[qIndex] || 'Unknown'}"\nAnswer: [Transcription failed]\n`
+      perQuestion[qIndex] = { transcript: '[Transcription failed]', segments: [] }
     }
   }
 
@@ -172,6 +206,7 @@ export async function transcribeAndScoreVideo(candidateId, candidate) {
   // Save to Firestore
   await db.collection('candidates').doc(candidateId).update({
     videoTranscript: fullTranscript,
+    videoTranscripts: perQuestion,
     interviewScore: result.score,
     interviewAnalysis: result.reasoning,
     interviewStrengths: result.strengths,
