@@ -8,14 +8,15 @@ import ResumeViewer from '../components/ResumeViewer'
 
 const STAGE_LABELS = {
   applied: 'Applied', scored: 'Scored', to_schedule: 'To Schedule',
-  scheduled: 'Scheduled', rejected: 'Rejected'
+  scheduled: 'Scheduled', hired: 'Hired', onboarding: 'Onboarding', rejected: 'Rejected'
 }
 const STAGE_COLORS = {
   applied: 'bg-blue-100 text-blue-800', scored: 'bg-amber-100 text-amber-800',
   to_schedule: 'bg-purple-100 text-purple-800', scheduled: 'bg-green-100 text-green-800',
+  hired: 'bg-emerald-100 text-emerald-800', onboarding: 'bg-teal-100 text-teal-800',
   rejected: 'bg-gray-100 text-gray-600'
 }
-const STAGE_FLOW = ['applied', 'scored', 'to_schedule', 'scheduled']
+const STAGE_FLOW = ['applied', 'scored', 'to_schedule', 'scheduled', 'hired', 'onboarding']
 
 const RESUME_CRITERIA = [
   { key: 'relevant_experience', label: 'Relevant experience for this role' },
@@ -66,7 +67,7 @@ export default function AdminCandidate() {
         if (!snap.exists()) { navigate('/admin/dashboard'); return }
         const data = { id: snap.id, ...snap.data() }
         // Migrate old stages
-        const STAGE_MIGRATION = { screening: 'applied', interview_2: 'applied', scheduling: 'to_schedule', hired: 'scheduled' }
+        const STAGE_MIGRATION = { screening: 'applied', interview_2: 'applied', scheduling: 'to_schedule' }
         if (STAGE_MIGRATION[data.stage]) data.stage = STAGE_MIGRATION[data.stage]
         setCandidate(data)
         setNotes(data.adminNotes || '')

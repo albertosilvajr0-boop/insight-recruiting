@@ -5,15 +5,15 @@ import { signOut } from "firebase/auth"
 import { db, auth } from "../firebase"
 import { format, differenceInHours } from "date-fns"
 
-const STAGES = ["applied","scored","to_schedule","scheduled","rejected"]
-const STAGE_LABELS = { applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", rejected:"Rejected" }
+const STAGES = ["applied","scored","to_schedule","scheduled","hired","onboarding","rejected"]
+const STAGE_LABELS = { applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", hired:"Hired", onboarding:"Onboarding", rejected:"Rejected" }
 // Map old stages to new ones for backwards compatibility
 const STAGE_MIGRATION = { screening: "applied", interview_2: "applied", scheduling: "to_schedule" }
 
 // SLA: how long a candidate can sit in a stage before it's considered stale.
 // These numbers reflect what a recruiter actually cares about — an "Applied"
 // candidate still unscored at 48h is falling through the cracks.
-const STAGE_SLA_HOURS = { applied: 48, scored: 48, to_schedule: 72, scheduled: 0, rejected: 0 }
+const STAGE_SLA_HOURS = { applied: 48, scored: 48, to_schedule: 72, scheduled: 0, hired: 0, onboarding: 0, rejected: 0 }
 
 function stageOf(c) {
   return STAGE_MIGRATION[c.stage] || c.stage
