@@ -5,6 +5,7 @@ import { ref, getDownloadURL, listAll } from 'firebase/storage'
 import { db, storage } from '../firebase'
 import { format } from 'date-fns'
 import ResumeViewer from '../components/ResumeViewer'
+import { downloadCandidateProfile } from '../utils/downloadProfile'
 
 const STAGE_LABELS = {
   applied: 'Applied', scored: 'Scored', to_schedule: 'To Schedule',
@@ -49,6 +50,7 @@ export default function AdminCandidate() {
   const [actionLoading, setActionLoading] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [downloadStatus, setDownloadStatus] = useState('') // '' | progress text
 
   // Manual scores
   const [resumeScores, setResumeScores] = useState({})
@@ -188,6 +190,20 @@ export default function AdminCandidate() {
     return () => clearTimeout(saveTimerRef.current)
   }, [resumeScores, answerScores]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const handleDownload = async () => {
+    if (downloadStatus) return
+    try {
+      const { issues } = await downloadCandidateProfile(candidate, setDownloadStatus)
+      if (issues.length) {
+        alert(`Downloaded, but some files were missing:\n\n${issues.join('\n')}`)
+      }
+    } catch (err) {
+      alert('Download failed: ' + (err.message || err))
+    } finally {
+      setDownloadStatus('')
+    }
+  }
+
   const toggleFlag = async () => {
     try {
       await updateDoc(doc(db, 'candidates', candidateId), { needsReview: !candidate.needsReview, updatedAt: serverTimestamp() })
@@ -255,6 +271,11 @@ export default function AdminCandidate() {
                 {saveStatus === 'saving' ? 'Saving…' : 'Saved'}
               </span>
             )}
+            <button onClick={handleDownload} disabled={!!downloadStatus}
+              title="Download resume + videos + summary as a ZIP you can email"
+              className="text-xs font-medium px-3 py-1.5 rounded-lg border bg-white text-gray-700 border-gray-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 disabled:opacity-60 disabled:cursor-wait">
+              {downloadStatus || '↓ Download profile'}
+            </button>
             <button onClick={toggleFlag} title={candidate.needsReview ? 'Unflag' : 'Flag for second opinion'}
               className={`text-xs font-medium px-3 py-1.5 rounded-lg border ${candidate.needsReview ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-white text-gray-600 border-gray-200 hover:bg-amber-50 hover:text-amber-700'}`}>
               {candidate.needsReview ? '⚑ Flagged' : 'Flag'}

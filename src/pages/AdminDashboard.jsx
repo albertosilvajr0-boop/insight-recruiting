@@ -4,6 +4,7 @@ import { collection, query, orderBy, onSnapshot, doc, getDoc, setDoc, updateDoc,
 import { signOut } from "firebase/auth"
 import { db, auth } from "../firebase"
 import { format, differenceInHours } from "date-fns"
+import { downloadCandidateProfile } from "../utils/downloadProfile"
 
 const STAGES = ["applied","scored","to_schedule","scheduled","rejected"]
 const STAGE_LABELS = { applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", rejected:"Rejected" }
@@ -39,7 +40,24 @@ export default function AdminDashboard() {
   const [filterAging, setFilterAging] = useState(false)
   const [filterFlagged, setFilterFlagged] = useState(false)
   const [bulkConfirm, setBulkConfirm] = useState(null) // { action, ids }
+  const [downloadingId, setDownloadingId] = useState(null)
   const navigate = useNavigate()
+
+  const handleCardDownload = async (e, c) => {
+    e.stopPropagation()
+    if (downloadingId) return
+    setDownloadingId(c.id)
+    try {
+      const { issues } = await downloadCandidateProfile(c)
+      if (issues.length) {
+        alert(`Downloaded ${c.firstName} ${c.lastName}'s profile, but some files were missing:\n\n${issues.join('\n')}`)
+      }
+    } catch (err) {
+      alert('Download failed: ' + (err.message || err))
+    } finally {
+      setDownloadingId(null)
+    }
+  }
 
   useEffect(() => {
     const q = query(collection(db, "candidates"), orderBy("createdAt", "desc"))
@@ -324,6 +342,16 @@ export default function AdminDashboard() {
                               </div>
                             </div>
                             <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={(e) => handleCardDownload(e, c)}
+                                disabled={downloadingId === c.id}
+                                title="Download profile (resume + videos) as ZIP"
+                                className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-blue-50 hover:text-blue-600 text-xs disabled:opacity-60 disabled:cursor-wait"
+                              >
+                                {downloadingId === c.id ? (
+                                  <span className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                                ) : '↓'}
+                              </button>
                               <button onClick={(e) => toggleFlag(e, c)} title={c.needsReview ? "Unflag" : "Flag for review"} className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-amber-50 hover:text-amber-600 text-xs">⚑</button>
                               {stage !== "rejected" && (
                                 <button onClick={(e) => rejectCandidate(e, c)} title="Reject" className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600 text-xs">&#x2717;</button>
