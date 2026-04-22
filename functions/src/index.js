@@ -14,6 +14,7 @@ import { bookSlot } from './calendar/bookSlot.js'
 import { generateJobFeed } from './jobs/jobFeed.js'
 import { createUserHandler, updateUserHandler, deleteUserHandler } from './users/manageUsers.js'
 import { sendPhoneVerificationHandler, verifyPhoneCodeHandler } from './verification/phoneVerification.js'
+import { generateCandidateProfileZipHandler } from './admin/downloadProfile.js'
 
 initializeApp()
 
@@ -173,3 +174,14 @@ export const sendPhoneVerification = onCall(async (request) => {
 export const verifyPhoneCode = onCall(async (request) => {
   return verifyPhoneCodeHandler(request.data, request)
 })
+
+// ─── Candidate profile ZIP export (admin only) ────────────────────────────
+// Zips resume + video responses + text summary server-side and returns a
+// download URL. Done server-side to avoid browser CORS limits on the
+// Storage bucket.
+export const generateCandidateProfileZip = onCall(
+  { memory: '1GiB', timeoutSeconds: 540 },
+  async (request) => {
+    return generateCandidateProfileZipHandler(request.data, request)
+  }
+)
