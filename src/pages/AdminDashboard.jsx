@@ -10,6 +10,10 @@ const STAGES = ["applied","scored","to_schedule","scheduled","rejected"]
 const STAGE_LABELS = { applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", rejected:"Rejected" }
 // Map old stages to new ones for backwards compatibility
 const STAGE_MIGRATION = { screening: "applied", interview_2: "applied", scheduling: "to_schedule" }
+const ROLE_GROUPS = [
+  { key: "bdc-agent", label: "BDC Agent" },
+  { key: "sales-rep", label: "Salesperson" },
+]
 
 // SLA: how long a candidate can sit in a stage before it's considered stale.
 // These numbers reflect what a recruiter actually cares about — an "Applied"
@@ -183,6 +187,112 @@ export default function AdminDashboard() {
     }).length
   ), [candidates])
 
+  const groupedCandidates = useMemo(() => {
+    const groups = ROLE_GROUPS.map(group => ({
+      ...group,
+      candidates: filteredCandidates.filter(c => c.roleKey === group.key),
+    }))
+    const matchedIds = new Set(groups.flatMap(group => group.candidates.map(c => c.id)))
+    const otherCandidates = filteredCandidates.filter(c => !matchedIds.has(c.id))
+    if (otherCandidates.length) groups.push({ key: "other", label: "Other Roles", candidates: otherCandidates })
+    return groups
+  }, [filteredCandidates])
+
+  const renderKanbanBoard = (roleCandidates, roleScope) => (
+    <div className="overflow-x-auto">
+      <div className="flex gap-4 min-w-max">
+        {STAGES.map(stage => {
+          const cols = roleCandidates.filter(c => stageOf(c) === stage)
+          const stageScope = `${roleScope}:${stage}`
+          const isDragOver = dragOverStage === stageScope
+          return (
+            <div
+              key={stageScope}
+              className={`w-64 flex-shrink-0 rounded-xl transition-colors ${isDragOver ? "bg-blue-50 ring-2 ring-blue-400" : ""}`}
+              onDragOver={e => { e.preventDefault(); setDragOverStage(stageScope) }}
+              onDragLeave={() => setDragOverStage(p => p === stageScope ? null : p)}
+              onDrop={e => handleDrop(e, stage)}
+            >
+              <div className="flex items-center gap-2 mb-3 px-2 pt-2">
+                <span className="text-xs font-semibold text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full">{STAGE_LABELS[stage]}</span>
+                <span className="text-xs text-gray-400">{cols.length}</span>
+              </div>
+              <div className="space-y-2 min-h-16 px-2 pb-2">
+                {cols.length === 0 ? (
+                  <div className="border-2 border-dashed border-gray-200 rounded-xl h-16 flex items-center justify-center">
+                    <p className="text-xs text-gray-400">{isDragOver ? "Drop here" : "Empty"}</p>
+                  </div>
+                ) : cols.map(c => {
+                  const sla = STAGE_SLA_HOURS[stage] || 0
+                  const age = ageInStageHours(c)
+                  const isAging = sla > 0 && age >= sla
+                  const isSelected = selectedIds.has(c.id)
+                  return (
+                    <div
+                      key={c.id}
+                      draggable
+                      onDragStart={e => e.dataTransfer.setData("text/plain", c.id)}
+                      onClick={() => navigate(`/admin/candidates/${c.id}`)}
+                      className={`bg-white border rounded-xl p-3 cursor-pointer hover:border-blue-300 transition-all group ${
+                        isSelected ? "border-blue-500 ring-2 ring-blue-200" : isAging ? "border-red-300" : "border-gray-200"
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={e => toggleSelect(e, c.id)}
+                          onClick={e => e.stopPropagation()}
+                          className="mt-0.5 shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-900 text-sm truncate">{c.firstName} {c.lastName}</p>
+                          <p className="text-xs text-gray-500 mt-0.5 truncate">{c.jobTitle}</p>
+                          <div className="flex items-center gap-1 mt-1 flex-wrap">
+                            {c.manualScore?.avg != null && (
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.manualScore.avg >= 4 ? "bg-green-100 text-green-800" : c.manualScore.avg >= 3 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>
+                                {c.manualScore.avg.toFixed(1)}/5
+                              </span>
+                            )}
+                            {isAging && (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700" title={`In this stage for ${age}h (SLA ${sla}h)`}>
+                                {Math.floor(age / 24) > 0 ? `${Math.floor(age / 24)}d` : `${age}h`}
+                              </span>
+                            )}
+                            {c.needsReview && (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700" title="Flagged for second opinion">Flagged</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => handleCardDownload(e, c)}
+                            disabled={downloadingId === c.id}
+                            title="Download profile (resume + videos) as ZIP"
+                            className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-blue-50 hover:text-blue-600 text-xs disabled:opacity-60 disabled:cursor-wait"
+                          >
+                            {downloadingId === c.id ? (
+                              <span className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                            ) : '↓'}
+                          </button>
+                          <button onClick={(e) => toggleFlag(e, c)} title={c.needsReview ? "Unflag" : "Flag for review"} className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-amber-50 hover:text-amber-600 text-xs">⚑</button>
+                          {stage !== "rejected" && (
+                            <button onClick={(e) => rejectCandidate(e, c)} title="Reject" className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600 text-xs">&#x2717;</button>
+                          )}
+                          <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(c) }} title="Delete" className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600 text-xs">&#x1D5EB;</button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10">
@@ -276,97 +386,17 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Kanban */}
-        <div className="overflow-x-auto">
-          <div className="flex gap-4 min-w-max">
-            {STAGES.map(stage => {
-              const cols = filteredCandidates.filter(c => stageOf(c) === stage)
-              const isDragOver = dragOverStage === stage
-              return (
-                <div
-                  key={stage}
-                  className={`w-64 flex-shrink-0 rounded-xl transition-colors ${isDragOver ? "bg-blue-50 ring-2 ring-blue-400" : ""}`}
-                  onDragOver={e => { e.preventDefault(); setDragOverStage(stage) }}
-                  onDragLeave={() => setDragOverStage(p => p === stage ? null : p)}
-                  onDrop={e => handleDrop(e, stage)}
-                >
-                  <div className="flex items-center gap-2 mb-3 px-2 pt-2">
-                    <span className="text-xs font-semibold text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full">{STAGE_LABELS[stage]}</span>
-                    <span className="text-xs text-gray-400">{cols.length}</span>
-                  </div>
-                  <div className="space-y-2 min-h-16 px-2 pb-2">
-                    {cols.length === 0 ? (
-                      <div className="border-2 border-dashed border-gray-200 rounded-xl h-16 flex items-center justify-center">
-                        <p className="text-xs text-gray-400">{isDragOver ? "Drop here" : "Empty"}</p>
-                      </div>
-                    ) : cols.map(c => {
-                      const sla = STAGE_SLA_HOURS[stage] || 0
-                      const age = ageInStageHours(c)
-                      const isAging = sla > 0 && age >= sla
-                      const isSelected = selectedIds.has(c.id)
-                      return (
-                        <div
-                          key={c.id}
-                          draggable
-                          onDragStart={e => e.dataTransfer.setData("text/plain", c.id)}
-                          onClick={() => navigate(`/admin/candidates/${c.id}`)}
-                          className={`bg-white border rounded-xl p-3 cursor-pointer hover:border-blue-300 transition-all group ${
-                            isSelected ? "border-blue-500 ring-2 ring-blue-200" : isAging ? "border-red-300" : "border-gray-200"
-                          }`}
-                        >
-                          <div className="flex items-start gap-2">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={e => toggleSelect(e, c.id)}
-                              onClick={e => e.stopPropagation()}
-                              className="mt-0.5 shrink-0"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium text-gray-900 text-sm truncate">{c.firstName} {c.lastName}</p>
-                              <p className="text-xs text-gray-500 mt-0.5 truncate">{c.jobTitle}</p>
-                              <div className="flex items-center gap-1 mt-1 flex-wrap">
-                                {c.manualScore?.avg != null && (
-                                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.manualScore.avg >= 4 ? "bg-green-100 text-green-800" : c.manualScore.avg >= 3 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>
-                                    {c.manualScore.avg.toFixed(1)}/5
-                                  </span>
-                                )}
-                                {isAging && (
-                                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700" title={`In this stage for ${age}h (SLA ${sla}h)`}>
-                                    {Math.floor(age / 24) > 0 ? `${Math.floor(age / 24)}d` : `${age}h`}
-                                  </span>
-                                )}
-                                {c.needsReview && (
-                                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700" title="Flagged for second opinion">Flagged</span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
-                                onClick={(e) => handleCardDownload(e, c)}
-                                disabled={downloadingId === c.id}
-                                title="Download profile (resume + videos) as ZIP"
-                                className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-blue-50 hover:text-blue-600 text-xs disabled:opacity-60 disabled:cursor-wait"
-                              >
-                                {downloadingId === c.id ? (
-                                  <span className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                                ) : '↓'}
-                              </button>
-                              <button onClick={(e) => toggleFlag(e, c)} title={c.needsReview ? "Unflag" : "Flag for review"} className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-amber-50 hover:text-amber-600 text-xs">⚑</button>
-                              {stage !== "rejected" && (
-                                <button onClick={(e) => rejectCandidate(e, c)} title="Reject" className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600 text-xs">&#x2717;</button>
-                              )}
-                              <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(c) }} title="Delete" className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600 text-xs">&#x1D5EB;</button>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+        {/* Kanban by role group */}
+        <div className="space-y-6">
+          {groupedCandidates.map(group => (
+            <section key={group.key}>
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-sm font-semibold text-gray-900">{group.label}</h2>
+                <span className="text-xs text-gray-500">{group.candidates.length} candidate{group.candidates.length !== 1 ? "s" : ""}</span>
+              </div>
+              {renderKanbanBoard(group.candidates, group.key)}
+            </section>
+          ))}
         </div>
 
         {/* Upcoming Interviews */}
