@@ -52,7 +52,7 @@ export const onCandidateCreated = onDocumentCreated(
       const resumeResult = await scoreResume(candidateId, candidate)
       console.log(`[pipeline] Resume scored: ${resumeResult.score}`)
 
-      // If auto-disqualified, stop early
+      // If automation flags a concern, stop after routing to human review.
       if (resumeResult.autoDisqualified) {
         await routeCandidate(candidateId, resumeResult, { score: 0, strengths: [], concerns: ['Auto-disqualified at resume stage'] })
         return

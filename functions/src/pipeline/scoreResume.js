@@ -69,7 +69,8 @@ export async function scoreResume(candidateId, candidate) {
     resumeConcerns: result.concerns,
     autoDisqualified: result.autoDisqualified,
     disqualifierReason: result.disqualifierReason,
-    stage: result.autoDisqualified ? 'rejected' : 'screening',
+    stage: result.autoDisqualified ? 'scored' : 'applied',
+    needsReview: result.autoDisqualified ? true : candidate.needsReview || false,
     updatedAt: FieldValue.serverTimestamp()
   })
 

@@ -6,6 +6,12 @@ import { db, auth } from "../firebase"
 import { format, differenceInHours } from "date-fns"
 import { downloadCandidateProfile } from "../utils/downloadProfile"
 import { adminAuditFields } from "../security/auditFields"
+import {
+  DECISION_OUTCOMES,
+  buildDecisionEntry,
+  buildDecisionHistory,
+  getDecisionReasons,
+} from "../selection/decisionReasons"
 
 const STAGES = ["applied","scored","to_schedule","scheduled","hired","rejected"]
 const STAGE_LABELS = { applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", hired:"Hired", rejected:"Rejected" }
@@ -45,6 +51,8 @@ export default function AdminDashboard() {
   const [filterAging, setFilterAging] = useState(false)
   const [filterFlagged, setFilterFlagged] = useState(false)
   const [bulkConfirm, setBulkConfirm] = useState(null) // { action, ids }
+  const [rejectConfirm, setRejectConfirm] = useState(null)
+  const [rejectDecision, setRejectDecision] = useState({ reasonCode: getDecisionReasons(DECISION_OUTCOMES.REJECTED)[0].code, note: "" })
   const [downloadingId, setDownloadingId] = useState(null)
   const navigate = useNavigate()
 
@@ -101,9 +109,53 @@ export default function AdminDashboard() {
     return Array.from(set).sort()
   }, [candidates])
 
-  const rejectCandidate = async (e, c) => {
-    e.stopPropagation()
-    await updateDoc(doc(db, "candidates", c.id), { stage: "rejected", ...adminAuditFields() })
+  const resetRejectDecision = () => {
+    const firstReason = getDecisionReasons(DECISION_OUTCOMES.REJECTED)[0]
+    setRejectDecision({ reasonCode: firstReason.code, note: "" })
+  }
+
+  const buildDecisionFields = (candidate, { outcome, stage, reasonCode, note }) => {
+    const entry = buildDecisionEntry({
+      outcome,
+      stage,
+      reasonCode,
+      note,
+      candidate,
+      actor: {
+        uid: auth.currentUser?.uid || null,
+        email: auth.currentUser?.email || null,
+      },
+    })
+    return {
+      latestDecision: entry,
+      decisionHistory: buildDecisionHistory(candidate?.decisionHistory, entry),
+      decisionRecordedAt: serverTimestamp(),
+    }
+  }
+
+  const openRejectCandidate = (e, c) => {
+    e?.stopPropagation?.()
+    resetRejectDecision()
+    setRejectConfirm(c)
+  }
+
+  const rejectCandidate = async () => {
+    if (!rejectConfirm) return
+    try {
+      await updateDoc(doc(db, "candidates", rejectConfirm.id), {
+        stage: "rejected",
+        ...buildDecisionFields(rejectConfirm, {
+          outcome: DECISION_OUTCOMES.REJECTED,
+          stage: "rejected",
+          reasonCode: rejectDecision.reasonCode,
+          note: rejectDecision.note,
+        }),
+        ...adminAuditFields(),
+      })
+      setRejectConfirm(null)
+    } catch (err) {
+      alert(`Reject failed: ${err.message}`)
+    }
   }
 
   const toggleFlag = async (e, c) => {
@@ -124,8 +176,21 @@ export default function AdminDashboard() {
     if (!id) return
     const c = candidates.find(x => x.id === id)
     if (!c || stageOf(c) === stage) return
+    if (stage === "rejected") {
+      openRejectCandidate(null, c)
+      return
+    }
     try {
-      await updateDoc(doc(db, "candidates", id), { stage, ...adminAuditFields() })
+      await updateDoc(doc(db, "candidates", id), {
+        stage,
+        ...buildDecisionFields(c, {
+          outcome: DECISION_OUTCOMES.ADVANCED,
+          stage,
+          reasonCode: "structured_review_complete",
+          note: "",
+        }),
+        ...adminAuditFields(),
+      })
     } catch (err) {
       alert(`Move failed: ${err.message}`)
     }
@@ -149,13 +214,32 @@ export default function AdminDashboard() {
       const batch = writeBatch(db)
       for (const id of ids) {
         const r = doc(db, "candidates", id)
-        if (action === "reject") batch.update(r, { stage: "rejected", ...adminAuditFields() })
+        const c = candidates.find(x => x.id === id)
+        if (action === "reject") batch.update(r, {
+          stage: "rejected",
+          ...buildDecisionFields(c, {
+            outcome: DECISION_OUTCOMES.REJECTED,
+            stage: "rejected",
+            reasonCode: rejectDecision.reasonCode,
+            note: rejectDecision.note,
+          }),
+          ...adminAuditFields(),
+        })
         else if (action === "advance") {
-          const c = candidates.find(x => x.id === id)
           const cur = stageOf(c)
           const idx = STAGES.indexOf(cur)
           const next = idx >= 0 && idx < STAGES.length - 2 ? STAGES[idx + 1] : cur
-          batch.update(r, { stage: next, ...adminAuditFields() })
+          if (next === cur) continue
+          batch.update(r, {
+            stage: next,
+            ...buildDecisionFields(c, {
+              outcome: DECISION_OUTCOMES.ADVANCED,
+              stage: next,
+              reasonCode: "structured_review_complete",
+              note: "",
+            }),
+            ...adminAuditFields(),
+          })
         } else if (action === "flag") {
           batch.update(r, { needsReview: true, ...adminAuditFields() })
         } else if (action === "unflag") {
@@ -278,7 +362,7 @@ export default function AdminDashboard() {
                           </button>
                           <button onClick={(e) => toggleFlag(e, c)} title={c.needsReview ? "Unflag" : "Flag for review"} className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-amber-50 hover:text-amber-600 text-xs">⚑</button>
                           {stage !== "rejected" && (
-                            <button onClick={(e) => rejectCandidate(e, c)} title="Reject" className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600 text-xs">&#x2717;</button>
+                            <button onClick={(e) => openRejectCandidate(e, c)} title="Reject" className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600 text-xs">&#x2717;</button>
                           )}
                           <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(c) }} title="Delete" className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600 text-xs">&#x1D5EB;</button>
                         </div>
@@ -382,7 +466,7 @@ export default function AdminDashboard() {
               <button onClick={() => setBulkConfirm({ action: "advance" })} className="text-xs font-medium bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg">Advance stage</button>
               <button onClick={() => runBulk("flag")} className="text-xs font-medium bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg">Flag for review</button>
               <button onClick={() => runBulk("unflag")} className="text-xs font-medium bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg">Unflag</button>
-              <button onClick={() => setBulkConfirm({ action: "reject" })} className="text-xs font-medium bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded-lg">Reject all</button>
+              <button onClick={() => { resetRejectDecision(); setBulkConfirm({ action: "reject" }) }} className="text-xs font-medium bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded-lg">Reject all</button>
               <button onClick={clearSelection} className="text-xs font-medium text-white/80 hover:text-white px-2">Clear</button>
             </div>
           </div>
@@ -467,10 +551,35 @@ export default function AdminDashboard() {
               {bulkConfirm.action === "reject" && " They'll be moved to Rejected."}
               {bulkConfirm.action === "advance" && " Each will move one stage forward."}
             </p>
+            {bulkConfirm.action === "reject" && (
+              <DecisionReasonFields
+                form={rejectDecision}
+                onChange={setRejectDecision}
+              />
+            )}
             <div className="flex items-center justify-end gap-3 mt-6">
               <button onClick={() => setBulkConfirm(null)} className="text-sm text-gray-600 font-medium px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50">Cancel</button>
               <button onClick={() => runBulk(bulkConfirm.action)} className={`text-white text-sm font-medium px-5 py-2.5 rounded-xl ${bulkConfirm.action === "reject" ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"}`}>
                 {bulkConfirm.action === "reject" ? "Reject all" : "Advance all"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject rationale modal */}
+      {rejectConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-900">Reject candidate?</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Record the closest job-related reason before moving <span className="font-medium text-gray-700">{rejectConfirm.firstName} {rejectConfirm.lastName}</span> to Rejected.
+            </p>
+            <DecisionReasonFields form={rejectDecision} onChange={setRejectDecision} />
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button onClick={() => setRejectConfirm(null)} className="text-sm text-gray-600 font-medium px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50">Cancel</button>
+              <button onClick={rejectCandidate} disabled={!rejectDecision.reasonCode} className="bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-sm font-medium px-5 py-2.5 rounded-xl">
+                Reject candidate
               </button>
             </div>
           </div>
@@ -510,6 +619,38 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function DecisionReasonFields({ form, onChange }) {
+  const reasons = getDecisionReasons(DECISION_OUTCOMES.REJECTED)
+  return (
+    <div className="space-y-4 mt-5">
+      <label className="block">
+        <span className="block text-sm font-medium text-gray-700 mb-1">Decision reason</span>
+        <select
+          value={form.reasonCode}
+          onChange={(e) => onChange({ ...form, reasonCode: e.target.value })}
+          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+        >
+          {reasons.map((reason) => (
+            <option key={reason.code} value={reason.code}>{reason.label}</option>
+          ))}
+        </select>
+      </label>
+      <label className="block">
+        <span className="block text-sm font-medium text-gray-700 mb-1">Evidence note</span>
+        <textarea
+          value={form.note}
+          onChange={(e) => onChange({ ...form, note: e.target.value })}
+          rows={3}
+          maxLength={600}
+          placeholder="Optional: cite job-related evidence from the resume, interview, availability, or current opening."
+          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+        />
+        <span className="text-[11px] text-gray-400">{form.note.length}/600</span>
+      </label>
     </div>
   )
 }
