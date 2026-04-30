@@ -199,7 +199,6 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
     )
   }
 
-  const showLivePreview = !recorded && mode === 'video'
   const showRecordedPreview = recorded && blobUrl && mode === 'video'
 
   return (

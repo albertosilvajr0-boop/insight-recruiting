@@ -7,11 +7,10 @@ export async function getAvailableSlots(token) {
   // Verify token belongs to a real candidate in scheduling stage
   const candidateSnap = await db.collection('candidates')
     .where('schedulingToken', '==', token)
-    .where('stage', '==', 'scheduling')
     .limit(1)
     .get()
 
-  if (candidateSnap.empty) {
+  if (candidateSnap.empty || !['to_schedule', 'scheduling'].includes(candidateSnap.docs[0].data().stage)) {
     throw new Error('Invalid or expired scheduling link.')
   }
 

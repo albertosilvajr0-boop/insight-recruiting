@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { ref, getDownloadURL, listAll } from 'firebase/storage'
 import { db, storage } from '../firebase'
 import { format } from 'date-fns'
 import ResumeViewer from '../components/ResumeViewer'
 import { downloadCandidateProfile } from '../utils/downloadProfile'
+import { adminAuditFields } from '../security/auditFields'
 
 const STAGE_LABELS = {
   applied: 'Applied', scored: 'Scored', to_schedule: 'To Schedule',
@@ -116,7 +117,7 @@ export default function AdminCandidate() {
   const updateStage = async (newStage) => {
     setActionLoading(true)
     try {
-      await updateDoc(doc(db, 'candidates', candidateId), { stage: newStage, updatedAt: serverTimestamp() })
+      await updateDoc(doc(db, 'candidates', candidateId), { stage: newStage, ...adminAuditFields() })
       setCandidate(c => ({ ...c, stage: newStage }))
     } catch (err) { alert('Failed to update stage: ' + err.message) }
     finally { setActionLoading(false) }
@@ -125,7 +126,7 @@ export default function AdminCandidate() {
   const saveNotes = async () => {
     setSavingNotes(true)
     try {
-      await updateDoc(doc(db, 'candidates', candidateId), { adminNotes: notes, updatedAt: serverTimestamp() })
+      await updateDoc(doc(db, 'candidates', candidateId), { adminNotes: notes, ...adminAuditFields() })
     } catch (err) { alert('Failed to save notes: ' + err.message) }
     finally { setSavingNotes(false) }
   }
@@ -177,7 +178,7 @@ export default function AdminCandidate() {
           manualResumeScores: resumeScores,
           manualAnswerScores: answerScores,
           manualScore: cumulative ? { avg: parseFloat(cumulative.avg), sum: cumulative.sum, count: cumulative.count, max: cumulative.max } : null,
-          updatedAt: serverTimestamp()
+          ...adminAuditFields()
         })
         dirtyRef.current = false
         setSaveStatus('saved')
@@ -206,7 +207,7 @@ export default function AdminCandidate() {
 
   const toggleFlag = async () => {
     try {
-      await updateDoc(doc(db, 'candidates', candidateId), { needsReview: !candidate.needsReview, updatedAt: serverTimestamp() })
+      await updateDoc(doc(db, 'candidates', candidateId), { needsReview: !candidate.needsReview, ...adminAuditFields() })
       setCandidate(c => ({ ...c, needsReview: !c.needsReview }))
     } catch (err) { alert('Failed to flag: ' + err.message) }
   }
@@ -220,7 +221,7 @@ export default function AdminCandidate() {
         manualAnswerScores: answerScores,
         manualScore: cumulative ? { avg: parseFloat(cumulative.avg), sum: cumulative.sum, count: cumulative.count, max: cumulative.max } : null,
         stage: candidate.stage === 'applied' ? 'scored' : candidate.stage,
-        updatedAt: serverTimestamp()
+        ...adminAuditFields()
       })
       setCandidate(c => ({
         ...c,

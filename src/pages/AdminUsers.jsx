@@ -1,24 +1,26 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore"
+import { collection, query, orderBy, onSnapshot } from "firebase/firestore"
 import { httpsCallable } from "firebase/functions"
 import { db, auth, functions } from "../firebase"
+import { PERMISSIONS as APP_PERMISSIONS, ROLE_DEFAULT_PERMISSIONS, ROLES as APP_ROLES } from "../security/roles"
 
-const ROLES = [
-  { value: "manager", label: "Manager", description: "Score candidates, schedule interviews, view all candidates and interviews" },
+const ROLE_OPTIONS = [
+  { value: APP_ROLES.MANAGER, label: "Manager", description: "Score candidates, schedule interviews, view all candidates and interviews" },
+  { value: APP_ROLES.SUPERADMIN, label: "Superadmin", description: "Full system administration, including jobs, questions, users, and analytics" },
 ]
 
-const PERMISSIONS = [
-  { key: "score_candidates", label: "Score Candidates" },
-  { key: "schedule_interviews", label: "Schedule Interviews" },
-  { key: "view_candidates", label: "View Candidates" },
-  { key: "view_dashboard", label: "View Dashboard" },
+const PERMISSION_OPTIONS = [
+  { key: APP_PERMISSIONS.VIEW_DASHBOARD, label: "View Dashboard" },
+  { key: APP_PERMISSIONS.VIEW_CANDIDATES, label: "View Candidates" },
+  { key: APP_PERMISSIONS.SCORE_CANDIDATES, label: "Score Candidates" },
+  { key: APP_PERMISSIONS.SCHEDULE_INTERVIEWS, label: "Schedule Interviews" },
+  { key: APP_PERMISSIONS.MANAGE_JOBS, label: "Manage Jobs" },
+  { key: APP_PERMISSIONS.MANAGE_QUESTIONS, label: "Manage Questions" },
+  { key: APP_PERMISSIONS.MANAGE_AVAILABILITY, label: "Manage Availability" },
+  { key: APP_PERMISSIONS.MANAGE_USERS, label: "Manage Users" },
+  { key: APP_PERMISSIONS.VIEW_ANALYTICS, label: "View Analytics" },
 ]
-
-const ROLE_DEFAULTS = {
-  superadmin: ["score_candidates", "schedule_interviews", "view_candidates", "view_dashboard"],
-  manager: ["score_candidates", "schedule_interviews", "view_candidates", "view_dashboard"],
-}
 
 export default function AdminUsers() {
   const [users, setUsers] = useState([])
@@ -35,8 +37,8 @@ export default function AdminUsers() {
     displayName: "",
     email: "",
     password: "",
-    role: "manager",
-    permissions: [...ROLE_DEFAULTS.manager],
+    role: APP_ROLES.MANAGER,
+    permissions: [...ROLE_DEFAULT_PERMISSIONS[APP_ROLES.MANAGER]],
     disabled: false,
   })
 
@@ -54,8 +56,8 @@ export default function AdminUsers() {
       displayName: "",
       email: "",
       password: "",
-      role: "manager",
-      permissions: [...ROLE_DEFAULTS.manager],
+      role: APP_ROLES.MANAGER,
+      permissions: [...ROLE_DEFAULT_PERMISSIONS[APP_ROLES.MANAGER]],
       disabled: false,
     })
     setEditingUser(null)
@@ -73,8 +75,8 @@ export default function AdminUsers() {
       displayName: user.displayName || "",
       email: user.email || "",
       password: "",
-      role: user.role || "viewer",
-      permissions: user.permissions || [...ROLE_DEFAULTS[user.role || "viewer"]],
+      role: user.role || APP_ROLES.MANAGER,
+      permissions: user.permissions || [...(ROLE_DEFAULT_PERMISSIONS[user.role] || ROLE_DEFAULT_PERMISSIONS[APP_ROLES.MANAGER])],
       disabled: user.disabled || false,
     })
     setError("")
@@ -85,7 +87,7 @@ export default function AdminUsers() {
     setFormData((prev) => ({
       ...prev,
       role,
-      permissions: [...ROLE_DEFAULTS[role]],
+      permissions: [...(ROLE_DEFAULT_PERMISSIONS[role] || ROLE_DEFAULT_PERMISSIONS[APP_ROLES.MANAGER])],
     }))
   }
 
@@ -104,28 +106,16 @@ export default function AdminUsers() {
 
     try {
       if (editingUser) {
-        // Update existing user in Firestore
-        const userRef = doc(db, "users", editingUser.id)
-        const updates = {
+        const updateUser = httpsCallable(functions, "updateUser")
+        await updateUser({
+          uid: editingUser.uid,
+          email: formData.email !== editingUser.email ? formData.email.trim() : undefined,
+          password: formData.password || undefined,
           displayName: formData.displayName.trim(),
           role: formData.role,
           permissions: formData.permissions,
           disabled: formData.disabled,
-          updatedAt: serverTimestamp(),
-        }
-        await updateDoc(userRef, updates)
-
-        // If password or email changed, call cloud function
-        if (formData.password || formData.email !== editingUser.email) {
-          const updateUser = httpsCallable(functions, "updateUser")
-          await updateUser({
-            uid: editingUser.uid,
-            email: formData.email !== editingUser.email ? formData.email.trim() : undefined,
-            password: formData.password || undefined,
-            displayName: formData.displayName.trim(),
-            disabled: formData.disabled,
-          })
-        }
+        })
       } else {
         // Create new user via Cloud Function (requires Admin SDK)
         if (!formData.email.trim() || !formData.password) {
@@ -163,7 +153,6 @@ export default function AdminUsers() {
     try {
       const deleteUser = httpsCallable(functions, "deleteUser")
       await deleteUser({ uid: user.uid })
-      await deleteDoc(doc(db, "users", user.id))
       setDeleteConfirm(null)
     } catch (err) {
       console.error("Delete user error:", err)
@@ -370,7 +359,7 @@ export default function AdminUsers() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
                 <div className="space-y-2">
-                  {ROLES.map((r) => (
+                  {ROLE_OPTIONS.map((r) => (
                     <label
                       key={r.value}
                       className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
@@ -400,7 +389,7 @@ export default function AdminUsers() {
                   Permissions <span className="text-gray-400 font-normal">(customize)</span>
                 </label>
                 <div className="bg-gray-50 rounded-lg border border-gray-200 p-3 space-y-2">
-                  {PERMISSIONS.map((perm) => (
+                  {PERMISSION_OPTIONS.map((perm) => (
                     <label key={perm.key} className="flex items-center gap-3 cursor-pointer">
                       <input
                         type="checkbox"

@@ -22,12 +22,12 @@ export async function routeCandidate(candidateId, resumeResult, videoResult) {
   if (compositeScore < 5) {
     stage = 'rejected'
   } else if (compositeScore >= 8) {
-    stage = 'scheduling'
+    stage = 'to_schedule'
   } else {
-    stage = 'interview_2' // flagged for admin review
+    stage = 'scored' // flagged for admin review
   }
 
-  const schedulingToken = stage === 'scheduling' ? uuidv4() : null
+  const schedulingToken = stage === 'to_schedule' ? uuidv4() : null
 
   // Aggregate strengths/concerns from both evaluations
   const strengths = [...new Set([...(resumeResult.strengths || []), ...(videoResult.strengths || [])])]
@@ -45,7 +45,7 @@ export async function routeCandidate(candidateId, resumeResult, videoResult) {
   // Trigger appropriate email
   if (stage === 'rejected') {
     await sendRejectionEmail(candidateId)
-  } else if (stage === 'scheduling') {
+  } else if (stage === 'to_schedule') {
     await sendScheduleLink(candidateId, schedulingToken)
   }
   // stage === 'interview_2' → no email, awaits admin action

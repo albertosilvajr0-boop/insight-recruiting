@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { collection, query, where, getDocs, limit } from 'firebase/firestore'
-import { db } from '../firebase'
+import { httpsCallable } from 'firebase/functions'
+import { functions } from '../firebase'
 import { format, formatDistanceToNow } from 'date-fns'
 
 // Ordered pipeline for the candidate-facing timeline. We deliberately
@@ -16,6 +16,7 @@ const TIMELINE = [
 ]
 
 function stageHeadline(c) {
+  const scheduledAt = c.scheduledAt ? new Date(c.scheduledAt) : null
   switch (c.stage) {
     case 'applied':
     case 'scored':
@@ -24,7 +25,7 @@ function stageHeadline(c) {
     case 'to_schedule':
       return { title: "Good news — you're invited to interview!", body: "Check your email for a scheduling link so you can pick a time that works for you." }
     case 'scheduled':
-      return { title: "Your interview is confirmed", body: c.scheduledAt?.toDate ? `We'll see you on ${format(c.scheduledAt.toDate(), 'EEEE, MMM d')} at ${format(c.scheduledAt.toDate(), 'h:mm a')}.` : "Check your confirmation email for the date and time." }
+      return { title: "Your interview is confirmed", body: scheduledAt ? `We'll see you on ${format(scheduledAt, 'EEEE, MMM d')} at ${format(scheduledAt, 'h:mm a')}.` : "Check your confirmation email for the date and time." }
     case 'rejected':
       return { title: "Thanks for applying", body: "After careful review, we're moving forward with other candidates for this role. We appreciate the time you put in and encourage you to apply again in the future." }
     case 'hired':
@@ -43,14 +44,9 @@ export default function Status() {
   useEffect(() => {
     async function load() {
       try {
-        const snap = await getDocs(
-          query(collection(db, 'candidates'), where('statusToken', '==', token), limit(1))
-        )
-        if (snap.empty) {
-          setError('This status link is invalid or has expired.')
-        } else {
-          setCandidate({ id: snap.docs[0].id, ...snap.docs[0].data() })
-        }
+        const getCandidateStatus = httpsCallable(functions, 'getCandidateStatus')
+        const result = await getCandidateStatus({ token })
+        setCandidate(result.data)
       } catch (err) {
         setError(err.message || 'Something went wrong. Please try again.')
       } finally {
@@ -76,8 +72,8 @@ export default function Status() {
   )
 
   const headline = stageHeadline(candidate)
-  const appliedAt = candidate.createdAt?.toDate?.()
-  const updatedAt = candidate.updatedAt?.toDate?.()
+  const appliedAt = candidate.createdAt ? new Date(candidate.createdAt) : null
+  const updatedAt = candidate.updatedAt ? new Date(candidate.updatedAt) : null
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -114,7 +110,7 @@ export default function Status() {
         <div className="bg-white rounded-2xl border border-gray-200 p-6">
           <h2 className="text-sm font-semibold text-gray-900 mb-4">Your progress</h2>
           <div className="space-y-4">
-            {TIMELINE.map((step, i) => {
+            {TIMELINE.map((step) => {
               const isDone = step.match(candidate)
               const isRejectedEnd = step.key === 'closed' && candidate.stage === 'rejected'
               return (

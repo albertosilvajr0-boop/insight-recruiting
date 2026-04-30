@@ -18,6 +18,14 @@ function summarizeQuestionTime(q) {
   return 120
 }
 
+function inferResumeContentType(fileName) {
+  const lower = String(fileName || '').toLowerCase()
+  if (lower.endsWith('.pdf')) return 'application/pdf'
+  if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  if (lower.endsWith('.doc')) return 'application/msword'
+  return 'application/octet-stream'
+}
+
 export default function Apply() {
   const { jobId } = useParams()
   const navigate = useNavigate()
@@ -125,7 +133,7 @@ export default function Apply() {
         // Load questions from Firestore for this role + universal
         try {
           const qSnap = await getDocs(
-            query(collection(db, 'interviewQuestions'), orderBy('order', 'asc'))
+            query(collection(db, 'interviewQuestions'), where('active', '==', true), orderBy('order', 'asc'))
           )
           const allQuestions = qSnap.docs.map(d => ({ id: d.id, ...d.data() }))
           const roleSpecific = allQuestions.filter(
@@ -259,6 +267,13 @@ export default function Apply() {
   const handleResumeUpload = async (e) => {
     const file = e.target.files[0]
     if (!file) return
+    const contentType = file.type || inferResumeContentType(file.name)
+    const allowedTypes = new Set([
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ])
+    if (!allowedTypes.has(contentType)) { alert('Unsupported file type. Please upload a PDF, DOC, or DOCX resume.'); return }
     if (file.size > 10 * 1024 * 1024) { alert('File too large. Maximum 10MB.'); return }
     setResumeFile(file)
     setResumeFileName(file.name)
@@ -267,7 +282,7 @@ export default function Apply() {
     setResumeProgress(0)
     try {
       const resumeRef = ref(storage, `resumes/${candidateId}/${file.name}`)
-      const uploadTask = uploadBytesResumable(resumeRef, file)
+      const uploadTask = uploadBytesResumable(resumeRef, file, { contentType })
       await new Promise((resolve, reject) => {
         uploadTask.on('state_changed',
           (snapshot) => setResumeProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)),
@@ -363,7 +378,7 @@ export default function Apply() {
       })
       clearDraft()
       navigate(`/thank-you?token=${statusToken}`)
-    } catch (err) {
+    } catch {
       alert('Submission failed. Please try again.')
       setStep('interview')
     }

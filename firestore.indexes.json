@@ -24,6 +24,14 @@
         { "fieldPath": "date", "order": "ASCENDING" },
         { "fieldPath": "startTime", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "interviewQuestions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "order", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

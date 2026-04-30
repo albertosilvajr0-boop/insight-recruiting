@@ -1,10 +1,8 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { signInWithEmailAndPassword } from "firebase/auth"
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore"
-import { auth, db } from "../firebase"
-
-const SUPERADMIN_EMAIL = "albertosilva@silvaconsultinggroup.com"
+import { signInWithEmailAndPassword, signOut } from "firebase/auth"
+import { httpsCallable } from "firebase/functions"
+import { auth, functions } from "../firebase"
 
 export default function AdminLogin() {
   const [email, setEmail] = useState("")
@@ -18,38 +16,13 @@ export default function AdminLogin() {
     setError("")
     setLoading(true)
     try {
-      const cred = await signInWithEmailAndPassword(auth, email, password)
-
-      // Ensure user doc exists in Firestore with correct role
-      const userRef = doc(db, "users", cred.user.uid)
-      const userSnap = await getDoc(userRef)
-      const isSuperadmin = cred.user.email?.toLowerCase() === SUPERADMIN_EMAIL.toLowerCase()
-
-      if (!userSnap.exists()) {
-        // First login — create the user doc
-        await setDoc(userRef, {
-          uid: cred.user.uid,
-          email: cred.user.email,
-          displayName: cred.user.displayName || "",
-          role: isSuperadmin ? "superadmin" : "manager",
-          disabled: false,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        })
-      } else if (isSuperadmin && userSnap.data().role !== "superadmin") {
-        // Ensure alberto is always superadmin
-        await setDoc(userRef, { role: "superadmin", updatedAt: serverTimestamp() }, { merge: true })
-      }
-
-      // Track login activity
-      await updateDoc(userRef, {
-        lastLoginAt: serverTimestamp(),
-        loginCount: (userSnap.exists() ? (userSnap.data().loginCount || 0) : 0) + 1,
-      })
-
+      await signInWithEmailAndPassword(auth, email, password)
+      const ensureCurrentUserProfile = httpsCallable(functions, "ensureCurrentUserProfile")
+      await ensureCurrentUserProfile()
       navigate("/admin/dashboard")
-    } catch {
-      setError("Invalid email or password")
+    } catch (err) {
+      try { await signOut(auth) } catch { /* ignore */ }
+      setError(err.message || "Invalid email or password")
     } finally {
       setLoading(false)
     }
@@ -58,16 +31,14 @@ export default function AdminLogin() {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        {/* Logo / Brand */}
         <div className="text-center mb-8">
           <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <span className="text-white text-xl font-bold">SA</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Insight Recruiting</h1>
-          <p className="text-sm text-gray-500 mt-1">San Antonio Dodge — Admin Portal</p>
+          <p className="text-sm text-gray-500 mt-1">San Antonio Dodge - Admin Portal</p>
         </div>
 
-        {/* Login Card */}
         <form onSubmit={handleLogin} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Sign in</h2>
@@ -95,7 +66,7 @@ export default function AdminLogin() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="Password"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-shadow"
                 required
                 autoComplete="current-password"
@@ -117,7 +88,7 @@ export default function AdminLogin() {
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Signing in…
+                Signing in...
               </span>
             ) : (
               "Sign in"

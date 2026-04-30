@@ -1,6 +1,7 @@
 ﻿.env
 node_modules
 dist
+.npm-cache
 .firebase
 functions/node_modules
 service-account.json

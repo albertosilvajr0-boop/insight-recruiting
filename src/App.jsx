@@ -14,6 +14,7 @@ import AdminQuestions from './pages/AdminQuestions'
 import AdminAnalytics from './pages/AdminAnalytics'
 import ProtectedRoute from './components/ProtectedRoute'
 import useForceRefresh from './hooks/useForceRefresh'
+import { PERMISSIONS, ROLES } from './security/roles'
 
 export default function App() {
   useForceRefresh()
@@ -31,26 +32,26 @@ export default function App() {
         <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin/dashboard" element={
-          <ProtectedRoute><AdminDashboard /></ProtectedRoute>
+          <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_DASHBOARD}><AdminDashboard /></ProtectedRoute>
         } />
         <Route path="/admin/candidates/:candidateId" element={
-          <ProtectedRoute><AdminCandidate /></ProtectedRoute>
+          <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_CANDIDATES}><AdminCandidate /></ProtectedRoute>
         } />
         {/* Superadmin only */}
         <Route path="/admin/jobs" element={
-          <ProtectedRoute requiredRole="superadmin"><AdminJobs /></ProtectedRoute>
+          <ProtectedRoute requiredRole={ROLES.SUPERADMIN} requiredPermission={PERMISSIONS.MANAGE_JOBS}><AdminJobs /></ProtectedRoute>
         } />
         <Route path="/admin/users" element={
-          <ProtectedRoute requiredRole="superadmin"><AdminUsers /></ProtectedRoute>
+          <ProtectedRoute requiredRole={ROLES.SUPERADMIN} requiredPermission={PERMISSIONS.MANAGE_USERS}><AdminUsers /></ProtectedRoute>
         } />
         <Route path="/admin/questions" element={
-          <ProtectedRoute requiredRole="superadmin"><AdminQuestions /></ProtectedRoute>
+          <ProtectedRoute requiredRole={ROLES.SUPERADMIN} requiredPermission={PERMISSIONS.MANAGE_QUESTIONS}><AdminQuestions /></ProtectedRoute>
         } />
         <Route path="/admin/availability" element={
-          <ProtectedRoute requiredRole="superadmin"><AdminAvailability /></ProtectedRoute>
+          <ProtectedRoute requiredRole={ROLES.SUPERADMIN} requiredPermission={PERMISSIONS.MANAGE_AVAILABILITY}><AdminAvailability /></ProtectedRoute>
         } />
         <Route path="/admin/analytics" element={
-          <ProtectedRoute requiredRole="superadmin"><AdminAnalytics /></ProtectedRoute>
+          <ProtectedRoute requiredRole={ROLES.SUPERADMIN} requiredPermission={PERMISSIONS.VIEW_ANALYTICS}><AdminAnalytics /></ProtectedRoute>
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
