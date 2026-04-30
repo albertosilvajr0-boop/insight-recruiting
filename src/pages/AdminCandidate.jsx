@@ -1,23 +1,24 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { ref, getDownloadURL, listAll } from 'firebase/storage'
-import { db, storage } from '../firebase'
+import { auth, db, storage } from '../firebase'
 import { format } from 'date-fns'
 import ResumeViewer from '../components/ResumeViewer'
 import { downloadCandidateProfile } from '../utils/downloadProfile'
 import { adminAuditFields } from '../security/auditFields'
+import { buildInitialOnboardingDoc } from '../onboarding/plan'
 
 const STAGE_LABELS = {
   applied: 'Applied', scored: 'Scored', to_schedule: 'To Schedule',
-  scheduled: 'Scheduled', rejected: 'Rejected'
+  scheduled: 'Scheduled', hired: 'Hired', rejected: 'Rejected'
 }
 const STAGE_COLORS = {
   applied: 'bg-blue-100 text-blue-800', scored: 'bg-amber-100 text-amber-800',
   to_schedule: 'bg-purple-100 text-purple-800', scheduled: 'bg-green-100 text-green-800',
-  rejected: 'bg-gray-100 text-gray-600'
+  hired: 'bg-emerald-100 text-emerald-800', rejected: 'bg-gray-100 text-gray-600'
 }
-const STAGE_FLOW = ['applied', 'scored', 'to_schedule', 'scheduled']
+const STAGE_FLOW = ['applied', 'scored', 'to_schedule', 'scheduled', 'hired']
 
 const RESUME_CRITERIA = [
   { key: 'relevant_experience', label: 'Relevant experience for this role' },
@@ -69,7 +70,7 @@ export default function AdminCandidate() {
         if (!snap.exists()) { navigate('/admin/dashboard'); return }
         const data = { id: snap.id, ...snap.data() }
         // Migrate old stages
-        const STAGE_MIGRATION = { screening: 'applied', interview_2: 'applied', scheduling: 'to_schedule', hired: 'scheduled' }
+        const STAGE_MIGRATION = { screening: 'applied', interview_2: 'applied', scheduling: 'to_schedule' }
         if (STAGE_MIGRATION[data.stage]) data.stage = STAGE_MIGRATION[data.stage]
         setCandidate(data)
         setNotes(data.adminNotes || '')
@@ -121,6 +122,37 @@ export default function AdminCandidate() {
       setCandidate(c => ({ ...c, stage: newStage }))
     } catch (err) { alert('Failed to update stage: ' + err.message) }
     finally { setActionLoading(false) }
+  }
+
+  const startOnboarding = async () => {
+    setActionLoading(true)
+    try {
+      const onboardingRef = doc(db, 'onboardings', candidateId)
+      const existing = await getDoc(onboardingRef)
+      if (!existing.exists()) {
+        await setDoc(onboardingRef, buildInitialOnboardingDoc(candidate, {
+          uid: auth.currentUser?.uid,
+          email: auth.currentUser?.email,
+        }, serverTimestamp()))
+      }
+      await updateDoc(doc(db, 'candidates', candidateId), {
+        stage: 'hired',
+        onboardingStatus: 'active',
+        onboardingStartedAt: serverTimestamp(),
+        hiredAt: candidate.hiredAt || serverTimestamp(),
+        ...adminAuditFields(),
+      })
+      setCandidate(c => ({
+        ...c,
+        stage: 'hired',
+        onboardingStatus: 'active',
+      }))
+      navigate('/admin/onboarding')
+    } catch (err) {
+      alert('Failed to start onboarding: ' + err.message)
+    } finally {
+      setActionLoading(false)
+    }
   }
 
   const saveNotes = async () => {
@@ -281,7 +313,18 @@ export default function AdminCandidate() {
               className={`text-xs font-medium px-3 py-1.5 rounded-lg border ${candidate.needsReview ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-white text-gray-600 border-gray-200 hover:bg-amber-50 hover:text-amber-700'}`}>
               {candidate.needsReview ? '⚑ Flagged' : 'Flag'}
             </button>
-            {getNextStage() && candidate.stage !== 'rejected' && (
+            {candidate.stage === 'hired' ? (
+              <button onClick={() => navigate('/admin/onboarding')}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
+                Open onboarding
+              </button>
+            ) : ['scheduled', 'to_schedule'].includes(candidate.stage) && (
+              <button onClick={startOnboarding} disabled={actionLoading}
+                className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
+                Start onboarding
+              </button>
+            )}
+            {getNextStage() && getNextStage() !== 'hired' && candidate.stage !== 'rejected' && (
               <button onClick={() => updateStage(getNextStage())} disabled={actionLoading}
                 className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
                 Move to {STAGE_LABELS[getNextStage()]}

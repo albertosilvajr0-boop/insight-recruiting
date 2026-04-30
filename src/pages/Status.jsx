@@ -12,7 +12,8 @@ const TIMELINE = [
   { key: 'review', label: 'Under review by the hiring team', match: (c) => ['applied', 'scored', 'screening'].includes(c.stage) },
   { key: 'next_step', label: 'Invited to schedule an interview', match: (c) => ['to_schedule', 'scheduled', 'hired'].includes(c.stage) },
   { key: 'scheduled', label: 'Interview confirmed', match: (c) => c.stage === 'scheduled' || c.stage === 'hired' },
-  { key: 'closed', label: 'Decision made', match: (c) => c.stage === 'rejected' || c.stage === 'hired' },
+  { key: 'hired', label: 'Offer and onboarding in motion', match: (c) => c.stage === 'hired' },
+  { key: 'closed', label: 'Decision made', match: (c) => c.stage === 'rejected' },
 ]
 
 function stageHeadline(c) {

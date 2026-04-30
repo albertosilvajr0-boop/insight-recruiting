@@ -15,6 +15,7 @@ const PERMISSION_OPTIONS = [
   { key: APP_PERMISSIONS.VIEW_CANDIDATES, label: "View Candidates" },
   { key: APP_PERMISSIONS.SCORE_CANDIDATES, label: "Score Candidates" },
   { key: APP_PERMISSIONS.SCHEDULE_INTERVIEWS, label: "Schedule Interviews" },
+  { key: APP_PERMISSIONS.MANAGE_ONBOARDING, label: "Manage Onboarding" },
   { key: APP_PERMISSIONS.MANAGE_JOBS, label: "Manage Jobs" },
   { key: APP_PERMISSIONS.MANAGE_QUESTIONS, label: "Manage Questions" },
   { key: APP_PERMISSIONS.MANAGE_AVAILABILITY, label: "Manage Availability" },

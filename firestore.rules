@@ -151,6 +151,12 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /onboardings/{candidateId} {
+      allow get, list: if hasPermission('view_candidates') || hasPermission('manage_onboarding');
+      allow create, update: if hasPermission('manage_onboarding');
+      allow delete: if isSuperadmin();
+    }
+
     match /availability/{slotId} {
       allow get, list, create, update, delete: if hasPermission('manage_availability');
     }

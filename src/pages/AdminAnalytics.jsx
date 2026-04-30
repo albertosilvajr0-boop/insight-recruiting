@@ -8,7 +8,7 @@ import { buildSelectionRateRows } from "../compliance/adverseImpact"
 const STAGE_LABELS = {
   applied: "Applied", scored: "Scored", to_schedule: "To Schedule",
   scheduled: "Scheduled", rejected: "Rejected", screening: "Applied",
-  interview_2: "Applied", scheduling: "To Schedule",
+  hired: "Hired", interview_2: "Applied", scheduling: "To Schedule",
 }
 
 const MONITORING_MIN_GROUP_SIZE = 5
