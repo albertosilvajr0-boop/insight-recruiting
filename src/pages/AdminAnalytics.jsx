@@ -9,6 +9,7 @@ import {
   buildSignalCorrelationRows,
 } from "../analytics/performanceCorrelation"
 import { buildSelectionRateRows } from "../compliance/adverseImpact"
+import { buildDecisionReasonRows } from "../selection/decisionReasons"
 
 const STAGE_LABELS = {
   applied: "Applied", scored: "Scored", to_schedule: "To Schedule",
@@ -58,6 +59,7 @@ export default function AdminAnalytics() {
 
   // Filtered candidates by date range
   const rangedCandidates = candidates.filter((c) => inRange(c.createdAt))
+  const decisionReasonRows = buildDecisionReasonRows(candidates, { startDate: cutoff })
   const complianceByCandidateId = new Map(complianceRecords.map((record) => [record.candidateId, record]))
   const selectionMonitoringRecords = rangedCandidates
     .map((candidate) => ({
@@ -310,6 +312,23 @@ export default function AdminAnalytics() {
                   <SelectionMonitoringTable title="Race/ethnicity" result={raceEthnicitySelection} />
                   <SelectionMonitoringTable title="Gender" result={genderSelection} />
                 </div>
+              </div>
+            )}
+
+            {showCandidates && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-5">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Decision rationale mix</h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Latest recorded decision reasons in this date range. Use this to spot process drift and review patterns before changing criteria.
+                    </p>
+                  </div>
+                  <span className="text-[11px] text-gray-500 px-2 py-1 rounded-full bg-gray-100 h-fit">
+                    {decisionReasonRows.reduce((sum, row) => sum + row.count, 0)} recorded decisions
+                  </span>
+                </div>
+                <DecisionReasonTable rows={decisionReasonRows} />
               </div>
             )}
 
@@ -592,6 +611,55 @@ function Metric({ label, value }) {
     <div>
       <p className="text-xs text-gray-500 mb-1">{label}</p>
       <p className="text-xl font-semibold text-gray-900">{value}</p>
+    </div>
+  )
+}
+
+function DecisionReasonTable({ rows }) {
+  if (rows.length === 0) {
+    return (
+      <div className="border border-gray-200 rounded-xl p-6 text-center">
+        <p className="text-xs text-gray-400">No recorded decision reasons in this period.</p>
+      </div>
+    )
+  }
+
+  const outcomeStyles = {
+    hired: "bg-green-100 text-green-700",
+    rejected: "bg-red-100 text-red-700",
+    advanced: "bg-blue-100 text-blue-700",
+    restored: "bg-gray-100 text-gray-600",
+  }
+
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden">
+      <table className="w-full">
+        <thead>
+          <tr className="bg-gray-50 border-b border-gray-100">
+            <th className="text-left text-[11px] font-semibold text-gray-500 px-4 py-2">Reason</th>
+            <th className="text-left text-[11px] font-semibold text-gray-500 px-3 py-2">Outcome</th>
+            <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Count</th>
+            <th className="text-right text-[11px] font-semibold text-gray-500 px-4 py-2">Rejected</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key} className="border-b border-gray-100 last:border-0">
+              <td className="px-4 py-2">
+                <p className="text-xs font-medium text-gray-800">{row.reasonLabel}</p>
+                <p className="text-[11px] text-gray-400">{row.reasonCode}</p>
+              </td>
+              <td className="px-3 py-2">
+                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${outcomeStyles[row.outcome] || outcomeStyles.restored}`}>
+                  {row.outcome}
+                </span>
+              </td>
+              <td className="px-3 py-2 text-xs text-gray-600 text-right">{row.count}</td>
+              <td className="px-4 py-2 text-xs text-gray-600 text-right">{row.rejectedCount}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

@@ -8,6 +8,12 @@ import ResumeViewer from '../components/ResumeViewer'
 import { downloadCandidateProfile } from '../utils/downloadProfile'
 import { adminAuditFields } from '../security/auditFields'
 import { buildInitialOnboardingDoc } from '../onboarding/plan'
+import {
+  DECISION_OUTCOMES,
+  buildDecisionEntry,
+  buildDecisionHistory,
+  getDecisionReasons,
+} from '../selection/decisionReasons'
 
 const STAGE_LABELS = {
   applied: 'Applied', scored: 'Scored', to_schedule: 'To Schedule',
@@ -40,6 +46,57 @@ function ScoreButton({ value, selected, onClick }) {
   )
 }
 
+function DecisionModal({ modal, form, onChange, onCancel, onSubmit, loading }) {
+  const reasons = getDecisionReasons(modal.outcome)
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-lg p-6 space-y-5">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">{modal.title}</h3>
+          <p className="text-sm text-gray-500 mt-1">{modal.body}</p>
+        </div>
+
+        <label className="block">
+          <span className="block text-sm font-medium text-gray-700 mb-1">Decision reason</span>
+          <select
+            value={form.reasonCode}
+            onChange={(e) => onChange({ ...form, reasonCode: e.target.value })}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          >
+            {reasons.map((reason) => (
+              <option key={reason.code} value={reason.code}>{reason.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="block text-sm font-medium text-gray-700 mb-1">Evidence note</span>
+          <textarea
+            value={form.note}
+            onChange={(e) => onChange({ ...form, note: e.target.value })}
+            rows={4}
+            maxLength={600}
+            placeholder="Optional: cite job-related evidence from the resume, interview, scorecard, availability, or business need."
+            className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          />
+          <span className="text-[11px] text-gray-400">{form.note.length}/600</span>
+        </label>
+
+        <div className="flex items-center justify-end gap-3">
+          <button onClick={onCancel} disabled={loading} className="text-sm text-gray-600 font-medium px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-50">
+            Cancel
+          </button>
+          <button onClick={onSubmit} disabled={loading || !form.reasonCode} className={`text-white text-sm font-medium px-5 py-2.5 rounded-xl disabled:opacity-60 ${
+            modal.outcome === DECISION_OUTCOMES.REJECTED ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
+          }`}>
+            {loading ? 'Saving...' : modal.confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function AdminCandidate() {
   const { candidateId } = useParams()
   const navigate = useNavigate()
@@ -51,6 +108,8 @@ export default function AdminCandidate() {
   const [savingNotes, setSavingNotes] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [decisionModal, setDecisionModal] = useState(null)
+  const [decisionForm, setDecisionForm] = useState({ reasonCode: '', note: '' })
   const [saving, setSaving] = useState(false)
   const [downloadStatus, setDownloadStatus] = useState('') // '' | progress text
 
@@ -115,16 +174,65 @@ export default function AdminCandidate() {
     load()
   }, [candidateId, navigate])
 
-  const updateStage = async (newStage) => {
+  const actorSnapshot = () => ({
+    uid: auth.currentUser?.uid || null,
+    email: auth.currentUser?.email || null,
+  })
+
+  const buildDecisionFields = ({ outcome, stage, reasonCode, note }) => {
+    const entry = buildDecisionEntry({
+      outcome,
+      stage,
+      reasonCode,
+      note,
+      candidate,
+      actor: actorSnapshot(),
+    })
+
+    return {
+      latestDecision: entry,
+      decisionHistory: buildDecisionHistory(candidate.decisionHistory, entry),
+      decisionRecordedAt: serverTimestamp(),
+    }
+  }
+
+  const openDecisionModal = (config) => {
+    const firstReason = getDecisionReasons(config.outcome)[0]
+    setDecisionForm({ reasonCode: firstReason?.code || '', note: '' })
+    setDecisionModal(config)
+  }
+
+  const closeDecisionModal = () => {
+    setDecisionModal(null)
+    setDecisionForm({ reasonCode: '', note: '' })
+  }
+
+  const updateStage = async (newStage, decision = null) => {
     setActionLoading(true)
     try {
-      await updateDoc(doc(db, 'candidates', candidateId), { stage: newStage, ...adminAuditFields() })
-      setCandidate(c => ({ ...c, stage: newStage }))
-    } catch (err) { alert('Failed to update stage: ' + err.message) }
+      const decisionFields = decision
+        ? buildDecisionFields({ ...decision, stage: newStage })
+        : {}
+      await updateDoc(doc(db, 'candidates', candidateId), {
+        stage: newStage,
+        ...decisionFields,
+        ...adminAuditFields(),
+      })
+      setCandidate(c => ({
+        ...c,
+        stage: newStage,
+        latestDecision: decisionFields.latestDecision || c.latestDecision,
+        decisionHistory: decisionFields.decisionHistory || c.decisionHistory,
+      }))
+      return true
+    } catch (err) {
+      alert('Failed to update stage: ' + err.message)
+      return false
+    }
     finally { setActionLoading(false) }
   }
 
-  const startOnboarding = async () => {
+  const startOnboarding = async (decision) => {
     setActionLoading(true)
     try {
       const onboardingRef = doc(db, 'onboardings', candidateId)
@@ -135,24 +243,48 @@ export default function AdminCandidate() {
           email: auth.currentUser?.email,
         }, serverTimestamp()))
       }
+      const decisionFields = buildDecisionFields({
+        ...decision,
+        outcome: DECISION_OUTCOMES.HIRED,
+        stage: 'hired',
+      })
       await updateDoc(doc(db, 'candidates', candidateId), {
         stage: 'hired',
         onboardingStatus: 'active',
         onboardingStartedAt: serverTimestamp(),
         hiredAt: candidate.hiredAt || serverTimestamp(),
+        ...decisionFields,
         ...adminAuditFields(),
       })
       setCandidate(c => ({
         ...c,
         stage: 'hired',
         onboardingStatus: 'active',
+        latestDecision: decisionFields.latestDecision,
+        decisionHistory: decisionFields.decisionHistory,
       }))
       navigate('/admin/onboarding')
+      return true
     } catch (err) {
       alert('Failed to start onboarding: ' + err.message)
+      return false
     } finally {
       setActionLoading(false)
     }
+  }
+
+  const submitDecision = async () => {
+    if (!decisionModal) return
+    const decision = {
+      outcome: decisionModal.outcome,
+      reasonCode: decisionForm.reasonCode,
+      note: decisionForm.note,
+    }
+
+    const success = decisionModal.outcome === DECISION_OUTCOMES.HIRED
+      ? await startOnboarding(decision)
+      : await updateStage(decisionModal.stage, decision)
+    if (success) closeDecisionModal()
   }
 
   const saveNotes = async () => {
@@ -319,25 +451,47 @@ export default function AdminCandidate() {
                 Open onboarding
               </button>
             ) : ['scheduled', 'to_schedule'].includes(candidate.stage) && (
-              <button onClick={startOnboarding} disabled={actionLoading}
+              <button onClick={() => openDecisionModal({
+                outcome: DECISION_OUTCOMES.HIRED,
+                stage: 'hired',
+                title: 'Start onboarding?',
+                body: 'Record the job-related reason for moving this candidate into onboarding.',
+                confirmLabel: 'Start onboarding',
+              })} disabled={actionLoading}
                 className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
                 Start onboarding
               </button>
             )}
             {getNextStage() && getNextStage() !== 'hired' && candidate.stage !== 'rejected' && (
-              <button onClick={() => updateStage(getNextStage())} disabled={actionLoading}
+              <button onClick={() => updateStage(getNextStage(), {
+                outcome: DECISION_OUTCOMES.ADVANCED,
+                reasonCode: 'structured_review_complete',
+                note: '',
+              })} disabled={actionLoading}
                 className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
                 Move to {STAGE_LABELS[getNextStage()]}
               </button>
             )}
             {candidate.stage !== 'rejected' && (
-              <button onClick={() => updateStage('rejected')} disabled={actionLoading}
+              <button onClick={() => openDecisionModal({
+                outcome: DECISION_OUTCOMES.REJECTED,
+                stage: 'rejected',
+                title: 'Reject candidate?',
+                body: 'Choose the closest job-related reason before moving this application to Rejected.',
+                confirmLabel: 'Reject candidate',
+              })} disabled={actionLoading}
                 className="border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60 text-xs font-medium px-3 py-1.5 rounded-lg">
                 Reject
               </button>
             )}
             {candidate.stage === 'rejected' && (
-              <button onClick={() => updateStage('applied')} disabled={actionLoading}
+              <button onClick={() => openDecisionModal({
+                outcome: DECISION_OUTCOMES.RESTORED,
+                stage: 'applied',
+                title: 'Restore application?',
+                body: 'Record why this application is being reopened for review.',
+                confirmLabel: 'Restore application',
+              })} disabled={actionLoading}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
                 Restore
               </button>
@@ -600,6 +754,55 @@ export default function AdminCandidate() {
           </div>
         )}
 
+        {/* Decision Rationale */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-900">Decision rationale</h2>
+            {candidate.latestDecision?.selectionProcessVersion && (
+              <span className="text-[11px] text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                Process {candidate.latestDecision.selectionProcessVersion}
+              </span>
+            )}
+          </div>
+          {candidate.latestDecision ? (
+            <div className="space-y-3">
+              <div className="border border-gray-200 rounded-xl p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{candidate.latestDecision.reasonLabel}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {candidate.latestDecision.outcome} to {STAGE_LABELS[candidate.latestDecision.stage] || candidate.latestDecision.stage || 'stage'}
+                      {candidate.latestDecision.decidedBy?.email ? ` by ${candidate.latestDecision.decidedBy.email}` : ''}
+                    </p>
+                  </div>
+                  <span className="text-[11px] text-gray-400 shrink-0">
+                    {candidate.latestDecision.decidedAt ? format(new Date(candidate.latestDecision.decidedAt), 'MMM d, h:mm a') : ''}
+                  </span>
+                </div>
+                {candidate.latestDecision.note && (
+                  <p className="text-sm text-gray-700 mt-3 whitespace-pre-wrap">{candidate.latestDecision.note}</p>
+                )}
+              </div>
+              {(candidate.decisionHistory || []).length > 1 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">History</p>
+                  {(candidate.decisionHistory || []).slice(-5).reverse().map((decision) => (
+                    <div key={decision.id} className="flex items-start justify-between gap-3 text-xs border-b border-gray-100 last:border-0 pb-2 last:pb-0">
+                      <div>
+                        <p className="font-medium text-gray-700">{decision.reasonLabel}</p>
+                        <p className="text-gray-400">{decision.outcome} to {STAGE_LABELS[decision.stage] || decision.stage || 'stage'}</p>
+                      </div>
+                      <span className="text-gray-400 shrink-0">{decision.decidedAt ? format(new Date(decision.decidedAt), 'MMM d') : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">No recorded decision rationale yet.</p>
+          )}
+        </div>
+
         {/* Admin Notes */}
         <div className="bg-white rounded-2xl border border-gray-200 p-6">
           <h2 className="text-sm font-semibold text-gray-900 mb-3">Notes</h2>
@@ -611,6 +814,18 @@ export default function AdminCandidate() {
           </button>
         </div>
       </div>
+
+      {/* Decision rationale modal */}
+      {decisionModal && (
+        <DecisionModal
+          modal={decisionModal}
+          form={decisionForm}
+          onChange={setDecisionForm}
+          onCancel={closeDecisionModal}
+          onSubmit={submitDecision}
+          loading={actionLoading}
+        />
+      )}
 
       {/* Delete Confirmation */}
       {showDeleteConfirm && (

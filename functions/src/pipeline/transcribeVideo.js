@@ -212,7 +212,7 @@ export async function transcribeAndScoreVideo(candidateId, candidate) {
     interviewStrengths: result.strengths,
     interviewConcerns: result.concerns,
     standoutQuotes: result.standoutQuotes || [],
-    stage: 'screening',
+    stage: 'applied',
     updatedAt: FieldValue.serverTimestamp()
   })
 

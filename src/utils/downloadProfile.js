@@ -49,6 +49,24 @@ function buildSummary(candidate, issues) {
   L.push('-'.repeat(60))
   L.push(formatScores(candidate))
 
+  if (candidate.latestDecision) {
+    L.push('')
+    L.push('DECISION RATIONALE')
+    L.push('-'.repeat(60))
+    L.push(`Outcome:   ${candidate.latestDecision.outcome || 'n/a'}`)
+    L.push(`Stage:     ${candidate.latestDecision.stage || 'n/a'}`)
+    L.push(`Reason:    ${candidate.latestDecision.reasonLabel || candidate.latestDecision.reasonCode || 'n/a'}`)
+    if (candidate.latestDecision.selectionProcessVersion) {
+      L.push(`Process:   ${candidate.latestDecision.selectionProcessVersion}`)
+    }
+    if (candidate.latestDecision.decidedAt) L.push(`Decided:   ${candidate.latestDecision.decidedAt}`)
+    if (candidate.latestDecision.decidedBy?.email) L.push(`Decided by: ${candidate.latestDecision.decidedBy.email}`)
+    if (candidate.latestDecision.note) {
+      L.push('')
+      L.push(candidate.latestDecision.note)
+    }
+  }
+
   if (candidate.strengths?.length) { L.push(''); L.push('Strengths:'); candidate.strengths.forEach(s => L.push(`  • ${s}`)) }
   if (candidate.concerns?.length)  { L.push(''); L.push('Concerns:');  candidate.concerns.forEach(s => L.push(`  • ${s}`)) }
 
