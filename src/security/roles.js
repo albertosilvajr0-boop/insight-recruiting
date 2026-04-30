@@ -16,6 +16,7 @@ export const PERMISSIONS = Object.freeze({
   MANAGE_JOBS: 'manage_jobs',
   MANAGE_QUESTIONS: 'manage_questions',
   MANAGE_AVAILABILITY: 'manage_availability',
+  MANAGE_ONBOARDING: 'manage_onboarding',
   MANAGE_USERS: 'manage_users',
   VIEW_ANALYTICS: 'view_analytics',
 })
@@ -27,6 +28,7 @@ export const ROLE_DEFAULT_PERMISSIONS = Object.freeze({
     PERMISSIONS.VIEW_CANDIDATES,
     PERMISSIONS.SCORE_CANDIDATES,
     PERMISSIONS.SCHEDULE_INTERVIEWS,
+    PERMISSIONS.MANAGE_ONBOARDING,
   ],
 })
 

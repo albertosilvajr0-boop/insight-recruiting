@@ -9,6 +9,9 @@ const TRACKED_FIELDS = [
   'scheduledAt',
   'scheduledSlotId',
   'adminNotes',
+  'hiredAt',
+  'onboardingStatus',
+  'onboardingStartedAt',
 ]
 
 function changedFields(before, after) {

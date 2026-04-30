@@ -12,6 +12,7 @@ import AdminUsers from './pages/AdminUsers'
 import AdminAvailability from './pages/AdminAvailability'
 import AdminQuestions from './pages/AdminQuestions'
 import AdminAnalytics from './pages/AdminAnalytics'
+import AdminOnboarding from './pages/AdminOnboarding'
 import ProtectedRoute from './components/ProtectedRoute'
 import useForceRefresh from './hooks/useForceRefresh'
 import { PERMISSIONS, ROLES } from './security/roles'
@@ -52,6 +53,9 @@ export default function App() {
         } />
         <Route path="/admin/analytics" element={
           <ProtectedRoute requiredRole={ROLES.SUPERADMIN} requiredPermission={PERMISSIONS.VIEW_ANALYTICS}><AdminAnalytics /></ProtectedRoute>
+        } />
+        <Route path="/admin/onboarding" element={
+          <ProtectedRoute requiredPermission={PERMISSIONS.MANAGE_ONBOARDING}><AdminOnboarding /></ProtectedRoute>
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
