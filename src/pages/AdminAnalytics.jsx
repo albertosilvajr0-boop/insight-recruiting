@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { collection, query, orderBy, onSnapshot } from "firebase/firestore"
 import { db } from "../firebase"
 import { format, subDays, isAfter, startOfDay } from "date-fns"
+import { buildSelectionRateRows } from "../compliance/adverseImpact"
 
 const STAGE_LABELS = {
   applied: "Applied", scored: "Scored", to_schedule: "To Schedule",
@@ -10,9 +11,12 @@ const STAGE_LABELS = {
   interview_2: "Applied", scheduling: "To Schedule",
 }
 
+const MONITORING_MIN_GROUP_SIZE = 5
+
 export default function AdminAnalytics() {
   const [users, setUsers] = useState([])
   const [candidates, setCandidates] = useState([])
+  const [complianceRecords, setComplianceRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterType, setFilterType] = useState("all") // "all" | "admins" | "candidates"
   const [dateRange, setDateRange] = useState("30") // days
@@ -30,7 +34,12 @@ export default function AdminAnalytics() {
         setLoading(false)
       }
     )
-    return () => { unsubUsers(); unsubCandidates() }
+    const unsubCompliance = onSnapshot(
+      query(collection(db, "candidateCompliance"), orderBy("createdAt", "desc")),
+      (snap) => setComplianceRecords(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setComplianceRecords([])
+    )
+    return () => { unsubUsers(); unsubCandidates(); unsubCompliance() }
   }, [])
 
   const cutoff = startOfDay(subDays(new Date(), Number(dateRange)))
@@ -38,6 +47,26 @@ export default function AdminAnalytics() {
 
   // Filtered candidates by date range
   const rangedCandidates = candidates.filter((c) => inRange(c.createdAt))
+  const complianceByCandidateId = new Map(complianceRecords.map((record) => [record.candidateId, record]))
+  const selectionMonitoringRecords = rangedCandidates
+    .map((candidate) => ({
+      candidate,
+      compliance: complianceByCandidateId.get(candidate.candidateId),
+    }))
+    .filter((record) => record.compliance)
+  const raceEthnicitySelection = buildSelectionRateRows(selectionMonitoringRecords, "raceEthnicity", {
+    minGroupSize: MONITORING_MIN_GROUP_SIZE,
+    milestone: "invited",
+  })
+  const genderSelection = buildSelectionRateRows(selectionMonitoringRecords, "gender", {
+    minGroupSize: MONITORING_MIN_GROUP_SIZE,
+    milestone: "invited",
+  })
+  const monitoringVersions = Array.from(new Set(
+    selectionMonitoringRecords
+      .map((record) => record.compliance.selectionProcessVersion)
+      .filter(Boolean)
+  ))
 
   // ─── KPI Calculations ─────────────────────────────────────────────
   const totalApplications = rangedCandidates.length
@@ -238,6 +267,30 @@ export default function AdminAnalytics() {
                 <p className="text-xs text-gray-500 mt-4">
                   Overall conversion (applied → scheduled): <span className="font-semibold text-gray-900">{funnel[3]?.count && funnelTop ? ((funnel[3].count / funnelTop) * 100).toFixed(1) : '0'}%</span>
                 </p>
+              </div>
+            )}
+
+            {showCandidates && selectionMonitoringRecords.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-5">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Selection process monitoring</h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Aggregate voluntary EEO data only. Do not use this information for candidate-level decisions.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-[11px] text-gray-500">
+                    <span className="px-2 py-1 rounded-full bg-gray-100">{selectionMonitoringRecords.length} monitored applications</span>
+                    <span className="px-2 py-1 rounded-full bg-gray-100">Minimum group n={MONITORING_MIN_GROUP_SIZE}</span>
+                    {monitoringVersions.length > 0 && (
+                      <span className="px-2 py-1 rounded-full bg-gray-100">Process {monitoringVersions.join(", ")}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <SelectionMonitoringTable title="Race/ethnicity" result={raceEthnicitySelection} />
+                  <SelectionMonitoringTable title="Gender" result={genderSelection} />
+                </div>
               </div>
             )}
 
@@ -472,4 +525,61 @@ function KpiCard({ label, value, color }) {
       <p className={`text-2xl font-semibold ${colors[color] || "text-gray-900"}`}>{value}</p>
     </div>
   )
+}
+
+function SelectionMonitoringTable({ title, result }) {
+  if (result.rows.length === 0) {
+    return (
+      <div className="border border-gray-200 rounded-xl p-4">
+        <h4 className="text-xs font-semibold text-gray-700 mb-3">{title}</h4>
+        <p className="text-xs text-gray-400 py-6 text-center">No reportable voluntary responses yet</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <h4 className="text-xs font-semibold text-gray-700">{title}</h4>
+        <span className="text-[11px] text-gray-400">{result.totalSelected}/{result.totalApplicants} invited</span>
+      </div>
+      <table className="w-full">
+        <thead>
+          <tr className="bg-gray-50 border-b border-gray-100">
+            <th className="text-left text-[11px] font-semibold text-gray-500 px-4 py-2">Group</th>
+            <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">n</th>
+            <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Rate</th>
+            <th className="text-right text-[11px] font-semibold text-gray-500 px-4 py-2">Ratio</th>
+          </tr>
+        </thead>
+        <tbody>
+          {result.rows.map((row) => (
+            <tr key={row.group} className="border-b border-gray-100 last:border-0">
+              <td className="px-4 py-2 text-xs text-gray-700">{row.group}</td>
+              <td className="px-3 py-2 text-xs text-gray-600 text-right">{row.applicants}</td>
+              <td className="px-3 py-2 text-xs text-gray-600 text-right">{formatRate(row.selectionRate)}</td>
+              <td className="px-4 py-2 text-right">
+                <SelectionStatusBadge row={row} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function SelectionStatusBadge({ row }) {
+  if (row.status === "low_n") {
+    return <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">low n</span>
+  }
+  if (row.status === "attention") {
+    return <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">{formatRate(row.rateRatio)}</span>
+  }
+  return <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">{formatRate(row.rateRatio)}</span>
+}
+
+function formatRate(value) {
+  if (value === null || value === undefined) return "n/a"
+  return `${(value * 100).toFixed(1)}%`
 }

@@ -1,13 +1,25 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, getDoc, addDoc, collection, query, where, orderBy, getDocs, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, collection, query, where, orderBy, getDocs, serverTimestamp, writeBatch } from 'firebase/firestore'
 import { ref, uploadBytesResumable } from 'firebase/storage'
 import { v4 as uuidv4 } from 'uuid'
 import { db, storage } from '../firebase'
 import VideoRecorder from '../components/VideoRecorder'
 import DeviceCheck from '../components/DeviceCheck'
+import {
+  COMPLIANCE_CONTACT_EMAIL,
+  COMPLIANCE_NOTICE_VERSION,
+  DEFAULT_ACKNOWLEDGEMENTS,
+  DEFAULT_EEO_SURVEY,
+  EEO_OPTIONS,
+  EEO_SURVEY_VERSION,
+  REQUIRED_ACKNOWLEDGEMENTS,
+  SELECTION_PROCESS_VERSION,
+  allRequiredAcknowledgementsAccepted,
+  normalizeEeoSurvey,
+} from '../compliance/selectionProcess'
 
-const STEPS = ['info', 'resume', 'interview', 'submitting']
+const STEPS = ['info', 'resume', 'compliance', 'interview', 'submitting']
 const DRAFT_KEY_PREFIX = 'apply_draft_v1_'
 // Total length of interview we estimate — used for the progress map.
 function summarizeQuestionTime(q) {
@@ -49,6 +61,9 @@ export default function Apply() {
   })
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', phone: '' })
   const [formErrors, setFormErrors] = useState({})
+  const [acknowledgements, setAcknowledgements] = useState(DEFAULT_ACKNOWLEDGEMENTS)
+  const [eeoSurvey, setEeoSurvey] = useState(DEFAULT_EEO_SURVEY)
+  const [complianceErrors, setComplianceErrors] = useState({})
   const [resumeFile, setResumeFile] = useState(null)
   const [resumeUrl, setResumeUrl] = useState(null)
   const [resumeFileName, setResumeFileName] = useState(null)
@@ -80,6 +95,10 @@ export default function Apply() {
       if (!raw) return
       const draft = JSON.parse(raw)
       if (draft.form) setForm(draft.form)
+      if (draft.acknowledgements) {
+        setAcknowledgements({ ...DEFAULT_ACKNOWLEDGEMENTS, ...draft.acknowledgements })
+      }
+      if (draft.eeoSurvey) setEeoSurvey(normalizeEeoSurvey(draft.eeoSurvey))
       if (draft.resumeUrl) setResumeUrl(draft.resumeUrl)
       if (draft.resumeFileName) setResumeFileName(draft.resumeFileName)
       if (draft.videoResponses) setVideoResponses(draft.videoResponses)
@@ -108,6 +127,8 @@ export default function Apply() {
       const draft = {
         candidateId,
         form,
+        acknowledgements,
+        eeoSurvey,
         resumeUrl,
         resumeFileName,
         videoResponses,
@@ -120,7 +141,7 @@ export default function Apply() {
     } catch {
       /* quota errors are non-fatal — the candidate just loses resume-on-reload */
     }
-  }, [draftLoaded, candidateId, form, resumeUrl, resumeFileName, videoResponses, textResponses, currentQuestion, step, draftKey])
+  }, [draftLoaded, candidateId, form, acknowledgements, eeoSurvey, resumeUrl, resumeFileName, videoResponses, textResponses, currentQuestion, step, draftKey])
 
   useEffect(() => {
     async function loadJob() {
@@ -313,12 +334,31 @@ export default function Apply() {
   const handleResumeNext = () => {
     if (resumeUploading) { alert('Resume is still uploading. Please wait.'); return }
     if (!resumeUrl) { alert('Please upload your resume to continue.'); return }
-    // If no questions configured, skip straight to submit
+    setStep('compliance')
+  }
+
+  const handleComplianceNext = () => {
+    if (!allRequiredAcknowledgementsAccepted(acknowledgements)) {
+      setComplianceErrors({ acknowledgements: 'Please review and accept each required acknowledgement to continue.' })
+      return
+    }
+
+    setComplianceErrors({})
+    // If no questions are configured, submit after the required compliance notice.
     if (questions.length === 0) {
       handleSubmit({}, {})
       return
     }
     setStep('interview')
+  }
+
+  const toggleAcknowledgement = (key) => {
+    setComplianceErrors({})
+    setAcknowledgements(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const updateEeoSurvey = (field, value) => {
+    setEeoSurvey(prev => ({ ...prev, [field]: value }))
   }
 
   const currentQ = questions[currentQuestion]
@@ -345,6 +385,12 @@ export default function Apply() {
   }
 
   const handleSubmit = async (finalVideoResponses, finalTextResponses) => {
+    if (!allRequiredAcknowledgementsAccepted(acknowledgements)) {
+      setStep('compliance')
+      setComplianceErrors({ acknowledgements: 'Please review and accept each required acknowledgement to continue.' })
+      return
+    }
+
     setStep('submitting')
     try {
       // Build question map for storage
@@ -356,7 +402,12 @@ export default function Apply() {
       // Status portal token — lets the candidate check their application
       // status later without needing an account.
       const statusToken = uuidv4()
-      await addDoc(collection(db, 'candidates'), {
+      const candidateRef = doc(db, 'candidates', candidateId)
+      const complianceRef = doc(db, 'candidateCompliance', candidateId)
+      const normalizedEeoSurvey = normalizeEeoSurvey(eeoSurvey)
+      const batch = writeBatch(db)
+
+      batch.set(candidateRef, {
         candidateId,
         ...form,
         jobId: job.id,
@@ -365,6 +416,9 @@ export default function Apply() {
         dealership: 'San Antonio Dodge',
         stage: 'applied',
         resumeUrl,
+        selectionProcessVersion: SELECTION_PROCESS_VERSION,
+        complianceNoticeVersion: COMPLIANCE_NOTICE_VERSION,
+        complianceAcknowledgedAt: serverTimestamp(),
         videoResponses: finalVideoResponses || videoResponses,
         textResponses: finalTextResponses || textResponses,
         questions: questionMap,
@@ -376,11 +430,29 @@ export default function Apply() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       })
+
+      batch.set(complianceRef, {
+        candidateId,
+        jobId: job.id,
+        jobTitle: job.title,
+        roleKey: job.roleKey,
+        selectionProcessVersion: SELECTION_PROCESS_VERSION,
+        complianceNoticeVersion: COMPLIANCE_NOTICE_VERSION,
+        eeoSurveyVersion: EEO_SURVEY_VERSION,
+        acknowledgements: {
+          ...acknowledgements,
+          acceptedAt: serverTimestamp(),
+        },
+        eeoSurvey: normalizedEeoSurvey,
+        createdAt: serverTimestamp()
+      })
+
+      await batch.commit()
       clearDraft()
       navigate(`/thank-you?token=${statusToken}`)
     } catch {
       alert('Submission failed. Please try again.')
-      setStep('interview')
+      setStep(questions.length === 0 ? 'compliance' : 'interview')
     }
   }
 
@@ -415,6 +487,7 @@ export default function Apply() {
             <div className="flex justify-between text-xs text-gray-500 mb-2">
               <span className={step === 'info' ? 'text-blue-600 font-medium' : ''}>Your info</span>
               <span className={step === 'resume' ? 'text-blue-600 font-medium' : ''}>Resume</span>
+              <span className={step === 'compliance' ? 'text-blue-600 font-medium' : ''}>Process</span>
               <span className={step === 'interview' ? 'text-blue-600 font-medium' : ''}>
                 Interview {step === 'interview' ? `(${currentQuestion + 1}/${questions.length})` : ''}
               </span>
@@ -516,6 +589,77 @@ export default function Apply() {
               <button onClick={() => setStep('info')} className="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors">Back</button>
               <button onClick={handleResumeNext} disabled={resumeUploading || !resumeUrl} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors">
                 {resumeUploading ? 'Uploading...' : 'Continue'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Process notice */}
+        {step === 'compliance' && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-6">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">Review the selection process</h2>
+              <p className="text-sm text-gray-500 mt-1">A few quick acknowledgements before the interview portion.</p>
+            </div>
+
+            <div className="border border-blue-100 bg-blue-50 rounded-xl p-4 space-y-3">
+              <p className="text-sm font-semibold text-blue-950">How your application is reviewed</p>
+              <ul className="list-disc list-inside text-sm text-blue-900 space-y-1">
+                <li>Application materials are reviewed against job-related requirements for this role.</li>
+                <li>Technology may assist with organizing responses and scoring consistency, but the hiring team remains responsible for selection decisions.</li>
+                <li>You can request a reasonable accommodation for the application process by contacting <a className="font-medium underline" href={`mailto:${COMPLIANCE_CONTACT_EMAIL}`}>{COMPLIANCE_CONTACT_EMAIL}</a>.</li>
+                <li>Please do not include medical, disability, genetic, family medical history, or other non-job-related personal details in your resume or answers.</li>
+              </ul>
+            </div>
+
+            <div className="space-y-3">
+              {REQUIRED_ACKNOWLEDGEMENTS.map((item) => (
+                <label key={item.key} className="flex items-start gap-3 border border-gray-200 rounded-xl p-3 cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={acknowledgements[item.key]}
+                    onChange={() => toggleAcknowledgement(item.key)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">{item.label}</span>
+                </label>
+              ))}
+              {complianceErrors.acknowledgements && (
+                <p className="text-xs text-red-600">{complianceErrors.acknowledgements}</p>
+              )}
+            </div>
+
+            <div className="border border-gray-200 rounded-xl p-4 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Voluntary EEO information</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    This is optional, stored separately from your application review, and used only for aggregate selection process monitoring.
+                  </p>
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm text-gray-700 shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={eeoSurvey.optedIn}
+                    onChange={(e) => setEeoSurvey(e.target.checked ? { ...DEFAULT_EEO_SURVEY, optedIn: true } : { ...DEFAULT_EEO_SURVEY })}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Share
+                </label>
+              </div>
+
+              {eeoSurvey.optedIn && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <EeoSelect label="Gender" value={eeoSurvey.gender} options={EEO_OPTIONS.gender} onChange={(value) => updateEeoSurvey('gender', value)} />
+                  <EeoSelect label="Race/ethnicity" value={eeoSurvey.raceEthnicity} options={EEO_OPTIONS.raceEthnicity} onChange={(value) => updateEeoSurvey('raceEthnicity', value)} />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={() => setStep('resume')} className="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors">Back</button>
+              <button onClick={handleComplianceNext} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-colors">
+                {questions.length === 0 ? 'Submit Application' : 'Start Interview'}
               </button>
             </div>
           </div>
@@ -727,6 +871,23 @@ export default function Apply() {
         )}
       </div>
     </div>
+  )
+}
+
+function EeoSelect({ label, value, options, onChange }) {
+  return (
+    <label className="block">
+      <span className="block text-xs font-medium text-gray-600 mb-1">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>{option}</option>
+        ))}
+      </select>
+    </label>
   )
 }
 

@@ -42,15 +42,48 @@ service cloud.firestore {
       return value == null || (value is string && value.size() <= maxLength);
     }
 
-    function validCandidateCreate() {
+    function validAcknowledgements(value) {
+      return value is map
+        && value.keys().hasOnly([
+          'processNoticeAccepted', 'aiReviewAccepted', 'accuracyCertified', 'acceptedAt'
+        ])
+        && value.processNoticeAccepted == true
+        && value.aiReviewAccepted == true
+        && value.accuracyCertified == true
+        && value.acceptedAt == request.time;
+    }
+
+    function validEeoSurvey(value) {
+      return value is map
+        && value.keys().hasOnly([
+          'optedIn', 'gender', 'raceEthnicity'
+        ])
+        && value.optedIn is bool
+        && value.gender in [
+          'Prefer not to say', 'Woman', 'Man', 'Non-binary', 'Self-describe'
+        ]
+        && value.raceEthnicity in [
+          'Prefer not to say', 'Hispanic or Latino',
+          'American Indian or Alaska Native', 'Asian',
+          'Black or African American', 'Native Hawaiian or Other Pacific Islander',
+          'White', 'Two or more races', 'Self-describe'
+        ]
+        && (value.optedIn == true
+          || (value.gender == 'Prefer not to say'
+            && value.raceEthnicity == 'Prefer not to say'));
+    }
+
+    function validCandidateCreate(candidateId) {
       let data = request.resource.data;
       return data.keys().hasOnly([
           'candidateId', 'firstName', 'lastName', 'email', 'phone',
           'jobId', 'jobTitle', 'roleKey', 'dealership', 'stage',
           'resumeUrl', 'videoResponses', 'textResponses', 'questions',
           'timingData', 'statusToken', 'compositeScore', 'resumeScore',
-          'interviewScore', 'createdAt', 'updatedAt'
+          'interviewScore', 'selectionProcessVersion', 'complianceNoticeVersion',
+          'complianceAcknowledgedAt', 'createdAt', 'updatedAt'
         ])
+        && data.candidateId == candidateId
         && isString(data.candidateId, 80)
         && isString(data.firstName, 80)
         && isString(data.lastName, 80)
@@ -63,6 +96,9 @@ service cloud.firestore {
         && data.stage == 'applied'
         && isString(data.resumeUrl, 260)
         && data.resumeUrl.matches('^resumes/' + data.candidateId + '/[^/]+$')
+        && isString(data.selectionProcessVersion, 40)
+        && isString(data.complianceNoticeVersion, 40)
+        && data.complianceAcknowledgedAt == request.time
         && data.videoResponses is map
         && data.textResponses is map
         && data.questions is map
@@ -75,6 +111,27 @@ service cloud.firestore {
         && data.updatedAt == request.time;
     }
 
+    function validCandidateComplianceCreate(candidateId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'candidateId', 'jobId', 'jobTitle', 'roleKey',
+          'selectionProcessVersion', 'complianceNoticeVersion',
+          'eeoSurveyVersion', 'acknowledgements', 'eeoSurvey', 'createdAt'
+        ])
+        && data.candidateId == candidateId
+        && isString(data.candidateId, 80)
+        && isString(data.jobId, 120)
+        && isString(data.jobTitle, 160)
+        && isString(data.roleKey, 80)
+        && isString(data.selectionProcessVersion, 40)
+        && isString(data.complianceNoticeVersion, 40)
+        && isString(data.eeoSurveyVersion, 40)
+        && validAcknowledgements(data.acknowledgements)
+        && validEeoSurvey(data.eeoSurvey)
+        && existsAfter(/databases/$(database)/documents/candidates/$(candidateId))
+        && data.createdAt == request.time;
+    }
+
     match /jobs/{jobId} {
       allow get, list: if isSuperadmin()
         || (resource.data.status == 'active' && resource.data.deletedAt == null);
@@ -82,10 +139,16 @@ service cloud.firestore {
     }
 
     match /candidates/{candidateId} {
-      allow create: if validCandidateCreate();
+      allow create: if validCandidateCreate(candidateId);
       allow get, list: if hasPermission('view_candidates');
       allow update: if hasPermission('score_candidates') || hasPermission('schedule_interviews');
       allow delete: if isSuperadmin();
+    }
+
+    match /candidateCompliance/{candidateId} {
+      allow create: if validCandidateComplianceCreate(candidateId);
+      allow get, list: if hasPermission('view_analytics');
+      allow update, delete: if false;
     }
 
     match /availability/{slotId} {
