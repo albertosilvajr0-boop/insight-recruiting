@@ -3,6 +3,11 @@ import { useNavigate } from "react-router-dom"
 import { collection, query, orderBy, onSnapshot } from "firebase/firestore"
 import { db } from "../firebase"
 import { format, subDays, isAfter, startOfDay } from "date-fns"
+import {
+  buildOutcomeSegmentRows,
+  buildPerformanceRecords,
+  buildSignalCorrelationRows,
+} from "../analytics/performanceCorrelation"
 import { buildSelectionRateRows } from "../compliance/adverseImpact"
 
 const STAGE_LABELS = {
@@ -17,6 +22,7 @@ export default function AdminAnalytics() {
   const [users, setUsers] = useState([])
   const [candidates, setCandidates] = useState([])
   const [complianceRecords, setComplianceRecords] = useState([])
+  const [onboardingRecords, setOnboardingRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterType, setFilterType] = useState("all") // "all" | "admins" | "candidates"
   const [dateRange, setDateRange] = useState("30") // days
@@ -39,7 +45,12 @@ export default function AdminAnalytics() {
       (snap) => setComplianceRecords(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       () => setComplianceRecords([])
     )
-    return () => { unsubUsers(); unsubCandidates(); unsubCompliance() }
+    const unsubOnboarding = onSnapshot(
+      query(collection(db, "onboardings"), orderBy("createdAt", "desc")),
+      (snap) => setOnboardingRecords(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setOnboardingRecords([])
+    )
+    return () => { unsubUsers(); unsubCandidates(); unsubCompliance(); unsubOnboarding() }
   }, [])
 
   const cutoff = startOfDay(subDays(new Date(), Number(dateRange)))
@@ -67,6 +78,14 @@ export default function AdminAnalytics() {
       .map((record) => record.compliance.selectionProcessVersion)
       .filter(Boolean)
   ))
+  const performanceRecords = buildPerformanceRecords(candidates, onboardingRecords)
+  const performanceCorrelationRows = buildSignalCorrelationRows(performanceRecords)
+  const performanceByRole = buildOutcomeSegmentRows(performanceRecords, "role")
+  const performanceByProcess = buildOutcomeSegmentRows(performanceRecords, "selectionProcessVersion")
+  const avgPerformanceOutcome = performanceRecords.length > 0
+    ? performanceRecords.reduce((sum, record) => sum + record.outcome.averageRating, 0) / performanceRecords.length
+    : null
+  const topPerformerCount = performanceRecords.filter((record) => record.outcome.averageRating >= 4).length
 
   // ─── KPI Calculations ─────────────────────────────────────────────
   const totalApplications = rangedCandidates.length
@@ -291,6 +310,47 @@ export default function AdminAnalytics() {
                   <SelectionMonitoringTable title="Race/ethnicity" result={raceEthnicitySelection} />
                   <SelectionMonitoringTable title="Gender" result={genderSelection} />
                 </div>
+              </div>
+            )}
+
+            {showCandidates && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-5">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Selection-to-performance correlation</h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Based on completed 30/60/90 onboarding checkpoint ratings. Directional only; validate before changing the process.
+                    </p>
+                  </div>
+                  <button onClick={() => navigate("/admin/onboarding")} className="text-xs font-medium text-blue-700 border border-blue-100 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg">
+                    Open onboarding
+                  </button>
+                </div>
+
+                {performanceRecords.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-8 text-center">
+                    No completed performance checkpoints yet. Ratings from onboarding will appear here once 30/60/90 reviews are completed.
+                  </p>
+                ) : (
+                  <div className="space-y-5">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <Metric label="Rated hires" value={performanceRecords.length} />
+                      <Metric label="Avg outcome" value={`${avgPerformanceOutcome.toFixed(1)}/5`} />
+                      <Metric label="Top performers" value={topPerformerCount} />
+                      <Metric label="Top performer rate" value={`${((topPerformerCount / performanceRecords.length) * 100).toFixed(0)}%`} />
+                    </div>
+
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-700 mb-3">Signal correlation with performance</h4>
+                      <CorrelationTable rows={performanceCorrelationRows} />
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <OutcomeSegmentTable title="Outcome by role" rows={performanceByRole} />
+                      <OutcomeSegmentTable title="Outcome by selection process" rows={performanceByProcess} />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -525,6 +585,120 @@ function KpiCard({ label, value, color }) {
       <p className={`text-2xl font-semibold ${colors[color] || "text-gray-900"}`}>{value}</p>
     </div>
   )
+}
+
+function Metric({ label, value }) {
+  return (
+    <div>
+      <p className="text-xs text-gray-500 mb-1">{label}</p>
+      <p className="text-xl font-semibold text-gray-900">{value}</p>
+    </div>
+  )
+}
+
+function CorrelationTable({ rows }) {
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden">
+      <table className="w-full">
+        <thead>
+          <tr className="bg-gray-50 border-b border-gray-100">
+            <th className="text-left text-[11px] font-semibold text-gray-500 px-4 py-2">Signal</th>
+            <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">n</th>
+            <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">r</th>
+            <th className="text-left text-[11px] font-semibold text-gray-500 px-4 py-2">Read</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key} className="border-b border-gray-100 last:border-0">
+              <td className="px-4 py-2">
+                <p className="text-xs font-medium text-gray-800">{row.label}</p>
+                <p className="text-[11px] text-gray-400">
+                  Avg signal {formatMetric(row.averageSignal, row.formatSignal)} - outcome {formatMetric(row.averageOutcome, (v) => `${v.toFixed(1)}/5`)}
+                </p>
+              </td>
+              <td className="px-3 py-2 text-xs text-gray-600 text-right">{row.sampleSize}</td>
+              <td className="px-3 py-2 text-xs text-gray-600 text-right">{row.coefficient === null ? "n/a" : row.coefficient.toFixed(2)}</td>
+              <td className="px-4 py-2"><CorrelationBadge strength={row.strength} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function OutcomeSegmentTable({ title, rows }) {
+  if (rows.length === 0) {
+    return (
+      <div className="border border-gray-200 rounded-xl p-4">
+        <h4 className="text-xs font-semibold text-gray-700 mb-3">{title}</h4>
+        <p className="text-xs text-gray-400 py-6 text-center">No rated hires yet</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100">
+        <h4 className="text-xs font-semibold text-gray-700">{title}</h4>
+      </div>
+      <table className="w-full">
+        <thead>
+          <tr className="bg-gray-50 border-b border-gray-100">
+            <th className="text-left text-[11px] font-semibold text-gray-500 px-4 py-2">Segment</th>
+            <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">n</th>
+            <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Outcome</th>
+            <th className="text-right text-[11px] font-semibold text-gray-500 px-4 py-2">Top</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.label} className="border-b border-gray-100 last:border-0">
+              <td className="px-4 py-2">
+                <p className="text-xs font-medium text-gray-800 truncate">{row.label}</p>
+                <p className="text-[11px] text-gray-400">
+                  Manual {formatMetric(row.averageManualScore, (v) => v.toFixed(1))} - AI {formatMetric(row.averageCompositeScore, (v) => v.toFixed(1))}
+                </p>
+              </td>
+              <td className="px-3 py-2 text-xs text-gray-600 text-right">{row.sampleSize}</td>
+              <td className="px-3 py-2 text-xs font-semibold text-gray-700 text-right">{row.averageOutcome.toFixed(1)}/5</td>
+              <td className="px-4 py-2 text-xs text-gray-600 text-right">{row.topPerformerCount}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function CorrelationBadge({ strength }) {
+  const labels = {
+    insufficient: "Need more data",
+    strong_positive: "Strong positive",
+    moderate_positive: "Moderate positive",
+    weak_positive: "Weak positive",
+    flat: "No clear signal",
+    weak_negative: "Weak negative",
+    moderate_negative: "Moderate negative",
+    strong_negative: "Strong negative",
+  }
+  const styles = {
+    insufficient: "bg-gray-100 text-gray-500",
+    strong_positive: "bg-green-100 text-green-700",
+    moderate_positive: "bg-green-100 text-green-700",
+    weak_positive: "bg-blue-100 text-blue-700",
+    flat: "bg-gray-100 text-gray-600",
+    weak_negative: "bg-amber-100 text-amber-700",
+    moderate_negative: "bg-red-100 text-red-700",
+    strong_negative: "bg-red-100 text-red-700",
+  }
+  return <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${styles[strength] || styles.flat}`}>{labels[strength] || labels.flat}</span>
+}
+
+function formatMetric(value, formatter) {
+  if (value === null || value === undefined) return "n/a"
+  return formatter(value)
 }
 
 function SelectionMonitoringTable({ title, result }) {
