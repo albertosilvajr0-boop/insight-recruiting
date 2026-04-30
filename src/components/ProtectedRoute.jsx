@@ -3,10 +3,9 @@ import { Navigate } from 'react-router-dom'
 import { onAuthStateChanged } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase'
+import { canAccessRoute } from '../security/roles'
 
-const ROLE_HIERARCHY = { superadmin: 3, manager: 1 }
-
-export default function ProtectedRoute({ children, requiredRole }) {
+export default function ProtectedRoute({ children, requiredRole, requiredPermission }) {
   const [status, setStatus] = useState('loading')
 
   useEffect(() => {
@@ -16,27 +15,22 @@ export default function ProtectedRoute({ children, requiredRole }) {
         return
       }
 
-      // If a specific role is required, check it
-      if (requiredRole) {
-        try {
-          const snap = await getDoc(doc(db, 'users', user.uid))
-          const role = snap.exists() ? snap.data().role : 'manager'
-          const userLevel = ROLE_HIERARCHY[role] || 0
-          const requiredLevel = ROLE_HIERARCHY[requiredRole] || 0
-          if (userLevel < requiredLevel) {
-            setStatus('forbidden')
-            return
-          }
-        } catch {
+      try {
+        const snap = await getDoc(doc(db, 'users', user.uid))
+        const profile = snap.exists() ? snap.data() : null
+        if (!canAccessRoute(profile, { requiredRole, requiredPermission })) {
           setStatus('forbidden')
           return
         }
+      } catch {
+        setStatus('forbidden')
+        return
       }
 
       setStatus('authed')
     })
     return unsub
-  }, [requiredRole])
+  }, [requiredRole, requiredPermission])
 
   if (status === 'loading') {
     return (

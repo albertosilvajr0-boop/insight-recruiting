@@ -5,6 +5,7 @@ import { signOut } from "firebase/auth"
 import { db, auth } from "../firebase"
 import { format, differenceInHours } from "date-fns"
 import { downloadCandidateProfile } from "../utils/downloadProfile"
+import { adminAuditFields } from "../security/auditFields"
 
 const STAGES = ["applied","scored","to_schedule","scheduled","rejected"]
 const STAGE_LABELS = { applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", rejected:"Rejected" }
@@ -32,7 +33,7 @@ function ageInStageHours(c) {
 
 export default function AdminDashboard() {
   const [candidates, setCandidates] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
   const [userRole, setUserRole] = useState(null)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [refreshConfirm, setRefreshConfirm] = useState(false)
@@ -102,12 +103,12 @@ export default function AdminDashboard() {
 
   const rejectCandidate = async (e, c) => {
     e.stopPropagation()
-    await updateDoc(doc(db, "candidates", c.id), { stage: "rejected", updatedAt: serverTimestamp() })
+    await updateDoc(doc(db, "candidates", c.id), { stage: "rejected", ...adminAuditFields() })
   }
 
   const toggleFlag = async (e, c) => {
     e.stopPropagation()
-    await updateDoc(doc(db, "candidates", c.id), { needsReview: !c.needsReview, updatedAt: serverTimestamp() })
+    await updateDoc(doc(db, "candidates", c.id), { needsReview: !c.needsReview, ...adminAuditFields() })
   }
 
   const deleteCandidate = async () => {
@@ -124,7 +125,7 @@ export default function AdminDashboard() {
     const c = candidates.find(x => x.id === id)
     if (!c || stageOf(c) === stage) return
     try {
-      await updateDoc(doc(db, "candidates", id), { stage, updatedAt: serverTimestamp() })
+      await updateDoc(doc(db, "candidates", id), { stage, ...adminAuditFields() })
     } catch (err) {
       alert(`Move failed: ${err.message}`)
     }
@@ -148,17 +149,17 @@ export default function AdminDashboard() {
       const batch = writeBatch(db)
       for (const id of ids) {
         const r = doc(db, "candidates", id)
-        if (action === "reject") batch.update(r, { stage: "rejected", updatedAt: serverTimestamp() })
+        if (action === "reject") batch.update(r, { stage: "rejected", ...adminAuditFields() })
         else if (action === "advance") {
           const c = candidates.find(x => x.id === id)
           const cur = stageOf(c)
           const idx = STAGES.indexOf(cur)
           const next = idx >= 0 && idx < STAGES.length - 2 ? STAGES[idx + 1] : cur
-          batch.update(r, { stage: next, updatedAt: serverTimestamp() })
+          batch.update(r, { stage: next, ...adminAuditFields() })
         } else if (action === "flag") {
-          batch.update(r, { needsReview: true, updatedAt: serverTimestamp() })
+          batch.update(r, { needsReview: true, ...adminAuditFields() })
         } else if (action === "unflag") {
-          batch.update(r, { needsReview: false, updatedAt: serverTimestamp() })
+          batch.update(r, { needsReview: false, ...adminAuditFields() })
         }
       }
       await batch.commit()

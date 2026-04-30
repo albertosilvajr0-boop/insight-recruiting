@@ -1,53 +1,124 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
 
-    // Jobs — public read, admin write
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function hasUserProfile() {
+      return signedIn() && exists(userPath());
+    }
+
+    function userProfile() {
+      return get(userPath()).data;
+    }
+
+    function isEnabledAdmin() {
+      return hasUserProfile()
+        && userProfile().disabled != true
+        && userProfile().role in ['superadmin', 'manager'];
+    }
+
+    function isSuperadmin() {
+      return isEnabledAdmin() && userProfile().role == 'superadmin';
+    }
+
+    function hasPermission(permission) {
+      return isSuperadmin()
+        || (isEnabledAdmin()
+          && userProfile().permissions is list
+          && permission in userProfile().permissions);
+    }
+
+    function isString(value, maxLength) {
+      return value is string && value.size() > 0 && value.size() <= maxLength;
+    }
+
+    function optionalString(value, maxLength) {
+      return value == null || (value is string && value.size() <= maxLength);
+    }
+
+    function validCandidateCreate() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'candidateId', 'firstName', 'lastName', 'email', 'phone',
+          'jobId', 'jobTitle', 'roleKey', 'dealership', 'stage',
+          'resumeUrl', 'videoResponses', 'textResponses', 'questions',
+          'timingData', 'statusToken', 'compositeScore', 'resumeScore',
+          'interviewScore', 'createdAt', 'updatedAt'
+        ])
+        && isString(data.candidateId, 80)
+        && isString(data.firstName, 80)
+        && isString(data.lastName, 80)
+        && isString(data.email, 160)
+        && isString(data.phone, 40)
+        && isString(data.jobId, 120)
+        && isString(data.jobTitle, 160)
+        && isString(data.roleKey, 80)
+        && optionalString(data.dealership, 120)
+        && data.stage == 'applied'
+        && isString(data.resumeUrl, 260)
+        && data.resumeUrl.matches('^resumes/' + data.candidateId + '/[^/]+$')
+        && data.videoResponses is map
+        && data.textResponses is map
+        && data.questions is map
+        && data.timingData is map
+        && isString(data.statusToken, 100)
+        && data.compositeScore == null
+        && data.resumeScore == null
+        && data.interviewScore == null
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
     match /jobs/{jobId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow get, list: if isSuperadmin()
+        || (resource.data.status == 'active' && resource.data.deletedAt == null);
+      allow create, update, delete: if hasPermission('manage_jobs');
     }
 
-    // Candidates — public create (anyone can apply), admin read/write
     match /candidates/{candidateId} {
-      allow create: if true;
-      allow read, update, delete: if request.auth != null;
+      allow create: if validCandidateCreate();
+      allow get, list: if hasPermission('view_candidates');
+      allow update: if hasPermission('score_candidates') || hasPermission('schedule_interviews');
+      allow delete: if isSuperadmin();
     }
 
-    // Availability — public read (for scheduling), admin write
     match /availability/{slotId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow get, list, create, update, delete: if hasPermission('manage_availability');
     }
 
-    // Users — authenticated read; write own doc or admin write any
     match /users/{userId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && request.auth.uid == userId;
-      allow update, delete: if request.auth != null;
+      allow get: if (signedIn() && request.auth.uid == userId) || isSuperadmin();
+      allow list: if isSuperadmin();
+      allow create, update, delete: if false;
     }
 
-    // Interview questions — public read (for candidate apply flow), admin write
     match /interviewQuestions/{questionId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow get, list: if isSuperadmin() || resource.data.active == true;
+      allow create, update, delete: if hasPermission('manage_questions');
     }
 
-    // Verification codes — server-side only (Cloud Functions use Admin SDK)
     match /verificationCodes/{codeId} {
       allow read, write: if false;
     }
 
-    // System — public read (force-refresh signal broadcast to all clients),
-    // authenticated (admin) write.
     match /system/{docId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow get, list: if true;
+      allow create, update, delete: if isSuperadmin();
     }
 
-    // Everything else — admin only
+    match /auditLogs/{logId} {
+      allow get, list: if isSuperadmin();
+      allow create, update, delete: if false;
+    }
+
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }
