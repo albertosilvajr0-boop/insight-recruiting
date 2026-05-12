@@ -23,6 +23,7 @@ export default function AdminAnalytics() {
   const [users, setUsers] = useState([])
   const [candidates, setCandidates] = useState([])
   const [complianceRecords, setComplianceRecords] = useState([])
+  const [eeoRecords, setEeoRecords] = useState([])
   const [onboardingRecords, setOnboardingRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterType, setFilterType] = useState("all") // "all" | "admins" | "candidates"
@@ -46,12 +47,17 @@ export default function AdminAnalytics() {
       (snap) => setComplianceRecords(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       () => setComplianceRecords([])
     )
+    const unsubEeo = onSnapshot(
+      query(collection(db, "eeoResponses"), orderBy("createdAt", "desc")),
+      (snap) => setEeoRecords(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setEeoRecords([])
+    )
     const unsubOnboarding = onSnapshot(
       query(collection(db, "onboardings"), orderBy("createdAt", "desc")),
       (snap) => setOnboardingRecords(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       () => setOnboardingRecords([])
     )
-    return () => { unsubUsers(); unsubCandidates(); unsubCompliance(); unsubOnboarding() }
+    return () => { unsubUsers(); unsubCandidates(); unsubCompliance(); unsubEeo(); unsubOnboarding() }
   }, [])
 
   const cutoff = startOfDay(subDays(new Date(), Number(dateRange)))
@@ -61,12 +67,16 @@ export default function AdminAnalytics() {
   const rangedCandidates = candidates.filter((c) => inRange(c.createdAt))
   const decisionReasonRows = buildDecisionReasonRows(candidates, { startDate: cutoff })
   const complianceByCandidateId = new Map(complianceRecords.map((record) => [record.candidateId, record]))
+  const eeoByCandidateId = new Map(eeoRecords.map((record) => [record.candidateId, record]))
   const selectionMonitoringRecords = rangedCandidates
     .map((candidate) => ({
       candidate,
-      compliance: complianceByCandidateId.get(candidate.candidateId),
+      compliance: {
+        ...complianceByCandidateId.get(candidate.candidateId),
+        eeoSurvey: eeoByCandidateId.get(candidate.candidateId)?.eeoSurvey,
+      },
     }))
-    .filter((record) => record.compliance)
+    .filter((record) => record.compliance?.eeoSurvey)
   const raceEthnicitySelection = buildSelectionRateRows(selectionMonitoringRecords, "raceEthnicity", {
     minGroupSize: MONITORING_MIN_GROUP_SIZE,
     milestone: "invited",

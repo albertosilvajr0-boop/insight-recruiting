@@ -46,7 +46,7 @@ describe('selection rate monitoring', () => {
       {
         candidate: { stage: 'to_schedule' },
         compliance: {
-          eeoSurvey: { optedIn: true, gender: 'Prefer not to say' },
+          eeoSurvey: { optedIn: true, gender: 'Prefer not to answer' },
         },
       },
     ]

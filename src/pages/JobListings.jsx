@@ -28,10 +28,10 @@ function injectJobStructuredData(jobs) {
       '@type': 'Place',
       address: {
         '@type': 'PostalAddress',
-        streetAddress: '18011 Blanco Rd',
+        streetAddress: '11910 N IH 35',
         addressLocality: 'San Antonio',
         addressRegion: 'TX',
-        postalCode: '78258',
+        postalCode: '78233-4200',
         addressCountry: 'US'
       }
     },

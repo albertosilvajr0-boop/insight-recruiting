@@ -86,5 +86,6 @@ function isReportableGroup(group) {
   return typeof group === 'string'
     && group.length > 0
     && group !== 'Prefer not to say'
+    && group !== 'Prefer not to answer'
     && group !== 'Self-describe'
 }

@@ -25,7 +25,7 @@ export async function sendConfirmationEmail(candidateId, slotDate, slotTime) {
           <p style="color: #111827; font-size: 14px; margin: 0; line-height: 1.8;">
             <strong>Date:</strong> ${formattedDate}<br/>
             <strong>Time:</strong> ${slotTime}<br/>
-            <strong>Location:</strong> San Antonio Dodge, 18011 Blanco Rd, San Antonio, TX 78258<br/>
+            <strong>Location:</strong> San Antonio Dodge, 11910 N IH 35, San Antonio, TX 78233-4200<br/>
             <strong>Duration:</strong> ~45 minutes
           </p>
         </div>

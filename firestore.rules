@@ -53,24 +53,32 @@ service cloud.firestore {
         && value.acceptedAt == request.time;
     }
 
+    function validCheckedAcknowledgementIds(value) {
+      return value is list
+        && value.size() == 3
+        && 'processNoticeAccepted' in value
+        && 'aiReviewAccepted' in value
+        && 'accuracyCertified' in value;
+    }
+
     function validEeoSurvey(value) {
       return value is map
         && value.keys().hasOnly([
-          'optedIn', 'gender', 'raceEthnicity'
+          'optedIn', 'status', 'gender', 'raceEthnicity'
         ])
         && value.optedIn is bool
+        && value.status in ['provided', 'not_provided']
         && value.gender in [
-          'Prefer not to say', 'Woman', 'Man', 'Non-binary', 'Self-describe'
+          'Prefer not to answer', 'Woman', 'Man', 'Non-binary', 'Self-describe'
         ]
         && value.raceEthnicity in [
-          'Prefer not to say', 'Hispanic or Latino',
+          'Prefer not to answer', 'Hispanic or Latino',
           'American Indian or Alaska Native', 'Asian',
           'Black or African American', 'Native Hawaiian or Other Pacific Islander',
           'White', 'Two or more races', 'Self-describe'
         ]
-        && (value.optedIn == true
-          || (value.gender == 'Prefer not to say'
-            && value.raceEthnicity == 'Prefer not to say'));
+        && value.optedIn == true
+        && value.status == 'provided';
     }
 
     function validCandidateCreate(candidateId) {
@@ -116,7 +124,9 @@ service cloud.firestore {
       return data.keys().hasOnly([
           'candidateId', 'jobId', 'jobTitle', 'roleKey',
           'selectionProcessVersion', 'complianceNoticeVersion',
-          'eeoSurveyVersion', 'acknowledgements', 'eeoSurvey', 'createdAt'
+          'eeoSurveyVersion', 'employerDisplayName', 'parentOrgDisplayName',
+          'renderedTextHash', 'renderedNoticeText', 'checkedAcknowledgementIds',
+          'userAgent', 'acknowledgements', 'createdAt'
         ])
         && data.candidateId == candidateId
         && isString(data.candidateId, 80)
@@ -126,9 +136,35 @@ service cloud.firestore {
         && isString(data.selectionProcessVersion, 40)
         && isString(data.complianceNoticeVersion, 40)
         && isString(data.eeoSurveyVersion, 40)
+        && isString(data.employerDisplayName, 160)
+        && isString(data.parentOrgDisplayName, 160)
+        && isString(data.renderedTextHash, 128)
+        && isString(data.renderedNoticeText, 8000)
+        && validCheckedAcknowledgementIds(data.checkedAcknowledgementIds)
+        && isString(data.userAgent, 600)
         && validAcknowledgements(data.acknowledgements)
+        && existsAfter(/databases/$(database)/documents/candidates/$(candidateId))
+        && data.createdAt == request.time;
+    }
+
+    function validEeoResponseCreate(candidateId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'candidateId', 'jobId', 'jobTitle', 'roleKey',
+          'employerDisplayName', 'parentOrgDisplayName',
+          'eeoSurveyVersion', 'eeoSurvey', 'createdAt'
+        ])
+        && data.candidateId == candidateId
+        && isString(data.candidateId, 80)
+        && isString(data.jobId, 120)
+        && isString(data.jobTitle, 160)
+        && isString(data.roleKey, 80)
+        && isString(data.employerDisplayName, 160)
+        && isString(data.parentOrgDisplayName, 160)
+        && isString(data.eeoSurveyVersion, 40)
         && validEeoSurvey(data.eeoSurvey)
         && existsAfter(/databases/$(database)/documents/candidates/$(candidateId))
+        && existsAfter(/databases/$(database)/documents/candidateCompliance/$(candidateId))
         && data.createdAt == request.time;
     }
 
@@ -147,6 +183,12 @@ service cloud.firestore {
 
     match /candidateCompliance/{candidateId} {
       allow create: if validCandidateComplianceCreate(candidateId);
+      allow get, list: if hasPermission('view_analytics');
+      allow update, delete: if false;
+    }
+
+    match /eeoResponses/{candidateId} {
+      allow create: if validEeoResponseCreate(candidateId);
       allow get, list: if hasPermission('view_analytics');
       allow update, delete: if false;
     }

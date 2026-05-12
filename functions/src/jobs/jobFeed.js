@@ -26,8 +26,8 @@ export async function generateJobFeed() {
       <city>San Antonio</city>
       <state>TX</state>
       <country>US</country>
-      <postalcode>78258</postalcode>
-      <streetaddress>18011 Blanco Rd</streetaddress>
+      <postalcode>78233-4200</postalcode>
+      <streetaddress>11910 N IH 35</streetaddress>
       <description><![CDATA[${description}]]></description>
       <salary>${job.payRange ? `$${job.payRange.min?.toLocaleString()} - $${job.payRange.max?.toLocaleString()} per year` : 'Competitive'}</salary>
       <jobtype>fulltime</jobtype>

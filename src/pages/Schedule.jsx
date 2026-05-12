@@ -79,7 +79,7 @@ export default function Schedule() {
           <div className="bg-gray-50 rounded-xl p-4 text-sm text-left space-y-2">
             <p><span className="text-gray-500">Date:</span> <span className="font-medium text-gray-900">{bookedDetails.date}</span></p>
             <p><span className="text-gray-500">Time:</span> <span className="font-medium text-gray-900">{bookedDetails.time}</span></p>
-            <p><span className="text-gray-500">Location:</span> <span className="font-medium text-gray-900">18011 Blanco Rd, San Antonio, TX 78258</span></p>
+            <p><span className="text-gray-500">Location:</span> <span className="font-medium text-gray-900">11910 N IH 35, San Antonio, TX 78233-4200</span></p>
           </div>
         )}
         <p className="text-sm text-gray-500">A confirmation email has been sent. Please bring a valid ID and arrive 10 minutes early.</p>
@@ -144,7 +144,7 @@ export default function Schedule() {
 
         <div className="mt-8 bg-blue-50 border border-blue-100 rounded-xl p-4">
           <p className="text-sm text-blue-900 font-medium">Interview Location</p>
-          <p className="text-sm text-blue-800 mt-1">San Antonio Dodge — 18011 Blanco Rd, San Antonio, TX 78258</p>
+          <p className="text-sm text-blue-800 mt-1">San Antonio Dodge - 11910 N IH 35, San Antonio, TX 78233-4200</p>
           <p className="text-xs text-blue-700 mt-1">Duration: ~45 minutes. Please bring a valid photo ID.</p>
         </div>
       </div>
