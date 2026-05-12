@@ -241,6 +241,12 @@ export default function AdminQuestions() {
 
     const [moved] = list.splice(fromIdx, 1)
     list.splice(toIdx, 0, moved)
+    const nextOrderById = new Map(list.map((q, i) => [q.id, i]))
+
+    setQuestions((prev) => prev
+      .map((q) => nextOrderById.has(q.id) ? { ...q, order: nextOrderById.get(q.id) } : q)
+      .sort(sortByQuestionOrder)
+    )
 
     // Update order values in Firestore
     try {
@@ -256,8 +262,8 @@ export default function AdminQuestions() {
   }
 
   const filtered = filterRole === "all"
-    ? questions
-    : questions.filter((q) => q.roleKey === "all" || q.roleKey === filterRole)
+    ? [...questions].sort(sortByQuestionOrder)
+    : questions.filter((q) => q.roleKey === "all" || q.roleKey === filterRole).sort(sortByQuestionOrder)
 
   const typeLabel = (t) => QUESTION_TYPES.find((x) => x.value === t)?.label || t
   const catLabel = (c) => CATEGORY_OPTIONS.find((x) => x.value === c)?.label || c
@@ -326,7 +332,7 @@ export default function AdminQuestions() {
           </div>
         ) : (
           <div className="space-y-2">
-            {filtered.map((q) => (
+            {filtered.map((q, index) => (
               <div key={q.id}
                 draggable
                 onDragStart={(e) => handleDragStart(e, q)}
@@ -337,6 +343,11 @@ export default function AdminQuestions() {
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <div className="shrink-0 w-8 text-center">
+                      <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-gray-100 px-2 text-xs font-semibold text-gray-600">
+                        {index + 1}
+                      </span>
+                    </div>
                     <div className="cursor-grab active:cursor-grabbing shrink-0 pt-0.5 text-gray-300 hover:text-gray-500">
                       <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor"><circle cx="7" cy="4" r="1.5"/><circle cx="13" cy="4" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="13" cy="10" r="1.5"/><circle cx="7" cy="16" r="1.5"/><circle cx="13" cy="16" r="1.5"/></svg>
                     </div>
@@ -470,4 +481,9 @@ export default function AdminQuestions() {
       )}
     </div>
   )
+}
+
+function sortByQuestionOrder(a, b) {
+  return Number(a.order || 0) - Number(b.order || 0)
+    || String(a.text || "").localeCompare(String(b.text || ""))
 }
