@@ -48,7 +48,7 @@ export async function bookSlot(token, slotId) {
       requestBody: {
         summary: `Interview: ${candidate.firstName} ${candidate.lastName} — ${candidate.jobTitle}`,
         description: `Candidate: ${candidate.firstName} ${candidate.lastName}\nRole: ${candidate.jobTitle}\nEmail: ${candidate.email}\nPhone: ${candidate.phone}\nComposite Score: ${candidate.compositeScore?.toFixed(1) || 'N/A'}/10`,
-        location: '18011 Blanco Rd, San Antonio, TX 78258',
+        location: '11910 N IH 35, San Antonio, TX 78233-4200',
         start: { dateTime: startDateTime.toISOString(), timeZone: 'America/Chicago' },
         end: { dateTime: endDateTime.toISOString(), timeZone: 'America/Chicago' },
         reminders: {
@@ -94,6 +94,6 @@ export async function bookSlot(token, slotId) {
   return {
     date: slot.date,
     time: `${slot.startTime} – ${slot.endTime}`,
-    location: '18011 Blanco Rd, San Antonio, TX 78258'
+    location: '11910 N IH 35, San Antonio, TX 78233-4200'
   }
 }

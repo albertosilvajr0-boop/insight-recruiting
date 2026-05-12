@@ -52,7 +52,7 @@ export default function ThankYou() {
           <ol className="list-decimal list-inside space-y-0.5">
             <li>Our AI reviews your resume + interview responses (usually within the hour).</li>
             <li>A recruiter confirms the result and, if it's a match, sends you a link to pick an interview time.</li>
-            <li>You meet the team in person at San Antonio Dodge — 18011 Blanco Rd.</li>
+            <li>You meet the team in person at San Antonio Dodge - 11910 N IH 35.</li>
           </ol>
         </div>
 

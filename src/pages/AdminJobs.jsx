@@ -26,7 +26,7 @@ function generatePostingText(job) {
 ${job.description || ''}
 
 Pay: $${job.payRange?.min?.toLocaleString()} – $${job.payRange?.max?.toLocaleString()}/year
-Location: 18011 Blanco Rd, San Antonio, TX 78258
+Location: 11910 N IH 35, San Antonio, TX 78233-4200
 Type: Full-time
 
 Apply online: ${APP_URL}/apply/${job.id}`

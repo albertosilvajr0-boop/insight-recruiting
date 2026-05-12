@@ -37,7 +37,7 @@ export async function sendReminders() {
           <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin: 16px 0;">
             <p style="color: #111827; font-size: 14px; margin: 0;">
               <strong>${formattedDate} at ${formattedTime}</strong><br/>
-              San Antonio Dodge, 18011 Blanco Rd, San Antonio, TX 78258
+              San Antonio Dodge, 11910 N IH 35, San Antonio, TX 78233-4200
             </p>
           </div>
           <p style="color: #374151; font-size: 15px;">Please bring a valid photo ID and arrive 10 minutes early.</p>
@@ -69,7 +69,7 @@ export async function sendReminders() {
           </p>
           <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin: 16px 0;">
             <p style="color: #111827; font-size: 14px; margin: 0;">
-              San Antonio Dodge<br/>18011 Blanco Rd, San Antonio, TX 78258
+              San Antonio Dodge<br/>11910 N IH 35, San Antonio, TX 78233-4200
             </p>
           </div>
           <p style="color: #374151; font-size: 15px;">We look forward to meeting you!<br/><strong>San Antonio Dodge</strong></p>

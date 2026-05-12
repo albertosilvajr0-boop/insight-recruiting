@@ -7,15 +7,23 @@ import { db, storage } from '../firebase'
 import VideoRecorder from '../components/VideoRecorder'
 import DeviceCheck from '../components/DeviceCheck'
 import {
-  COMPLIANCE_CONTACT_EMAIL,
+  ACCOMMODATION_EMAIL,
+  ACCOMMODATION_PHONE,
+  APPLICANT_PRIVACY_URL,
   COMPLIANCE_NOTICE_VERSION,
   DEFAULT_ACKNOWLEDGEMENTS,
   DEFAULT_EEO_SURVEY,
   EEO_OPTIONS,
   EEO_SURVEY_VERSION,
+  EMPLOYER_DISPLAY_NAME,
+  EMPLOYER_SHORT_NAME,
+  PARENT_ORG_DISPLAY_NAME,
   REQUIRED_ACKNOWLEDGEMENTS,
   SELECTION_PROCESS_VERSION,
   allRequiredAcknowledgementsAccepted,
+  buildRenderedSelectionNoticeText,
+  getRecordingNotice,
+  getTechnologyCapabilitySentence,
   normalizeEeoSurvey,
 } from '../compliance/selectionProcess'
 
@@ -36,6 +44,15 @@ function inferResumeContentType(fileName) {
   if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   if (lower.endsWith('.doc')) return 'application/msword'
   return 'application/octet-stream'
+}
+
+async function sha256Hex(value) {
+  if (!window.crypto?.subtle) return 'unavailable'
+  const encoded = new TextEncoder().encode(value)
+  const digest = await window.crypto.subtle.digest('SHA-256', encoded)
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
 }
 
 export default function Apply() {
@@ -404,7 +421,11 @@ export default function Apply() {
       const statusToken = uuidv4()
       const candidateRef = doc(db, 'candidates', candidateId)
       const complianceRef = doc(db, 'candidateCompliance', candidateId)
+      const eeoResponseRef = doc(db, 'eeoResponses', candidateId)
       const normalizedEeoSurvey = normalizeEeoSurvey(eeoSurvey)
+      const renderedNoticeText = buildRenderedSelectionNoticeText(job.title)
+      const renderedTextHash = await sha256Hex(renderedNoticeText)
+      const checkedAcknowledgementIds = REQUIRED_ACKNOWLEDGEMENTS.map((item) => item.key)
       const batch = writeBatch(db)
 
       batch.set(candidateRef, {
@@ -413,7 +434,7 @@ export default function Apply() {
         jobId: job.id,
         jobTitle: job.title,
         roleKey: job.roleKey,
-        dealership: 'San Antonio Dodge',
+        dealership: EMPLOYER_DISPLAY_NAME,
         stage: 'applied',
         resumeUrl,
         selectionProcessVersion: SELECTION_PROCESS_VERSION,
@@ -439,13 +460,32 @@ export default function Apply() {
         selectionProcessVersion: SELECTION_PROCESS_VERSION,
         complianceNoticeVersion: COMPLIANCE_NOTICE_VERSION,
         eeoSurveyVersion: EEO_SURVEY_VERSION,
+        employerDisplayName: EMPLOYER_DISPLAY_NAME,
+        parentOrgDisplayName: PARENT_ORG_DISPLAY_NAME,
+        renderedTextHash,
+        renderedNoticeText,
+        checkedAcknowledgementIds,
+        userAgent: (window.navigator?.userAgent || 'unknown').slice(0, 600),
         acknowledgements: {
           ...acknowledgements,
           acceptedAt: serverTimestamp(),
         },
-        eeoSurvey: normalizedEeoSurvey,
         createdAt: serverTimestamp()
       })
+
+      if (normalizedEeoSurvey.optedIn) {
+        batch.set(eeoResponseRef, {
+          candidateId,
+          jobId: job.id,
+          jobTitle: job.title,
+          roleKey: job.roleKey,
+          employerDisplayName: EMPLOYER_DISPLAY_NAME,
+          parentOrgDisplayName: PARENT_ORG_DISPLAY_NAME,
+          eeoSurveyVersion: EEO_SURVEY_VERSION,
+          eeoSurvey: normalizedEeoSurvey,
+          createdAt: serverTimestamp()
+        })
+      }
 
       await batch.commit()
       clearDraft()
@@ -464,6 +504,15 @@ export default function Apply() {
 
   const stepIndex = STEPS.indexOf(step)
   const progress = ((stepIndex) / (STEPS.length - 1)) * 100
+  const requiredAcknowledgementsAccepted = allRequiredAcknowledgementsAccepted(acknowledgements)
+  const accommodationContact = [
+    ACCOMMODATION_EMAIL && (
+      <a key="email" className="font-medium underline" href={`mailto:${ACCOMMODATION_EMAIL}`}>{ACCOMMODATION_EMAIL}</a>
+    ),
+    ACCOMMODATION_PHONE && (
+      <a key="phone" className="font-medium underline" href={`tel:${ACCOMMODATION_PHONE}`}>{ACCOMMODATION_PHONE}</a>
+    ),
+  ].filter(Boolean)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -474,7 +523,7 @@ export default function Apply() {
             <span className="text-white text-xs font-bold">SA</span>
           </div>
           <div>
-            <p className="text-sm font-medium text-gray-900">San Antonio Dodge</p>
+            <p className="text-sm font-medium text-gray-900">{EMPLOYER_SHORT_NAME}</p>
             <p className="text-xs text-gray-500">Application — {job?.title}</p>
           </div>
         </div>
@@ -598,24 +647,43 @@ export default function Apply() {
         {step === 'compliance' && (
           <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-6">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">Review the selection process</h2>
-              <p className="text-sm text-gray-500 mt-1">A few quick acknowledgements before the interview portion.</p>
+              <h1 className="text-xl font-semibold text-gray-900">Review the selection process</h1>
+              <p className="text-sm text-gray-500 mt-1">
+                Please review these notices before starting your interview for {job?.title} with {EMPLOYER_DISPLAY_NAME}, part of {PARENT_ORG_DISPLAY_NAME}.
+              </p>
             </div>
 
             <div className="border border-blue-100 bg-blue-50 rounded-xl p-4 space-y-3">
               <p className="text-sm font-semibold text-blue-950">How your application is reviewed</p>
-              <ul className="list-disc list-inside text-sm text-blue-900 space-y-1">
-                <li>Application materials are reviewed against job-related requirements for this role.</li>
-                <li>Technology may assist with organizing responses and scoring consistency, but the hiring team remains responsible for selection decisions.</li>
-                <li>You can request a reasonable accommodation for the application process by contacting <a className="font-medium underline" href={`mailto:${COMPLIANCE_CONTACT_EMAIL}`}>{COMPLIANCE_CONTACT_EMAIL}</a>.</li>
-                <li>Please do not include medical, disability, genetic, family medical history, or other non-job-related personal details in your resume or answers.</li>
+              <ul id="selection-process-details" className="list-disc pl-5 text-sm text-blue-900 space-y-1">
+                <li>Your application materials and interview responses are reviewed against job-related requirements for this role.</li>
+                <li>{getTechnologyCapabilitySentence()}</li>
+                {getRecordingNotice() && <li>{getRecordingNotice()}</li>}
+                <li>The technology does not make final hiring decisions. Human reviewers for {EMPLOYER_DISPLAY_NAME} remain responsible for selection decisions.</li>
+                <li>Optional EEO information, if you choose to provide it, is stored separately, hidden from hiring reviewers, and not used to evaluate your application.</li>
+                <li>Please avoid including non-job-related medical, disability, genetic information, family medical history, or other protected personal details in your resume or interview responses. This does not limit your right to request a reasonable accommodation.</li>
               </ul>
             </div>
 
-            <div className="space-y-3">
+            <div id="accommodation-notice" className="border border-gray-200 rounded-xl p-4 text-sm text-gray-700">
+              <p>
+                <span className="font-semibold text-gray-900">Need an accommodation?</span>{' '}
+                To request a reasonable accommodation for the application or interview process, contact{' '}
+                {accommodationContact.map((item, index) => (
+                  <span key={item.key || index}>
+                    {index > 0 ? ' or ' : ''}{item}
+                  </span>
+                ))}
+                . Accommodation requests are handled separately from interview scoring and will not negatively affect your application.
+              </p>
+            </div>
+
+            <fieldset className="space-y-3" aria-describedby="selection-process-details accommodation-notice">
+              <legend className="text-sm font-semibold text-gray-900">Required acknowledgements</legend>
               {REQUIRED_ACKNOWLEDGEMENTS.map((item) => (
-                <label key={item.key} className="flex items-start gap-3 border border-gray-200 rounded-xl p-3 cursor-pointer hover:bg-gray-50">
+                <label key={item.key} htmlFor={item.key} className="flex items-start gap-3 border border-gray-200 rounded-xl p-3 cursor-pointer hover:bg-gray-50">
                   <input
+                    id={item.key}
                     type="checkbox"
                     checked={acknowledgements[item.key]}
                     onChange={() => toggleAcknowledgement(item.key)}
@@ -627,24 +695,26 @@ export default function Apply() {
               {complianceErrors.acknowledgements && (
                 <p className="text-xs text-red-600">{complianceErrors.acknowledgements}</p>
               )}
-            </div>
+            </fieldset>
 
-            <div className="border border-gray-200 rounded-xl p-4 space-y-4">
+            <fieldset className="border border-gray-200 rounded-xl p-4 space-y-4">
+              <legend className="text-sm font-semibold text-gray-900 px-1">Optional EEO information</legend>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">Voluntary EEO information</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    This is optional, stored separately from your application review, and used only for aggregate selection process monitoring.
+                  <p id="eeo-help" className="text-xs text-gray-500 mt-1">
+                    Sharing this information is voluntary. You may choose "Prefer not to answer." Your choices will not affect your application or interview. This information is stored separately from your application materials, hidden from hiring reviewers, and used only for aggregate EEO/compliance monitoring.
                   </p>
                 </div>
-                <label className="inline-flex items-center gap-2 text-sm text-gray-700 shrink-0">
+                <label htmlFor="eeo-opt-in" className="inline-flex items-center gap-2 text-sm text-gray-700 shrink-0">
                   <input
+                    id="eeo-opt-in"
                     type="checkbox"
                     checked={eeoSurvey.optedIn}
                     onChange={(e) => setEeoSurvey(e.target.checked ? { ...DEFAULT_EEO_SURVEY, optedIn: true } : { ...DEFAULT_EEO_SURVEY })}
+                    aria-describedby="eeo-help"
                     className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
-                  Share
+                  I voluntarily choose to provide optional EEO information.
                 </label>
               </div>
 
@@ -654,11 +724,23 @@ export default function Apply() {
                   <EeoSelect label="Race/ethnicity" value={eeoSurvey.raceEthnicity} options={EEO_OPTIONS.raceEthnicity} onChange={(value) => updateEeoSurvey('raceEthnicity', value)} />
                 </div>
               )}
-            </div>
+            </fieldset>
+
+            <p className="text-xs text-gray-500">
+              By continuing, you acknowledge the notices above. See our{' '}
+              <a className="font-medium text-blue-700 underline" href={APPLICANT_PRIVACY_URL} target="_blank" rel="noreferrer">
+                Applicant Privacy Notice
+              </a>{' '}
+              for how application and interview data are processed, retained, and shared.
+            </p>
 
             <div className="flex gap-3">
               <button onClick={() => setStep('resume')} className="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors">Back</button>
-              <button onClick={handleComplianceNext} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-colors">
+              <button
+                onClick={handleComplianceNext}
+                disabled={!requiredAcknowledgementsAccepted}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 rounded-xl transition-colors"
+              >
                 {questions.length === 0 ? 'Submit Application' : 'Start Interview'}
               </button>
             </div>

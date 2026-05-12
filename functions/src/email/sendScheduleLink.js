@@ -35,7 +35,7 @@ export async function sendScheduleLink(candidateId, schedulingToken) {
         </div>
         <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin-top: 16px;">
           <p style="color: #6b7280; font-size: 13px; margin: 0;">
-            <strong>Location:</strong> 18011 Blanco Rd, San Antonio, TX 78258<br/>
+            <strong>Location:</strong> 11910 N IH 35, San Antonio, TX 78233-4200<br/>
             <strong>Duration:</strong> ~45 minutes<br/>
             <strong>What to bring:</strong> Valid photo ID
           </p>
