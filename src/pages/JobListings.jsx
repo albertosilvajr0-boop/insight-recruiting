@@ -63,6 +63,7 @@ function injectJobStructuredData(jobs) {
 export default function JobListings() {
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
 
   useEffect(() => {
     async function loadJobs() {
@@ -76,8 +77,10 @@ export default function JobListings() {
         const loadedJobs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
         setJobs(loadedJobs)
         injectJobStructuredData(loadedJobs)
+        setLoadError(null)
       } catch (err) {
         console.error('Failed to load jobs:', err)
+        setLoadError('We could not load open positions. Please refresh or try again shortly.')
       } finally {
         setLoading(false)
       }
@@ -99,6 +102,10 @@ export default function JobListings() {
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : loadError ? (
+          <div className="text-center py-12">
+            <p className="text-red-600">{loadError}</p>
           </div>
         ) : jobs.length === 0 ? (
           <div className="text-center py-12">

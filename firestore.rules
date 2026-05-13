@@ -170,7 +170,7 @@ service cloud.firestore {
 
     match /jobs/{jobId} {
       allow get, list: if isSuperadmin()
-        || (resource.data.status == 'active' && resource.data.deletedAt == null);
+        || resource.data.status == 'active';
       allow create, update, delete: if hasPermission('manage_jobs');
     }
 
