@@ -40,6 +40,7 @@ export default function AdminUsers() {
     password: "",
     role: APP_ROLES.MANAGER,
     permissions: [...ROLE_DEFAULT_PERMISSIONS[APP_ROLES.MANAGER]],
+    newApplicantEmailAlerts: false,
     disabled: false,
   })
 
@@ -59,6 +60,7 @@ export default function AdminUsers() {
       password: "",
       role: APP_ROLES.MANAGER,
       permissions: [...ROLE_DEFAULT_PERMISSIONS[APP_ROLES.MANAGER]],
+      newApplicantEmailAlerts: false,
       disabled: false,
     })
     setEditingUser(null)
@@ -78,6 +80,7 @@ export default function AdminUsers() {
       password: "",
       role: user.role || APP_ROLES.MANAGER,
       permissions: user.permissions || [...(ROLE_DEFAULT_PERMISSIONS[user.role] || ROLE_DEFAULT_PERMISSIONS[APP_ROLES.MANAGER])],
+      newApplicantEmailAlerts: user.newApplicantEmailAlerts === true,
       disabled: user.disabled || false,
     })
     setError("")
@@ -115,6 +118,7 @@ export default function AdminUsers() {
           displayName: formData.displayName.trim(),
           role: formData.role,
           permissions: formData.permissions,
+          newApplicantEmailAlerts: formData.newApplicantEmailAlerts,
           disabled: formData.disabled,
         })
       } else {
@@ -131,6 +135,7 @@ export default function AdminUsers() {
           displayName: formData.displayName.trim(),
           role: formData.role,
           permissions: formData.permissions,
+          newApplicantEmailAlerts: formData.newApplicantEmailAlerts,
         })
       }
 
@@ -210,7 +215,7 @@ export default function AdminUsers() {
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <p className="text-xs text-gray-500 mb-1">Total users</p>
             <p className="text-2xl font-semibold">{users.length}</p>
@@ -222,6 +227,10 @@ export default function AdminUsers() {
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <p className="text-xs text-gray-500 mb-1">Superadmins</p>
             <p className="text-2xl font-semibold text-purple-600">{users.filter((u) => u.role === "superadmin").length}</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <p className="text-xs text-gray-500 mb-1">Applicant alerts</p>
+            <p className="text-2xl font-semibold text-green-600">{users.filter((u) => u.newApplicantEmailAlerts === true && !u.disabled).length}</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <p className="text-xs text-gray-500 mb-1">Disabled</p>
@@ -236,6 +245,7 @@ export default function AdminUsers() {
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="text-left text-xs font-semibold text-gray-600 px-4 py-3">User</th>
                 <th className="text-left text-xs font-semibold text-gray-600 px-4 py-3">Role</th>
+                <th className="text-left text-xs font-semibold text-gray-600 px-4 py-3">Alerts</th>
                 <th className="text-left text-xs font-semibold text-gray-600 px-4 py-3">Status</th>
                 <th className="text-left text-xs font-semibold text-gray-600 px-4 py-3">Created</th>
                 <th className="text-right text-xs font-semibold text-gray-600 px-4 py-3">Actions</th>
@@ -244,13 +254,13 @@ export default function AdminUsers() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12">
+                  <td colSpan={6} className="text-center py-12">
                     <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
                   </td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12">
+                  <td colSpan={6} className="text-center py-12">
                     <p className="text-sm text-gray-500">No users yet. Click "Add user" to create one.</p>
                   </td>
                 </tr>
@@ -264,6 +274,13 @@ export default function AdminUsers() {
                       </div>
                     </td>
                     <td className="px-4 py-3">{getRoleBadge(user.role)}</td>
+                    <td className="px-4 py-3">
+                      {user.newApplicantEmailAlerts === true ? (
+                        <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-green-100 text-green-700">New applicants</span>
+                      ) : (
+                        <span className="text-xs text-gray-400">Off</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       {user.disabled ? (
                         <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-red-100 text-red-700">Disabled</span>
@@ -402,6 +419,27 @@ export default function AdminUsers() {
                     </label>
                   ))}
                 </div>
+              </div>
+
+              {/* Email alerts */}
+              <div className="flex items-center justify-between p-3 rounded-lg border border-gray-200">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">New applicant email alerts</p>
+                  <p className="text-xs text-gray-500">Email this user when a new application is submitted.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFormData((p) => ({ ...p, newApplicantEmailAlerts: !p.newApplicantEmailAlerts }))}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    formData.newApplicantEmailAlerts ? "bg-green-500" : "bg-gray-300"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      formData.newApplicantEmailAlerts ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
               </div>
 
               {/* Disable toggle */}

@@ -114,7 +114,7 @@ export async function createUserHandler(data, context) {
 
   await assertCallerIsAdmin(db, context)
 
-  const { email, password, displayName, role, permissions } = data || {}
+  const { email, password, displayName, role, permissions, newApplicantEmailAlerts } = data || {}
   const normalizedRole = normalizeRole(role)
   const normalizedPermissions = normalizePermissions(normalizedRole, permissions)
 
@@ -157,6 +157,7 @@ export async function createUserHandler(data, context) {
       displayName: displayName || '',
       role: normalizedRole,
       permissions: normalizedPermissions,
+      newApplicantEmailAlerts: newApplicantEmailAlerts === true,
       disabled: false,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -179,7 +180,11 @@ export async function createUserHandler(data, context) {
     action: 'user.create',
     targetType: 'user',
     targetId: userRecord.uid,
-    metadata: { role: normalizedRole, email: email.toLowerCase() },
+    metadata: {
+      role: normalizedRole,
+      email: email.toLowerCase(),
+      newApplicantEmailAlerts: newApplicantEmailAlerts === true,
+    },
   })
 
   return { uid: userRecord.uid, email }
@@ -194,7 +199,7 @@ export async function updateUserHandler(data, context) {
 
   await assertCallerIsAdmin(db, context)
 
-  const { uid, email, password, displayName, disabled, role, permissions } = data || {}
+  const { uid, email, password, displayName, disabled, role, permissions, newApplicantEmailAlerts } = data || {}
 
   if (!uid) {
     throw new HttpsError('invalid-argument', 'User ID is required.')
@@ -229,6 +234,7 @@ export async function updateUserHandler(data, context) {
   if (displayName !== undefined) firestoreUpdate.displayName = displayName || ''
   if (disabled !== undefined) firestoreUpdate.disabled = disabled === true
   if (normalizedRole) firestoreUpdate.role = normalizedRole
+  if (newApplicantEmailAlerts !== undefined) firestoreUpdate.newApplicantEmailAlerts = newApplicantEmailAlerts === true
   if (role || permissions) {
     firestoreUpdate.permissions = normalizePermissions(normalizedRole || role, permissions)
   }
@@ -246,6 +252,7 @@ export async function updateUserHandler(data, context) {
       changedPassword: Boolean(password),
       role: normalizedRole,
       disabled,
+      newApplicantEmailAlerts,
     },
   })
 

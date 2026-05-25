@@ -1,11 +1,33 @@
+import { getFirestore } from 'firebase-admin/firestore'
 import { sendEmail } from './sendEmail.js'
 
 const ADMIN_EMAIL = process.env.GMAIL_SENDER || 'albertosilva@silvaconsultinggroup.com'
+
+async function getNewApplicationRecipients() {
+  const db = getFirestore()
+  const snap = await db.collection('users')
+    .where('newApplicantEmailAlerts', '==', true)
+    .get()
+
+  const recipients = new Set()
+  snap.docs.forEach((doc) => {
+    const user = doc.data()
+    if (user.disabled === true || !user.email) return
+    recipients.add(String(user.email).toLowerCase())
+  })
+
+  if (recipients.size === 0) {
+    recipients.add(ADMIN_EMAIL.toLowerCase())
+  }
+
+  return [...recipients]
+}
 
 export async function sendNewApplicationNotification(candidate) {
   const { firstName, lastName, email, phone, jobTitle } = candidate
   const name = `${firstName} ${lastName}`
   const now = new Date().toLocaleString('en-US', { timeZone: 'America/Denver' })
+  const recipients = await getNewApplicationRecipients()
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 500px; margin: 0 auto;">
@@ -30,9 +52,19 @@ export async function sendNewApplicationNotification(candidate) {
     </div>
   `
 
-  await sendEmail({
-    to: ADMIN_EMAIL,
-    subject: `New Application: ${name} — ${jobTitle || 'San Antonio Dodge'}`,
-    html
+  const subject = `New Application: ${name} - ${jobTitle || 'San Antonio Dodge'}`
+  const results = await Promise.allSettled(
+    recipients.map((recipient) => sendEmail({ to: recipient, subject, html }))
+  )
+  const failures = results
+    .map((result, index) => ({ result, recipient: recipients[index] }))
+    .filter(({ result }) => result.status === 'rejected')
+
+  failures.forEach(({ result, recipient }) => {
+    console.error(`[email] Failed to send new application alert to ${recipient}:`, result.reason)
   })
+
+  if (failures.length === recipients.length) {
+    throw new Error('Failed to send new application alert to every configured recipient.')
+  }
 }
