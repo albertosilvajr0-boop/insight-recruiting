@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { signInWithEmailAndPassword, signOut } from "firebase/auth"
 import { httpsCallable } from "firebase/functions"
 import { auth, functions } from "../firebase"
+import { COPYRIGHT_ORG, DEFAULT_CLIENT_INITIALS, PLATFORM_NAME } from "../config/organization"
 
 export default function AdminLogin() {
   const [email, setEmail] = useState("")
@@ -33,10 +34,10 @@ export default function AdminLogin() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-white text-xl font-bold">SA</span>
+            <span className="text-white text-xl font-bold">{DEFAULT_CLIENT_INITIALS}</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Insight Recruiting</h1>
-          <p className="text-sm text-gray-500 mt-1">San Antonio Dodge - Admin Portal</p>
+          <h1 className="text-2xl font-bold text-gray-900">{PLATFORM_NAME}</h1>
+          <p className="text-sm text-gray-500 mt-1">Admin Portal</p>
         </div>
 
         <form onSubmit={handleLogin} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
@@ -97,7 +98,7 @@ export default function AdminLogin() {
         </form>
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          &copy; {new Date().getFullYear()} Silva Consulting Group
+          &copy; {new Date().getFullYear()} {COPYRIGHT_ORG}
         </p>
       </div>
     </div>

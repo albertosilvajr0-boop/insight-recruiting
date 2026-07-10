@@ -1,34 +1,20 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getStorage } from 'firebase-admin/storage'
 import { callClaude } from '../utils/anthropic.js'
+import { getCandidateClientName } from '../config/organization.js'
 
-const SCORING_PROMPTS = {
-  'bdc-agent': `You are a recruiter for San Antonio Dodge evaluating a BDC Agent candidate.
+function buildScoringPrompt(candidate) {
+  const clientName = getCandidateClientName(candidate)
+  const roleName = candidate.jobTitle || 'the open role'
+
+  return `You are a recruiter for ${clientName} evaluating a candidate for ${roleName}.
 Score this resume 1-10 based on:
-- Relevant automotive/dealership experience (weight: 25%)
-- Customer service or call center experience (weight: 30%)
+- Relevant experience for the role (weight: 30%)
+- Customer-facing, operational, technical, or sales experience that matches the job (weight: 25%)
 - Communication quality from resume presentation (weight: 20%)
-- Tenure/stability at previous jobs (weight: 15%)
-- Education/certifications (weight: 10%)
-Hard disqualifiers (return score 1, autoDisqualified: true): requires sponsorship`,
-
-  'sales-rep': `You are a recruiter for San Antonio Dodge evaluating a Sales Representative candidate.
-Score this resume 1-10 based on:
-- Sales experience and track record (weight: 35%)
-- Automotive or high-ticket sales background (weight: 25%)
-- Communication quality from resume presentation (weight: 20%)
-- Tenure/stability at previous jobs (weight: 10%)
-- Education/certifications (weight: 10%)
-Hard disqualifiers (return score 1, autoDisqualified: true): requires sponsorship`,
-
-  'service-advisor': `You are a recruiter for San Antonio Dodge evaluating a Service Advisor candidate.
-Score this resume 1-10 based on:
-- Automotive service or advisor experience (weight: 40%)
-- Customer-facing service experience (weight: 25%)
-- Technical knowledge indicators (weight: 15%)
-- Tenure/stability at previous jobs (weight: 10%)
-- Certifications (ASE, manufacturer) (weight: 10%)
-Hard disqualifiers (return score 1, autoDisqualified: true): requires sponsorship`
+- Tenure/stability and progression at previous jobs (weight: 15%)
+- Education, certifications, or role-specific credentials (weight: 10%)
+Hard disqualifiers (return score 1, autoDisqualified: true): requires sponsorship or does not meet a stated must-have requirement.`
 }
 
 export async function scoreResume(candidateId, candidate) {
@@ -39,7 +25,7 @@ export async function scoreResume(candidateId, candidate) {
   const [resumeBuffer] = await bucket.file(candidate.resumeUrl).download()
   const resumeText = resumeBuffer.toString('utf8').slice(0, 8000) // trim to safe length
 
-  const systemPrompt = SCORING_PROMPTS[candidate.roleKey] || SCORING_PROMPTS['sales-rep']
+  const systemPrompt = buildScoringPrompt(candidate)
 
   const response = await callClaude({
     system: systemPrompt,

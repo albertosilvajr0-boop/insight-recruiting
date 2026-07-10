@@ -2,8 +2,10 @@ import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { getCalendarClient } from '../utils/googleAuth.js'
 import { sendConfirmationEmail } from '../email/sendConfirmation.js'
 import { parseISO, setHours, setMinutes } from 'date-fns'
+import { DEFAULT_TIME_ZONE, getCandidateJobLocation } from '../config/organization.js'
 
 const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'primary'
+const TZ = DEFAULT_TIME_ZONE
 
 export async function bookSlot(token, slotId) {
   const db = getFirestore()
@@ -21,6 +23,7 @@ export async function bookSlot(token, slotId) {
   const candidateDoc = candidateSnap.docs[0]
   const candidate = candidateDoc.data()
   const candidateId = candidateDoc.id
+  const location = getCandidateJobLocation(candidate)
 
   // Get the slot
   const slotRef = db.collection('availability').doc(slotId)
@@ -48,9 +51,9 @@ export async function bookSlot(token, slotId) {
       requestBody: {
         summary: `Interview: ${candidate.firstName} ${candidate.lastName} — ${candidate.jobTitle}`,
         description: `Candidate: ${candidate.firstName} ${candidate.lastName}\nRole: ${candidate.jobTitle}\nEmail: ${candidate.email}\nPhone: ${candidate.phone}\nComposite Score: ${candidate.compositeScore?.toFixed(1) || 'N/A'}/10`,
-        location: '11910 N IH 35, San Antonio, TX 78233-4200',
-        start: { dateTime: startDateTime.toISOString(), timeZone: 'America/Chicago' },
-        end: { dateTime: endDateTime.toISOString(), timeZone: 'America/Chicago' },
+        location,
+        start: { dateTime: startDateTime.toISOString(), timeZone: TZ },
+        end: { dateTime: endDateTime.toISOString(), timeZone: TZ },
         reminders: {
           useDefault: false,
           overrides: [
@@ -94,6 +97,6 @@ export async function bookSlot(token, slotId) {
   return {
     date: slot.date,
     time: `${slot.startTime} – ${slot.endTime}`,
-    location: '11910 N IH 35, San Antonio, TX 78233-4200'
+    location
   }
 }

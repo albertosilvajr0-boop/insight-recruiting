@@ -2,9 +2,9 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore'
 import { sendEmail } from './sendEmail.js'
 import { format, startOfDay, endOfDay, subDays, differenceInHours } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
+import { ADMIN_EMAIL, APP_URL, DEFAULT_CLIENT_NAME, DEFAULT_TIME_ZONE } from '../config/organization.js'
 
-const ADMIN_EMAIL = 'albertosilva@silvaconsultinggroup.com'
-const TZ = 'America/Chicago'
+const TZ = DEFAULT_TIME_ZONE
 
 // SLA — candidates sitting in these stages this long are "at risk"
 // and surface at the top of the digest.
@@ -163,7 +163,7 @@ export async function sendDailyDigest() {
   const html = `
     <div style="font-family: system-ui, sans-serif; max-width: 720px; margin: 0 auto;">
       <div style="background: #1d4ed8; color: white; padding: 24px; border-radius: 12px 12px 0 0;">
-        <h1 style="margin: 0; font-size: 20px;">San Antonio Dodge — Daily Digest</h1>
+        <h1 style="margin: 0; font-size: 20px;">${DEFAULT_CLIENT_NAME} - Daily Digest</h1>
         <p style="margin: 6px 0 0; opacity: 0.85; font-size: 14px;">${format(now, 'EEEE, MMMM d, yyyy')}</p>
       </div>
       <div style="border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; padding: 20px;">
@@ -196,7 +196,7 @@ export async function sendDailyDigest() {
 
       </div>
       <p style="margin: 20px 0 0; font-size: 12px; color: #9ca3af; text-align: center;">
-        Powered by Silva Consulting Group · <a href="https://your-domain.web.app/admin/dashboard" style="color: #3b82f6;">Open admin portal</a>
+        Powered by Insight Recruiting - <a href="${APP_URL}/admin/dashboard" style="color: #3b82f6;">Open admin portal</a>
       </p>
     </div>`
 
@@ -208,7 +208,7 @@ export async function sendDailyDigest() {
 
   await sendEmail({
     to: ADMIN_EMAIL,
-    subject: `${subjectBits || 'Daily digest'} — San Antonio Dodge`,
+    subject: `${subjectBits || 'Daily digest'} - ${DEFAULT_CLIENT_NAME}`,
     html
   })
 }

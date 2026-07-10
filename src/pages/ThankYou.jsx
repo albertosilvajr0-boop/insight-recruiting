@@ -1,5 +1,6 @@
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { DEFAULT_JOB_LOCATION } from '../config/organization'
 
 export default function ThankYou() {
   const navigate = useNavigate()
@@ -52,7 +53,7 @@ export default function ThankYou() {
           <ol className="list-decimal list-inside space-y-0.5">
             <li>Our AI reviews your resume + interview responses (usually within the hour).</li>
             <li>A recruiter confirms the result and, if it's a match, sends you a link to pick an interview time.</li>
-            <li>You meet the team in person at San Antonio Dodge - 11910 N IH 35.</li>
+            <li>You meet the team for the next interview step at {DEFAULT_JOB_LOCATION}.</li>
           </ol>
         </div>
 

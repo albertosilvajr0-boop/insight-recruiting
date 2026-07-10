@@ -2,8 +2,9 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore'
 import { sendEmail } from './sendEmail.js'
 import { format, addHours } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
+import { DEFAULT_TIME_ZONE, getCandidateClientName, getCandidateJobLocation } from '../config/organization.js'
 
-const TZ = 'America/Chicago'
+const TZ = DEFAULT_TIME_ZONE
 
 export async function sendReminders() {
   const db = getFirestore()
@@ -24,10 +25,12 @@ export async function sendReminders() {
     const scheduledTime = toZonedTime(c.scheduledAt.toDate(), TZ)
     const formattedDate = format(scheduledTime, 'EEEE, MMMM d')
     const formattedTime = format(scheduledTime, 'h:mm a')
+    const clientName = getCandidateClientName(c)
+    const location = getCandidateJobLocation(c)
 
     await sendEmail({
       to: c.email,
-      subject: `Reminder: Your interview tomorrow — San Antonio Dodge`,
+      subject: `Reminder: Your interview tomorrow - ${clientName}`,
       html: `
         <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
           <p style="color: #374151; font-size: 15px;">Hi ${c.firstName},</p>
@@ -37,11 +40,11 @@ export async function sendReminders() {
           <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin: 16px 0;">
             <p style="color: #111827; font-size: 14px; margin: 0;">
               <strong>${formattedDate} at ${formattedTime}</strong><br/>
-              San Antonio Dodge, 11910 N IH 35, San Antonio, TX 78233-4200
+              ${location}
             </p>
           </div>
           <p style="color: #374151; font-size: 15px;">Please bring a valid photo ID and arrive 10 minutes early.</p>
-          <p style="color: #374151; font-size: 15px;">See you soon!<br/><strong>San Antonio Dodge</strong></p>
+          <p style="color: #374151; font-size: 15px;">See you soon!<br/><strong>${clientName}</strong></p>
         </div>`
     })
   }
@@ -58,21 +61,23 @@ export async function sendReminders() {
 
   for (const doc of snap1.docs) {
     const c = doc.data()
+    const clientName = getCandidateClientName(c)
+    const location = getCandidateJobLocation(c)
     await sendEmail({
       to: c.email,
-      subject: `See you soon! — San Antonio Dodge`,
+      subject: `See you soon! - ${clientName}`,
       html: `
         <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
           <p style="color: #374151; font-size: 15px;">Hi ${c.firstName},</p>
           <p style="color: #374151; font-size: 15px; line-height: 1.6;">
-            Just a quick reminder — your interview is coming up in about an hour!
+            Just a quick reminder - your interview is coming up in about an hour!
           </p>
           <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin: 16px 0;">
             <p style="color: #111827; font-size: 14px; margin: 0;">
-              San Antonio Dodge<br/>11910 N IH 35, San Antonio, TX 78233-4200
+              ${location}
             </p>
           </div>
-          <p style="color: #374151; font-size: 15px;">We look forward to meeting you!<br/><strong>San Antonio Dodge</strong></p>
+          <p style="color: #374151; font-size: 15px;">We look forward to meeting you!<br/><strong>${clientName}</strong></p>
         </div>`
     })
   }

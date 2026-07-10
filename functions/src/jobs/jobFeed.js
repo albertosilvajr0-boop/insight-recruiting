@@ -1,7 +1,12 @@
 import { getFirestore } from 'firebase-admin/firestore'
 import { format } from 'date-fns'
-
-const APP_URL = process.env.VITE_APP_URL || 'https://insight-recruiting-d37dc.web.app'
+import {
+  APP_URL,
+  DEFAULT_CLIENT_NAME,
+  DEFAULT_JOB_CATEGORY,
+  getJobClientName,
+  getJobLocation,
+} from '../config/organization.js'
 
 export async function generateJobFeed() {
   const db = getFirestore()
@@ -14,7 +19,9 @@ export async function generateJobFeed() {
 
   const jobEntries = jobs.map(job => {
     const posted = job.createdAt?.toDate?.() || new Date()
-    const description = job.description || `${job.title} position at San Antonio Dodge`
+    const company = getJobClientName(job)
+    const location = getJobLocation(job)
+    const description = job.description || `${job.title} position at ${company}`
 
     return `
     <job>
@@ -22,23 +29,23 @@ export async function generateJobFeed() {
       <date>${format(posted, 'yyyy-MM-dd')}</date>
       <referencenumber>${job.id}</referencenumber>
       <url>${APP_URL}/apply/${job.id}</url>
-      <company><![CDATA[San Antonio Dodge]]></company>
-      <city>San Antonio</city>
-      <state>TX</state>
+      <company><![CDATA[${company}]]></company>
+      <city><![CDATA[${job.city || ''}]]></city>
+      <state><![CDATA[${job.state || ''}]]></state>
       <country>US</country>
-      <postalcode>78233-4200</postalcode>
-      <streetaddress>11910 N IH 35</streetaddress>
+      <postalcode><![CDATA[${job.postalCode || ''}]]></postalcode>
+      <streetaddress><![CDATA[${location}]]></streetaddress>
       <description><![CDATA[${description}]]></description>
       <salary>${job.payRange ? `$${job.payRange.min?.toLocaleString()} - $${job.payRange.max?.toLocaleString()} per year` : 'Competitive'}</salary>
       <jobtype>fulltime</jobtype>
-      <category>Automotive</category>
+      <category><![CDATA[${job.category || DEFAULT_JOB_CATEGORY}]]></category>
       <experience>Entry Level to Mid Level</experience>
     </job>`
   }).join('\n')
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <source>
-  <publisher>San Antonio Dodge</publisher>
+  <publisher>${DEFAULT_CLIENT_NAME}</publisher>
   <publisherurl>${APP_URL}</publisherurl>
   <lastBuildDate>${format(new Date(), "EEE, dd MMM yyyy HH:mm:ss 'GMT'")}</lastBuildDate>
 ${jobEntries}

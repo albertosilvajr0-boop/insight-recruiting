@@ -2,31 +2,54 @@ import { useState, useEffect } from "react"
 import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, orderBy, query } from "firebase/firestore"
 import { db } from "../firebase"
 import { useNavigate } from "react-router-dom"
+import {
+  APP_URL,
+  DEFAULT_CLIENT_NAME,
+  DEFAULT_JOB_LOCATION,
+  getJobClientName,
+  getJobLocation,
+} from "../config/organization"
 
 const ROLE_KEYS = [
-  { key: "bdc-agent", label: "BDC Agent or Telemarketer/Emailer/Texter" },
-  { key: "sales-rep", label: "Sales Rep" },
-  { key: "service-advisor", label: "Service Advisor" }
+  { key: "general", label: "General role" },
+  { key: "customer-facing", label: "Customer-facing role" },
+  { key: "sales-rep", label: "Sales representative" },
+  { key: "operations", label: "Operations or support role" },
+  { key: "technical", label: "Technical or specialized role" },
+  { key: "bdc-agent", label: "Customer outreach / call center" },
+  { key: "service-advisor", label: "Service advisor" }
 ]
 
-const APP_URL = "https://insight-recruiting-d37dc.web.app"
+const DEFAULT_JOB_FORM = {
+  title: "",
+  clientName: DEFAULT_CLIENT_NAME,
+  location: DEFAULT_JOB_LOCATION,
+  roleKey: "general",
+  description: "",
+  payRange: { min: 35000, max: 80000 },
+  status: "active",
+}
 
 const JOB_BOARDS = [
   { name: "Indeed", url: "https://employers.indeed.com/jobs", free: true },
   { name: "ZipRecruiter", url: "https://www.ziprecruiter.com/post-a-job", free: false },
   { name: "LinkedIn", url: "https://www.linkedin.com/jobs/post", free: true },
   { name: "Google Jobs", url: null, free: true, auto: true },
-  { name: "Craigslist SA", url: "https://sanantonio.craigslist.org/d/jobs/search/jjj", free: true },
+  { name: "Craigslist", url: "https://www.craigslist.org/about/sites", free: true },
   { name: "Facebook", url: "https://www.facebook.com/marketplace/create/job", free: true }
 ]
 
 function generatePostingText(job) {
-  return `${job.title} — San Antonio Dodge
+  const payText = job.payRange?.min && job.payRange?.max
+    ? `Pay: $${job.payRange.min.toLocaleString()} - $${job.payRange.max.toLocaleString()}/year`
+    : "Pay: Competitive"
 
-${job.description || ''}
+  return `${job.title} - ${getJobClientName(job)}
 
-Pay: $${job.payRange?.min?.toLocaleString()} – $${job.payRange?.max?.toLocaleString()}/year
-Location: 11910 N IH 35, San Antonio, TX 78233-4200
+${job.description || ""}
+
+${payText}
+Location: ${getJobLocation(job)}
 Type: Full-time
 
 Apply online: ${APP_URL}/apply/${job.id}`
@@ -35,7 +58,7 @@ Apply online: ${APP_URL}/apply/${job.id}`
 export default function AdminJobs() {
   const [jobs, setJobs] = useState([])
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ title: "", roleKey: "bdc-agent", description: "", payRange: { min: 35000, max: 80000 }, status: "active" })
+  const [form, setForm] = useState(DEFAULT_JOB_FORM)
   const [saving, setSaving] = useState(false)
   const [expandedJob, setExpandedJob] = useState(null)
   const [copied, setCopied] = useState(false)
@@ -53,7 +76,13 @@ export default function AdminJobs() {
     setSaving(true)
     try {
       const roleLabel = ROLE_KEYS.find(r => r.key === form.roleKey)?.label || form.title
-      const data = { ...form, title: form.title || roleLabel, dealership: "San Antonio Dodge", updatedAt: serverTimestamp() }
+      const data = {
+        ...form,
+        title: form.title || roleLabel,
+        clientName: form.clientName || DEFAULT_CLIENT_NAME,
+        location: form.location || DEFAULT_JOB_LOCATION,
+        updatedAt: serverTimestamp(),
+      }
       if (editing === "new") {
         const ref = await addDoc(collection(db, "jobs"), { ...data, createdAt: serverTimestamp() })
         setJobs(j => [{ id: ref.id, ...data }, ...j])
@@ -84,7 +113,7 @@ export default function AdminJobs() {
             <button onClick={() => navigate("/admin/dashboard")} className="text-sm text-gray-500 hover:text-gray-900">Back</button>
             <span className="text-sm font-medium text-gray-900">Job postings</span>
           </div>
-          <button onClick={() => { setEditing("new"); setForm({ title: "", roleKey: "bdc-agent", description: "", payRange: { min: 35000, max: 80000 }, status: "active" }) }} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-4 rounded-lg">+ New job</button>
+          <button onClick={() => { setEditing("new"); setForm(DEFAULT_JOB_FORM) }} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-4 rounded-lg">+ New job</button>
         </div>
       </div>
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-4">
@@ -94,13 +123,23 @@ export default function AdminJobs() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Job title</label>
-                <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. BDC Agent" />
+                <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. Customer Success Specialist" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Role type</label>
                 <select value={form.roleKey} onChange={e => setForm(f => ({ ...f, roleKey: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   {ROLE_KEYS.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
                 </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Organization name</label>
+                <input value={form.clientName || ""} onChange={e => setForm(f => ({ ...f, clientName: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder={DEFAULT_CLIENT_NAME} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                <input value={form.location || ""} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder={DEFAULT_JOB_LOCATION} />
               </div>
             </div>
             <div>
@@ -131,13 +170,14 @@ export default function AdminJobs() {
                   <h3 className="font-semibold text-gray-900">{job.title}</h3>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${job.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>{job.status}</span>
                 </div>
-                {job.payRange && <p className="text-sm text-gray-500 mt-0.5">${job.payRange.min?.toLocaleString()} – ${job.payRange.max?.toLocaleString()}</p>}
+                <p className="text-sm text-gray-500 mt-0.5">{getJobClientName(job)} - {getJobLocation(job)}</p>
+                {job.payRange && <p className="text-sm text-gray-500 mt-0.5">${job.payRange.min?.toLocaleString()} - ${job.payRange.max?.toLocaleString()}</p>}
                 {job.description && <p className="text-sm text-gray-500 mt-1 line-clamp-2">{job.description}</p>}
               </div>
               <div className="flex gap-2 shrink-0">
                 <button onClick={() => setExpandedJob(expandedJob === job.id ? null : job.id)} className="text-xs border border-blue-200 text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg">Distribute</button>
                 <button onClick={() => toggleStatus(job)} className="text-xs border border-gray-200 text-gray-600 hover:bg-gray-50 px-3 py-1.5 rounded-lg">{job.status === "active" ? "Pause" : "Activate"}</button>
-                <button onClick={() => { setEditing(job.id); setForm(job) }} className="text-xs border border-gray-200 text-gray-600 hover:bg-gray-50 px-3 py-1.5 rounded-lg">Edit</button>
+                <button onClick={() => { setEditing(job.id); setForm({ ...DEFAULT_JOB_FORM, ...job, payRange: { ...DEFAULT_JOB_FORM.payRange, ...job.payRange } }) }} className="text-xs border border-gray-200 text-gray-600 hover:bg-gray-50 px-3 py-1.5 rounded-lg">Edit</button>
               </div>
             </div>
             {expandedJob === job.id && (

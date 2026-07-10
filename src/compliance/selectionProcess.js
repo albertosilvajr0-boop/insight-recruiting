@@ -3,21 +3,20 @@ export const COMPLIANCE_NOTICE_VERSION = '2026-05-12.1'
 export const EEO_SURVEY_VERSION = '2026-05-12.1'
 
 export const EMPLOYER_DISPLAY_NAME = import.meta.env.VITE_EMPLOYER_DISPLAY_NAME
-  || 'San Antonio Dodge Chrysler Jeep RAM'
+  || 'Insight Recruiting client'
 export const EMPLOYER_SHORT_NAME = import.meta.env.VITE_EMPLOYER_SHORT_NAME
-  || 'San Antonio Dodge'
+  || 'Insight Recruiting'
 export const PARENT_ORG_DISPLAY_NAME = import.meta.env.VITE_PARENT_ORG_DISPLAY_NAME
-  || 'Greenway Automotive Organization'
+  || ''
 export const EMPLOYER_LEGAL_NAME = import.meta.env.VITE_EMPLOYER_LEGAL_NAME || ''
 export const JOB_LOCATION = import.meta.env.VITE_RECRUITING_JOB_LOCATION
-  || '11910 N IH 35, San Antonio, TX 78233-4200'
+  || 'Client site or remote'
 export const APPLICANT_PRIVACY_URL = import.meta.env.VITE_APPLICANT_PRIVACY_URL
-  || 'https://www.sanantoniododgechryslerjeepram.com/san-antonio-cdjr-privacy-policy/'
+  || ''
 export const VENDOR_DISPLAY_NAME = import.meta.env.VITE_INTERVIEW_VENDOR_DISPLAY_NAME
-  || 'Paycom'
+  || 'Insight Recruiting'
 export const ACCOMMODATION_EMAIL = import.meta.env.VITE_RECRUITING_ACCOMMODATION_EMAIL || ''
-export const ACCOMMODATION_PHONE = import.meta.env.VITE_RECRUITING_ACCOMMODATION_PHONE
-  || '210-239-1402'
+export const ACCOMMODATION_PHONE = import.meta.env.VITE_RECRUITING_ACCOMMODATION_PHONE || ''
 
 export const ENABLED_INTERVIEW_CAPABILITIES = Object.freeze({
   transcribe: true,
@@ -93,7 +92,9 @@ export function normalizeEeoSurvey(survey) {
 }
 
 export function getEmployerDisplayWithParent() {
-  return `${EMPLOYER_DISPLAY_NAME}, part of ${PARENT_ORG_DISPLAY_NAME}`
+  return PARENT_ORG_DISPLAY_NAME
+    ? `${EMPLOYER_DISPLAY_NAME}, part of ${PARENT_ORG_DISPLAY_NAME}`
+    : EMPLOYER_DISPLAY_NAME
 }
 
 export function getTechnologyCapabilitySentence(capabilities = ENABLED_INTERVIEW_CAPABILITIES) {
