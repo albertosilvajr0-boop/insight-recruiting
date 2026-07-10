@@ -83,6 +83,7 @@ export default function Apply() {
   const [resumeFile, setResumeFile] = useState(null)
   const [resumeUrl, setResumeUrl] = useState(null)
   const [resumeFileName, setResumeFileName] = useState(null)
+  const [resumeSkipped, setResumeSkipped] = useState(false)
   const [resumeUploading, setResumeUploading] = useState(false)
   const [resumeProgress, setResumeProgress] = useState(0)
   const [videoResponses, setVideoResponses] = useState({})
@@ -117,11 +118,12 @@ export default function Apply() {
       if (draft.eeoSurvey) setEeoSurvey(normalizeEeoSurvey(draft.eeoSurvey))
       if (draft.resumeUrl) setResumeUrl(draft.resumeUrl)
       if (draft.resumeFileName) setResumeFileName(draft.resumeFileName)
+      if (draft.resumeSkipped) setResumeSkipped(true)
       if (draft.videoResponses) setVideoResponses(draft.videoResponses)
       if (draft.textResponses) setTextResponses(draft.textResponses)
       if (typeof draft.currentQuestion === 'number') setCurrentQuestion(draft.currentQuestion)
       if (draft.step && STEPS.includes(draft.step) && draft.step !== 'submitting') setStep(draft.step)
-      if (draft.form?.firstName || draft.resumeUrl || Object.keys(draft.videoResponses || {}).length > 0) {
+      if (draft.form?.firstName || draft.resumeUrl || draft.resumeSkipped || Object.keys(draft.videoResponses || {}).length > 0) {
         setDraftRestored(true)
       }
     } catch (err) {
@@ -147,6 +149,7 @@ export default function Apply() {
         eeoSurvey,
         resumeUrl,
         resumeFileName,
+        resumeSkipped,
         videoResponses,
         textResponses,
         currentQuestion,
@@ -157,7 +160,7 @@ export default function Apply() {
     } catch {
       /* quota errors are non-fatal — the candidate just loses resume-on-reload */
     }
-  }, [draftLoaded, candidateId, form, acknowledgements, eeoSurvey, resumeUrl, resumeFileName, videoResponses, textResponses, currentQuestion, step, draftKey])
+  }, [draftLoaded, candidateId, form, acknowledgements, eeoSurvey, resumeUrl, resumeFileName, resumeSkipped, videoResponses, textResponses, currentQuestion, step, draftKey])
 
   useEffect(() => {
     async function loadJob() {
@@ -309,6 +312,7 @@ export default function Apply() {
     setResumeFile(file)
     setResumeFileName(file.name)
     setResumeUrl(null)
+    setResumeSkipped(false)
     setResumeUploading(true)
     setResumeProgress(0)
     try {
@@ -343,7 +347,17 @@ export default function Apply() {
 
   const handleResumeNext = () => {
     if (resumeUploading) { alert('Resume is still uploading. Please wait.'); return }
-    if (!resumeUrl) { alert('Please upload your resume to continue.'); return }
+    if (!resumeUrl && !resumeSkipped) { alert('Please upload your resume or skip this step to continue.'); return }
+    setStep('compliance')
+  }
+
+  const handleResumeSkip = () => {
+    if (resumeUploading) return
+    setResumeFile(null)
+    setResumeFileName(null)
+    setResumeUrl(null)
+    setResumeProgress(0)
+    setResumeSkipped(true)
     setStep('compliance')
   }
 
@@ -433,7 +447,8 @@ export default function Apply() {
         organizationName: clientName,
         location: jobLocation,
         stage: 'applied',
-        resumeUrl,
+        resumeUrl: resumeSkipped ? null : resumeUrl,
+        resumeSkipped,
         selectionProcessVersion: SELECTION_PROCESS_VERSION,
         complianceNoticeVersion: COMPLIANCE_NOTICE_VERSION,
         complianceAcknowledgedAt: serverTimestamp(),
@@ -608,7 +623,7 @@ export default function Apply() {
           <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
             <div>
               <h2 className="text-xl font-semibold text-gray-900">Upload your resume</h2>
-              <p className="text-sm text-gray-500 mt-1">PDF or Word doc, max 10MB</p>
+              <p className="text-sm text-gray-500 mt-1">PDF or Word doc, max 10MB. You can skip this step if you do not have one ready.</p>
             </div>
             <label className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${resumeUrl ? 'border-green-400 bg-green-50' : resumeUploading ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'}`}>
               <input type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleResumeUpload} className="hidden" disabled={resumeUploading} />
@@ -624,7 +639,7 @@ export default function Apply() {
               ) : resumeUrl ? (
                 <div className="space-y-1">
                   <div className="text-green-600 text-2xl">&#10003;</div>
-                  <p className="text-sm font-medium text-green-700">{resumeFile?.name}</p>
+                  <p className="text-sm font-medium text-green-700">{resumeFileName || resumeFile?.name || 'Resume uploaded'}</p>
                   <p className="text-xs text-green-600">Click to replace</p>
                 </div>
               ) : (
@@ -635,9 +650,15 @@ export default function Apply() {
                 </div>
               )}
             </label>
-            <div className="flex gap-3">
-              <button onClick={() => setStep('info')} className="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors">Back</button>
-              <button onClick={handleResumeNext} disabled={resumeUploading || !resumeUrl} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors">
+            {resumeSkipped && !resumeUrl && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Resume upload skipped. You can still upload one before continuing.
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <button onClick={() => setStep('info')} className="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors">Back</button>
+              <button onClick={handleResumeSkip} disabled={resumeUploading} className="border border-gray-300 hover:bg-gray-50 disabled:opacity-50 text-gray-700 font-medium py-3 rounded-xl transition-colors">Skip resume</button>
+              <button onClick={handleResumeNext} disabled={resumeUploading || (!resumeUrl && !resumeSkipped)} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors">
                 {resumeUploading ? 'Uploading...' : 'Continue'}
               </button>
             </div>

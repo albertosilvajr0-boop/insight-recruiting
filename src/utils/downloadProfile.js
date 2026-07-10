@@ -156,6 +156,8 @@ export async function downloadCandidateProfile(candidate, onProgress) {
       console.error('Resume fetch failed:', err)
       issues.push(`resume (${err.message || err})`)
     }
+  } else if (candidate.resumeSkipped) {
+    issues.push('resume skipped by candidate')
   } else {
     issues.push('no resume on file')
   }

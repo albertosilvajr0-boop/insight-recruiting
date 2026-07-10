@@ -583,6 +583,14 @@ export default function AdminCandidate() {
           {resumeDownloadUrl && (
             <ResumeViewer url={resumeDownloadUrl} fileName={candidate.resumeUrl} />
           )}
+          {candidate.resumeSkipped && !resumeDownloadUrl && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Candidate skipped resume upload.
+            </div>
+          )}
+          {!candidate.resumeSkipped && !resumeDownloadUrl && (
+            <p className="text-sm text-gray-400">No resume uploaded.</p>
+          )}
 
           <div className="border-t border-gray-100 pt-4">
             <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Score Resume (1-5)</h3>

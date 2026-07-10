@@ -4,6 +4,21 @@ import { sendScheduleLink } from '../email/sendScheduleLink.js'
 
 const WEIGHTS = { resume: 0.4, interview: 0.6 }
 
+function finiteScore(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function calculateCompositeScore(resumeResult, videoResult) {
+  const resumeScore = finiteScore(resumeResult?.score)
+  const interviewScore = finiteScore(videoResult?.score)
+
+  if (resumeScore === null && interviewScore === null) return 0
+  if (resumeScore === null) return parseFloat(interviewScore.toFixed(2))
+  if (interviewScore === null) return parseFloat(resumeScore.toFixed(2))
+
+  return parseFloat((resumeScore * WEIGHTS.resume + interviewScore * WEIGHTS.interview).toFixed(2))
+}
+
 function pipelineDecision({ stage, reasonCode, reasonLabel, note, candidate }) {
   const entry = {
     id: `system_${stage}_${Date.now()}`,
@@ -47,9 +62,7 @@ export async function routeCandidate(candidateId, resumeResult, videoResult) {
     return
   }
 
-  const compositeScore = parseFloat(
-    (resumeResult.score * WEIGHTS.resume + videoResult.score * WEIGHTS.interview).toFixed(2)
-  )
+  const compositeScore = calculateCompositeScore(resumeResult, videoResult)
 
   let stage
   let needsReview = false
