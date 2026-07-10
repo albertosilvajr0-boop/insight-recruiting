@@ -81,12 +81,24 @@ service cloud.firestore {
         && value.status == 'provided';
     }
 
+    function validCandidateResume(data) {
+      return (
+          data.resumeSkipped == true
+          && data.resumeUrl == null
+        ) || (
+          (data.resumeSkipped == false || data.resumeSkipped == null)
+          && isString(data.resumeUrl, 260)
+          && data.resumeUrl.matches('^resumes/' + data.candidateId + '/[^/]+$')
+        );
+    }
+
     function validCandidateCreate(candidateId) {
       let data = request.resource.data;
       return data.keys().hasOnly([
           'candidateId', 'firstName', 'lastName', 'email', 'phone',
-          'jobId', 'jobTitle', 'roleKey', 'dealership', 'stage',
-          'resumeUrl', 'videoResponses', 'textResponses', 'questions',
+          'jobId', 'jobTitle', 'roleKey', 'dealership', 'clientName',
+          'organizationName', 'location', 'stage', 'resumeUrl', 'resumeSkipped',
+          'videoResponses', 'textResponses', 'questions',
           'timingData', 'statusToken', 'compositeScore', 'resumeScore',
           'interviewScore', 'selectionProcessVersion', 'complianceNoticeVersion',
           'complianceAcknowledgedAt', 'createdAt', 'updatedAt'
@@ -101,9 +113,11 @@ service cloud.firestore {
         && isString(data.jobTitle, 160)
         && isString(data.roleKey, 80)
         && optionalString(data.dealership, 120)
+        && optionalString(data.clientName, 160)
+        && optionalString(data.organizationName, 160)
+        && optionalString(data.location, 160)
         && data.stage == 'applied'
-        && isString(data.resumeUrl, 260)
-        && data.resumeUrl.matches('^resumes/' + data.candidateId + '/[^/]+$')
+        && validCandidateResume(data)
         && isString(data.selectionProcessVersion, 40)
         && isString(data.complianceNoticeVersion, 40)
         && data.complianceAcknowledgedAt == request.time

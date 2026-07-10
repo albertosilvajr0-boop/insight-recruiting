@@ -137,7 +137,8 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
     // Pick a file extension that matches what the browser actually recorded.
     // Safari records video/mp4; Chrome/Firefox record video/webm. Using the
     // correct extension avoids a mismatch between filename and Content-Type.
-    const contentType = blob.type || 'video/webm'
+    const rawContentType = blob.type || 'video/webm'
+    const contentType = rawContentType.includes('mp4') ? 'video/mp4' : 'video/webm'
     const ext = contentType.includes('mp4') ? 'mp4' : 'webm'
     const dirPath = `videos/${candidateId}_q${questionIndex}`
     const storagePath = `${dirPath}/recording.${ext}`

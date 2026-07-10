@@ -2,6 +2,8 @@ import { useState, useRef, useCallback } from 'react'
 import { ref, uploadBytes } from 'firebase/storage'
 import { storage } from '../firebase'
 
+const WEBM_METADATA = { contentType: 'video/webm' }
+
 export default function useUploadChunks(candidateId) {
   const [uploadedChunks, setUploadedChunks] = useState(0)
   const [failedChunks, setFailedChunks] = useState(0)
@@ -17,7 +19,7 @@ export default function useUploadChunks(candidateId) {
     try {
       const chunkPath = `videos/${candidateId}/chunk_${String(index).padStart(4, '0')}.webm`
       const chunkRef = ref(storage, chunkPath)
-      await uploadBytes(chunkRef, blob)
+      await uploadBytes(chunkRef, blob, WEBM_METADATA)
       setUploadedChunks(c => c + 1)
     } catch (err) {
       console.error(`[upload] Chunk ${index} failed:`, err.message)
@@ -35,7 +37,7 @@ export default function useUploadChunks(candidateId) {
 
       if (recordingBlob) {
         const fullRef = ref(storage, `videos/${candidateId}/recording.webm`)
-        await uploadBytes(fullRef, recordingBlob)
+        await uploadBytes(fullRef, recordingBlob, WEBM_METADATA)
         console.log(`[upload] Full recording uploaded: ${(recordingBlob.size / 1024).toFixed(0)} KB`)
       }
 
