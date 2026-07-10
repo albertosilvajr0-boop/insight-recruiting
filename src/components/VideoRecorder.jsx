@@ -4,6 +4,7 @@ import { storage } from '../firebase'
 import useMediaRecorder from '../hooks/useMediaRecorder'
 
 const MAX_DURATION = 180 // 3 minutes
+const BACKDROP_PREF_KEY = 'insight_professional_backdrop_v1'
 
 function formatTime(s) {
   const m = Math.floor(s / 60)
@@ -23,6 +24,9 @@ function WaveformBar({ level, index, total }) {
 
 export default function VideoRecorder({ candidateId, questionIndex, onComplete, onUploadProgress, mode = 'video' }) {
   const videoPreviewRef = useRef(null)
+  const [professionalBackdrop, setProfessionalBackdrop] = useState(() => {
+    try { return localStorage.getItem(BACKDROP_PREF_KEY) === 'enabled' } catch { return false }
+  })
   const [recorded, setRecorded] = useState(false)
   const [blob, setBlob] = useState(null)
   const [blobUrl, setBlobUrl] = useState(null)
@@ -32,10 +36,10 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
   const [retakeCount, setRetakeCount] = useState(0)
 
   const {
-    state, error, duration, audioLevel,
+    state, error, effectWarning, duration, audioLevel,
     stream, isSupported,
     requestPermissions, startRecording, stopRecording, releaseStream, reset
-  } = useMediaRecorder({ mode })
+  } = useMediaRecorder({ mode, videoEffect: professionalBackdrop ? 'professional' : 'none' })
 
   // Attach stream to video preview — re-runs on stream change AND retake
   const attachStream = useCallback(() => {
@@ -73,8 +77,21 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
 
   const handleStart = async () => {
     setUploadError(null)
-    if (state === 'idle') await requestPermissions()
+    if (state === 'idle') {
+      const readyStream = await requestPermissions()
+      if (!readyStream) return
+    }
     await startRecording()
+  }
+
+  const handleBackdropToggle = () => {
+    const enabled = !professionalBackdrop
+    setProfessionalBackdrop(enabled)
+    try { localStorage.setItem(BACKDROP_PREF_KEY, enabled ? 'enabled' : 'disabled') } catch { /* ignore */ }
+    if (state === 'ready') {
+      releaseStream()
+      reset()
+    }
   }
 
   const handleStop = async () => {
@@ -236,6 +253,26 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
         </div>
       )}
 
+      {mode === 'video' && !recorded && state !== 'recording' && (
+        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-gray-800">Professional background</p>
+            <p className="text-xs text-gray-500 mt-0.5">Adds a clean office-style backdrop to your saved video.</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={professionalBackdrop}
+            aria-label="Professional background"
+            onClick={handleBackdropToggle}
+            disabled={state === 'requesting'}
+            className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 ${professionalBackdrop ? 'bg-blue-600' : 'bg-gray-300'}`}
+          >
+            <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${professionalBackdrop ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
+      )}
+
       {/* Voice-only waveform */}
       {mode === 'voice' && state === 'recording' && (
         <div className="bg-gray-900 rounded-xl p-6 flex flex-col items-center gap-4">
@@ -264,6 +301,11 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
           {error || uploadError}
         </div>
       )}
+      {effectWarning && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+          {effectWarning}
+        </div>
+      )}
 
       {/* Controls */}
       <div className="flex gap-3">
@@ -273,7 +315,7 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
             disabled={state === 'requesting'}
             className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-3 px-6 rounded-xl transition-colors"
           >
-            {state === 'requesting' ? 'Requesting access...' :
+            {state === 'requesting' ? (professionalBackdrop ? 'Preparing background...' : 'Requesting access...') :
              state === 'ready' ? `Start ${mode === 'video' ? 'Video' : 'Voice'} Recording` :
              `Allow ${mode === 'video' ? 'Camera' : 'Microphone'} & Record`}
           </button>
