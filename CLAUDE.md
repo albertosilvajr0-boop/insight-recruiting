@@ -1,19 +1,19 @@
-# SA Recruiting Platform — Claude Code Project Spec
+# Insight Recruiting Platform - Claude Code Project Spec
 
 ## Project Overview
-An end-to-end AI-powered recruiting platform for **San Antonio Dodge** (Silva Consulting Group client).
+An end-to-end AI-powered recruiting platform for **Insight Recruiting** clients.
 Goal: Alberto only gets notified when a candidate is ready for an in-person interview.
-Everything before that — posting, screening, video interviews, scoring, scheduling — is automated.
+Everything before that - posting, screening, video interviews, scoring, scheduling - is automated.
 
 ## Business Rules
-- Dealership: San Antonio Dodge
-- Roles hiring for: BDC Agent, Sales Rep, Service Advisor (multi-role from day one)
+- Client: configured per job opening
+- Roles hiring for: configurable by organization and opening
 - Admin email for digests: albertosilva@silvaconsultinggroup.com
 - Daily digest fires at 7:00 AM Mountain Time
 - Auto-reject threshold: score < 5/10
 - Auto-advance to scheduling threshold: score >= 8/10
-- Human review required: score 5–7/10 (flagged in admin portal)
-- No third-party SaaS — everything custom built
+- Human review required: score 5-7/10 (flagged in admin portal)
+- No third-party SaaS - everything custom built
 - Stack: React + Firebase (Hosting, Firestore, Storage, Functions, Auth) + Claude API + Google STT + Google Calendar API + Gmail API
 
 ## Tech Stack
@@ -21,7 +21,7 @@ Everything before that — posting, screening, video interviews, scoring, schedu
 - Backend: Firebase Cloud Functions (Node.js 18)
 - Database: Firestore
 - File Storage: Firebase Storage (resumes + video chunks)
-- Auth: Firebase Auth (admin portal only — candidates do NOT need accounts)
+- Auth: Firebase Auth (admin portal only - candidates do NOT need accounts)
 - AI: Claude claude-sonnet-4-20250514 via Anthropic API
 - Speech-to-Text: Google Cloud Speech-to-Text v1
 - Calendar: Google Calendar API v3
@@ -109,8 +109,10 @@ sa-recruiting/
 ```js
 {
   id: string,
-  title: string,                 // "BDC Agent" | "Sales Rep" | "Service Advisor"
-  dealership: "San Antonio Dodge",
+  title: string,
+  clientName: string,
+  organizationName: string,
+  location: string,
   description: string,
   requirements: string[],
   mustHaves: string[],           // hard requirements for scoring
@@ -132,7 +134,9 @@ sa-recruiting/
   phone: string,
   jobId: string,
   jobTitle: string,
-  dealership: "San Antonio Dodge",
+  clientName: string,
+  organizationName: string,
+  location: string,
   stage: "applied" | "screening" | "interview_1" | "interview_2" | "scheduling" | "scheduled" | "rejected" | "hired",
   resumeUrl: string,             // Firebase Storage URL
   videoUrl: string,              // Firebase Storage URL
@@ -194,10 +198,10 @@ sa-recruiting/
 5. "High-volume outbound work can be repetitive. What do you do to keep your tone, urgency, and consistency high over a full day of calls?"
 
 **Written Communication (soft timer ~2-3 min):**
-6. "Write a text message and a short email to a lead who asked about a vehicle 48 hours ago and has not responded. Keep the text under 220 characters and the email under 90 words."
+6. "Write a text message and a short email to a lead who asked about a role 48 hours ago and has not responded. Keep the text under 220 characters and the email under 90 words."
 
 **Video Script Readings (no timer):**
-7. "Thank you for calling San Antonio Dodge, this is [Your Name]. How can I assist you in finding a vehicle today?"
+7. "Thank you for calling, this is [Your Name]. How can I help you today?"
 8. "I do have a great idea but I don't want to overpromise and underdeliver — may I put you on hold for a quick second?"
 9. (Voicemail) "Hi John, this is [Your Name] and I have some really really great news to share — please call me when you get this at 210-512-1212, again that's 210-512-1212."
 
@@ -215,22 +219,22 @@ sa-recruiting/
 
 ### Sales Rep
 1. "Tell me about yourself and your sales background."
-2. "A customer says the monthly payment is too high. Walk me through your response."
-3. "What does your follow-up process look like after a customer visits but doesn't buy?"
+2. "A prospect says the price or budget does not work. Walk me through your response."
+3. "What does your follow-up process look like after a prospect shows interest but does not commit?"
 
 ### Service Advisor
-1. "Tell me about yourself and your service experience."
-2. "A customer is upset their car wasn't ready when promised. How do you handle it?"
-3. "How do you upsell additional services without feeling pushy?"
+1. "Tell me about yourself and your customer service experience."
+2. "A customer is upset their request was not completed when promised. How do you handle it?"
+3. "How do you recommend additional services without feeling pushy?"
 
 ## Claude API Scoring Rubrics
 
 ### Resume Scoring Prompt Pattern
 ```
-You are a recruiter for San Antonio Dodge evaluating a candidate for {jobTitle}.
+You are a recruiter for {clientName} evaluating a candidate for {jobTitle}.
 
 Score this resume 1-10 based on:
-- Relevant experience in automotive/dealership (weight: 30%)
+- Relevant experience for the role (weight: 30%)
 - Customer-facing or sales experience (weight: 25%)
 - Communication indicators from resume quality (weight: 20%)
 - Tenure/stability at previous jobs (weight: 15%)
@@ -251,7 +255,7 @@ Respond in JSON:
 
 ### Interview Scoring Prompt Pattern
 ```
-You are evaluating a candidate interview transcript for {jobTitle} at San Antonio Dodge.
+You are evaluating a candidate interview transcript for {jobTitle} at {clientName}.
 
 Score 1-10 based on:
 - Communication clarity and professionalism (weight: 35%)
@@ -285,17 +289,17 @@ if compositeScore 5-7 → stage = "interview_2", flag for admin review
 ## Email Templates
 
 ### Rejection Email
-Subject: "Thank you for your interest — San Antonio Dodge"
+Subject: "Thank you for your interest - {clientName}"
 Warm, professional, encourage reapplication in 6 months.
 
 ### Schedule Link Email
-Subject: "Great news! Next step — San Antonio Dodge"
+Subject: "Great news! Next step - {clientName}"
 Congratulate, explain in-person interview, include scheduling link.
 URL: https://{domain}/schedule/{schedulingToken}
 
 ### Confirmation Email
-Subject: "Interview confirmed — San Antonio Dodge"
-Date, time, address (18011 Blanco Rd, San Antonio, TX 78258), what to bring.
+Subject: "Interview confirmed - {clientName}"
+Date, time, configured interview location, what to bring.
 
 ### Reminder Emails
 - 24 hours before: reminder with details

@@ -1,7 +1,6 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { sendEmail } from './sendEmail.js'
-
-const APP_URL = process.env.VITE_APP_URL || 'https://insight-recruiting-d37dc.web.app'
+import { APP_URL, getCandidateClientName, getCandidateJobLocation } from '../config/organization.js'
 
 export async function sendScheduleLink(candidateId, schedulingToken) {
   const db = getFirestore()
@@ -12,18 +11,20 @@ export async function sendScheduleLink(candidateId, schedulingToken) {
   if (c.scheduleEmailSent) return // already sent
 
   const scheduleUrl = `${APP_URL}/schedule/${schedulingToken}`
+  const clientName = getCandidateClientName(c)
+  const location = getCandidateJobLocation(c)
 
   const html = `
     <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: #16a34a; color: white; padding: 24px; border-radius: 12px 12px 0 0;">
         <h1 style="margin: 0; font-size: 20px;">Great News!</h1>
-        <p style="margin: 6px 0 0; opacity: 0.9; font-size: 14px;">San Antonio Dodge</p>
+        <p style="margin: 6px 0 0; opacity: 0.9; font-size: 14px;">${clientName}</p>
       </div>
       <div style="border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; padding: 24px;">
         <p style="color: #374151; font-size: 15px; line-height: 1.6;">Hi ${c.firstName},</p>
         <p style="color: #374151; font-size: 15px; line-height: 1.6;">
           Congratulations! We were impressed by your application for the <strong>${c.jobTitle}</strong> position
-          and would like to invite you for an in-person interview at San Antonio Dodge.
+          and would like to invite you for an in-person interview with ${clientName}.
         </p>
         <p style="color: #374151; font-size: 15px; line-height: 1.6;">
           Please use the link below to select a time that works best for you:
@@ -35,7 +36,7 @@ export async function sendScheduleLink(candidateId, schedulingToken) {
         </div>
         <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin-top: 16px;">
           <p style="color: #6b7280; font-size: 13px; margin: 0;">
-            <strong>Location:</strong> 11910 N IH 35, San Antonio, TX 78233-4200<br/>
+            <strong>Location:</strong> ${location}<br/>
             <strong>Duration:</strong> ~45 minutes<br/>
             <strong>What to bring:</strong> Valid photo ID
           </p>
@@ -45,14 +46,14 @@ export async function sendScheduleLink(candidateId, schedulingToken) {
         </p>
         <p style="color: #374151; font-size: 15px; line-height: 1.6;">
           Best,<br/>
-          <strong>The San Antonio Dodge Hiring Team</strong>
+          <strong>The ${clientName} Hiring Team</strong>
         </p>
       </div>
     </div>`
 
   await sendEmail({
     to: c.email,
-    subject: 'Great news! Next step — San Antonio Dodge',
+    subject: `Great news! Next step - ${clientName}`,
     html
   })
 

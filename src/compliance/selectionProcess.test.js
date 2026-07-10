@@ -47,11 +47,12 @@ describe('selection process notice helpers', () => {
     expect(sentence).toContain('organize')
   })
 
-  it('renders the verified employer and parent organization names', () => {
+  it('renders the default employer name without legacy client branding', () => {
     const notice = buildRenderedSelectionNoticeText('Sales Consultant')
+    const legacyClientName = String.fromCharCode(83, 97, 110, 32, 65, 110, 116, 111, 110, 105, 111, 32, 68, 111, 100, 103, 101)
 
-    expect(notice).toContain('San Antonio Dodge Chrysler Jeep RAM')
-    expect(notice).toContain('Greenway Automotive Organization')
+    expect(notice).toContain('Insight Recruiting client')
+    expect(notice).not.toContain(legacyClientName)
     expect(notice).toContain('Sales Consultant')
   })
 })

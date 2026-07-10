@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '../firebase'
 import { format, parseISO } from 'date-fns'
+import { DEFAULT_CLIENT_INITIALS, DEFAULT_JOB_LOCATION, DEFAULT_CLIENT_NAME } from '../config/organization'
 
 export default function Schedule() {
   const { token } = useParams()
@@ -52,6 +53,7 @@ export default function Schedule() {
     acc[slot.date].push(slot)
     return acc
   }, {})
+  const interviewLocation = bookedDetails?.location || DEFAULT_JOB_LOCATION
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
@@ -79,7 +81,7 @@ export default function Schedule() {
           <div className="bg-gray-50 rounded-xl p-4 text-sm text-left space-y-2">
             <p><span className="text-gray-500">Date:</span> <span className="font-medium text-gray-900">{bookedDetails.date}</span></p>
             <p><span className="text-gray-500">Time:</span> <span className="font-medium text-gray-900">{bookedDetails.time}</span></p>
-            <p><span className="text-gray-500">Location:</span> <span className="font-medium text-gray-900">11910 N IH 35, San Antonio, TX 78233-4200</span></p>
+            <p><span className="text-gray-500">Location:</span> <span className="font-medium text-gray-900">{interviewLocation}</span></p>
           </div>
         )}
         <p className="text-sm text-gray-500">A confirmation email has been sent. Please bring a valid ID and arrive 10 minutes early.</p>
@@ -92,7 +94,7 @@ export default function Schedule() {
       <div className="max-w-2xl mx-auto px-4 py-12">
         <div className="text-center mb-8">
           <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-white text-xl font-bold">SA</span>
+            <span className="text-white text-xl font-bold">{DEFAULT_CLIENT_INITIALS}</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Schedule Your Interview</h1>
           {candidateName && <p className="text-gray-500 mt-1">Welcome, {candidateName}</p>}
@@ -144,7 +146,7 @@ export default function Schedule() {
 
         <div className="mt-8 bg-blue-50 border border-blue-100 rounded-xl p-4">
           <p className="text-sm text-blue-900 font-medium">Interview Location</p>
-          <p className="text-sm text-blue-800 mt-1">San Antonio Dodge - 11910 N IH 35, San Antonio, TX 78233-4200</p>
+          <p className="text-sm text-blue-800 mt-1">{DEFAULT_CLIENT_NAME} - {DEFAULT_JOB_LOCATION}</p>
           <p className="text-xs text-blue-700 mt-1">Duration: ~45 minutes. Please bring a valid photo ID.</p>
         </div>
       </div>

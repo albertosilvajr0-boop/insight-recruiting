@@ -1,7 +1,6 @@
 import { getFirestore } from 'firebase-admin/firestore'
 import { sendEmail } from './sendEmail.js'
-
-const ADMIN_EMAIL = process.env.GMAIL_SENDER || 'albertosilva@silvaconsultinggroup.com'
+import { ADMIN_EMAIL, getCandidateClientName } from '../config/organization.js'
 
 async function getNewApplicationRecipients() {
   const db = getFirestore()
@@ -28,6 +27,7 @@ export async function sendNewApplicationNotification(candidate) {
   const name = `${firstName} ${lastName}`
   const now = new Date().toLocaleString('en-US', { timeZone: 'America/Denver' })
   const recipients = await getNewApplicationRecipients()
+  const clientName = getCandidateClientName(candidate)
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 500px; margin: 0 auto;">
@@ -52,7 +52,7 @@ export async function sendNewApplicationNotification(candidate) {
     </div>
   `
 
-  const subject = `New Application: ${name} - ${jobTitle || 'San Antonio Dodge'}`
+  const subject = `New Application: ${name} - ${jobTitle || clientName}`
   const results = await Promise.allSettled(
     recipients.map((recipient) => sendEmail({ to: recipient, subject, html }))
   )

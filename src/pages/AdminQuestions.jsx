@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, writeBatch } from "firebase/firestore"
 import { db } from "../firebase"
+import { DEFAULT_CLIENT_INITIALS } from "../config/organization"
 
 const QUESTION_TYPES = [
   { value: "video_response", label: "Video Response", description: "Candidate records a video answering the question" },
@@ -11,9 +12,13 @@ const QUESTION_TYPES = [
 
 const ROLE_OPTIONS = [
   { value: "all", label: "All Roles" },
-  { value: "bdc-agent", label: "BDC Agent or Telemarketer/Emailer/Texter" },
-  { value: "sales-rep", label: "Sales Rep" },
-  { value: "service-advisor", label: "Service Advisor" },
+  { value: "general", label: "General role" },
+  { value: "customer-facing", label: "Customer-facing role" },
+  { value: "sales-rep", label: "Sales representative" },
+  { value: "operations", label: "Operations or support role" },
+  { value: "technical", label: "Technical or specialized role" },
+  { value: "bdc-agent", label: "Customer outreach / call center" },
+  { value: "service-advisor", label: "Service advisor" },
 ]
 
 const CATEGORY_OPTIONS = [
@@ -133,8 +138,8 @@ export default function AdminQuestions() {
       { text: "What are you looking for in your next role, and what usually keeps you engaged and productive long-term?", type: "video_response", roleKey: "bdc-agent", category: "motivation", order: 12, timerType: "none", timerSeconds: 0 },
       { text: "Tell us about a time you turned around a difficult customer interaction. What was the issue, what did you say, and what was the outcome?", type: "video_response", roleKey: "bdc-agent", category: "situational", order: 13, timerType: "none", timerSeconds: 0 },
       { text: "High-volume outbound work can be repetitive. What do you do to keep your tone, urgency, and consistency high over a full day of calls?", type: "video_response", roleKey: "bdc-agent", category: "motivation", order: 14, timerType: "none", timerSeconds: 0 },
-      { text: "Write a text message and a short email to a lead who asked about a vehicle 48 hours ago and has not responded. Keep the text under 220 characters and the email under 90 words.", type: "text_response", roleKey: "bdc-agent", category: "communication", order: 15, timerType: "soft", timerSeconds: 180 },
-      { text: "Thank you for calling San Antonio Dodge, this is [Your Name]. How can I assist you in finding a vehicle today?", type: "video_reading", roleKey: "bdc-agent", category: "word_track", order: 16, timerType: "none", timerSeconds: 0 },
+      { text: "Write a text message and a short email to a lead who asked about a role 48 hours ago and has not responded. Keep the text under 220 characters and the email under 90 words.", type: "text_response", roleKey: "bdc-agent", category: "communication", order: 15, timerType: "soft", timerSeconds: 180 },
+      { text: "Thank you for calling, this is [Your Name]. How can I help you today?", type: "video_reading", roleKey: "bdc-agent", category: "word_track", order: 16, timerType: "none", timerSeconds: 0 },
       { text: "I do have a great idea but I don\u2019t want to overpromise and underdeliver \u2014 may I put you on hold for a quick second?", type: "video_reading", roleKey: "bdc-agent", category: "word_track", order: 17, timerType: "none", timerSeconds: 0 },
       { text: "Hi John, this is [Your Name] and I have some really really great news to share \u2014 please call me when you get this at 210-512-1212, again that\u2019s 210-512-1212.", type: "video_reading", roleKey: "bdc-agent", category: "word_track", order: 18, timerType: "none", timerSeconds: 0 },
       { text: "A bat and a ball cost $1.10 total. The bat costs $1 more than the ball. How much does the ball cost?", type: "text_response", roleKey: "bdc-agent", category: "competence", order: 19, timerType: "hard", timerSeconds: 45 },
@@ -145,19 +150,19 @@ export default function AdminQuestions() {
       { text: "When you think about success 5\u201310 years from now, what does it look like \u2014 and what are you willing to sacrifice (and not willing to sacrifice) to get there?", type: "text_response", roleKey: "bdc-agent", category: "values", order: 24, timerType: "none", timerSeconds: 0 },
 
       // Sales Rep questions
-      { text: "A customer says the monthly payment is too high. Walk me through your response.", type: "video_response", roleKey: "sales-rep", category: "situational", order: 20 },
-      { text: "What does your follow-up process look like after a customer visits but doesn't buy?", type: "video_response", roleKey: "sales-rep", category: "experience", order: 21 },
-      { text: "A customer is comparing your price to a competitor's online quote. What do you do?", type: "video_response", roleKey: "sales-rep", category: "situational", order: 22 },
-      { text: "You have two customers on the lot at the same time and no other reps available. Walk me through how you handle it.", type: "text_response", roleKey: "sales-rep", category: "competence", order: 23 },
+      { text: "A prospect says the price or budget does not work. Walk me through your response.", type: "video_response", roleKey: "sales-rep", category: "situational", order: 20 },
+      { text: "What does your follow-up process look like after a prospect shows interest but does not commit?", type: "video_response", roleKey: "sales-rep", category: "experience", order: 21 },
+      { text: "A prospect is comparing your offer to a competitor's quote. What do you do?", type: "video_response", roleKey: "sales-rep", category: "situational", order: 22 },
+      { text: "You have two prospects waiting at the same time and no other reps available. Walk me through how you handle it.", type: "text_response", roleKey: "sales-rep", category: "competence", order: 23 },
 
       // Service Advisor questions
-      { text: "A customer is upset their car wasn't ready when promised. How do you handle it?", type: "video_response", roleKey: "service-advisor", category: "situational", order: 30 },
-      { text: "How do you upsell additional services without feeling pushy?", type: "video_response", roleKey: "service-advisor", category: "situational", order: 31 },
-      { text: "A customer gets a repair estimate that's higher than expected. How do you walk them through it?", type: "video_response", roleKey: "service-advisor", category: "situational", order: 32 },
-      { text: "A technician tells you a job will take 2 more hours than quoted. The customer is waiting. What do you do?", type: "text_response", roleKey: "service-advisor", category: "competence", order: 33 },
+      { text: "A customer is upset their request was not completed when promised. How do you handle it?", type: "video_response", roleKey: "service-advisor", category: "situational", order: 30 },
+      { text: "How do you recommend additional services without feeling pushy?", type: "video_response", roleKey: "service-advisor", category: "situational", order: 31 },
+      { text: "A customer gets an estimate that is higher than expected. How do you walk them through it?", type: "video_response", roleKey: "service-advisor", category: "situational", order: 32 },
+      { text: "A teammate tells you a job will take 2 more hours than quoted. The customer is waiting. What do you do?", type: "text_response", roleKey: "service-advisor", category: "competence", order: 33 },
 
       // Word tracks (shared — Sales Rep / Service Advisor)
-      { text: "Thank you for calling San Antonio Dodge, how can I assist you today?", type: "video_reading", roleKey: "all", category: "word_track", order: 40 },
+      { text: "Thank you for calling, how can I assist you today?", type: "video_reading", roleKey: "all", category: "word_track", order: 40 },
     ]
 
     try {
@@ -283,7 +288,7 @@ export default function AdminQuestions() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
             <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
-              <span className="text-white text-xs font-bold">SA</span>
+              <span className="text-white text-xs font-bold">{DEFAULT_CLIENT_INITIALS}</span>
             </div>
             <span className="font-semibold text-gray-900 text-sm">Interview Questions</span>
           </div>

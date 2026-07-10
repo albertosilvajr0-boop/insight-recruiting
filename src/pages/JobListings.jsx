@@ -2,8 +2,13 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { collection, query, where, orderBy, getDocs } from 'firebase/firestore'
 import { db } from '../firebase'
-
-const APP_URL = 'https://insight-recruiting-d37dc.web.app'
+import {
+  APP_URL,
+  DEFAULT_CLIENT_NAME,
+  DEFAULT_CLIENT_INITIALS,
+  getJobClientName,
+  getJobStructuredLocation,
+} from '../config/organization'
 
 function injectJobStructuredData(jobs) {
   // Remove old structured data
@@ -16,25 +21,15 @@ function injectJobStructuredData(jobs) {
     '@context': 'https://schema.org/',
     '@type': 'JobPosting',
     title: job.title,
-    description: job.description || `${job.title} position at San Antonio Dodge`,
+    description: job.description || `${job.title} position at ${getJobClientName(job)}`,
     datePosted: job.createdAt?.toDate?.()?.toISOString?.()?.split('T')[0] || new Date().toISOString().split('T')[0],
     hiringOrganization: {
       '@type': 'Organization',
-      name: 'San Antonio Dodge',
+      name: getJobClientName(job),
       sameAs: APP_URL,
       logo: `${APP_URL}/logo.png`
     },
-    jobLocation: {
-      '@type': 'Place',
-      address: {
-        '@type': 'PostalAddress',
-        streetAddress: '11910 N IH 35',
-        addressLocality: 'San Antonio',
-        addressRegion: 'TX',
-        postalCode: '78233-4200',
-        addressCountry: 'US'
-      }
-    },
+    jobLocation: getJobStructuredLocation(job),
     baseSalary: job.payRange ? {
       '@type': 'MonetaryAmount',
       currency: 'USD',
@@ -93,9 +88,9 @@ export default function JobListings() {
       <div className="max-w-3xl mx-auto px-4 py-16">
         <div className="text-center mb-10">
           <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-white text-xl font-bold">SA</span>
+            <span className="text-white text-xl font-bold">{DEFAULT_CLIENT_INITIALS}</span>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">Join San Antonio Dodge</h1>
+          <h1 className="text-3xl font-bold text-gray-900">{DEFAULT_CLIENT_NAME} Careers</h1>
 
         </div>
 
@@ -122,7 +117,7 @@ export default function JobListings() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2 className="text-lg font-semibold text-gray-900">{job.title}</h2>
-                    <p className="text-sm text-gray-500 mt-0.5">San Antonio Dodge</p>
+                    <p className="text-sm text-gray-500 mt-0.5">{getJobClientName(job)}</p>
                     {job.description && (
                       <p className="text-sm text-gray-500 mt-2 line-clamp-2">{job.description}</p>
                     )}

@@ -15,8 +15,6 @@ import {
   DEFAULT_EEO_SURVEY,
   EEO_OPTIONS,
   EEO_SURVEY_VERSION,
-  EMPLOYER_DISPLAY_NAME,
-  EMPLOYER_SHORT_NAME,
   PARENT_ORG_DISPLAY_NAME,
   REQUIRED_ACKNOWLEDGEMENTS,
   SELECTION_PROCESS_VERSION,
@@ -26,6 +24,7 @@ import {
   getTechnologyCapabilitySentence,
   normalizeEeoSurvey,
 } from '../compliance/selectionProcess'
+import { getInitials, getJobClientName, getJobLocation } from '../config/organization'
 
 const STEPS = ['info', 'resume', 'compliance', 'interview', 'submitting']
 const DRAFT_KEY_PREFIX = 'apply_draft_v1_'
@@ -417,6 +416,8 @@ export default function Apply() {
       const complianceRef = doc(db, 'candidateCompliance', candidateId)
       const eeoResponseRef = doc(db, 'eeoResponses', candidateId)
       const normalizedEeoSurvey = normalizeEeoSurvey(eeoSurvey)
+      const clientName = getJobClientName(job)
+      const jobLocation = getJobLocation(job)
       const renderedNoticeText = buildRenderedSelectionNoticeText(job.title)
       const renderedTextHash = await sha256Hex(renderedNoticeText)
       const checkedAcknowledgementIds = REQUIRED_ACKNOWLEDGEMENTS.map((item) => item.key)
@@ -428,7 +429,9 @@ export default function Apply() {
         jobId: job.id,
         jobTitle: job.title,
         roleKey: job.roleKey,
-        dealership: EMPLOYER_DISPLAY_NAME,
+        clientName,
+        organizationName: clientName,
+        location: jobLocation,
         stage: 'applied',
         resumeUrl,
         selectionProcessVersion: SELECTION_PROCESS_VERSION,
@@ -454,7 +457,7 @@ export default function Apply() {
         selectionProcessVersion: SELECTION_PROCESS_VERSION,
         complianceNoticeVersion: COMPLIANCE_NOTICE_VERSION,
         eeoSurveyVersion: EEO_SURVEY_VERSION,
-        employerDisplayName: EMPLOYER_DISPLAY_NAME,
+        employerDisplayName: clientName,
         parentOrgDisplayName: PARENT_ORG_DISPLAY_NAME,
         renderedTextHash,
         renderedNoticeText,
@@ -473,7 +476,7 @@ export default function Apply() {
           jobId: job.id,
           jobTitle: job.title,
           roleKey: job.roleKey,
-          employerDisplayName: EMPLOYER_DISPLAY_NAME,
+          employerDisplayName: clientName,
           parentOrgDisplayName: PARENT_ORG_DISPLAY_NAME,
           eeoSurveyVersion: EEO_SURVEY_VERSION,
           eeoSurvey: normalizedEeoSurvey,
@@ -499,6 +502,10 @@ export default function Apply() {
   const stepIndex = STEPS.indexOf(step)
   const progress = ((stepIndex) / (STEPS.length - 1)) * 100
   const requiredAcknowledgementsAccepted = allRequiredAcknowledgementsAccepted(acknowledgements)
+  const jobClientName = getJobClientName(job || {})
+  const employerDisplayWithParent = PARENT_ORG_DISPLAY_NAME
+    ? `${jobClientName}, part of ${PARENT_ORG_DISPLAY_NAME}`
+    : jobClientName
   const accommodationContact = [
     ACCOMMODATION_EMAIL && (
       <a key="email" className="font-medium underline" href={`mailto:${ACCOMMODATION_EMAIL}`}>{ACCOMMODATION_EMAIL}</a>
@@ -514,11 +521,11 @@ export default function Apply() {
       <div className="bg-white border-b border-gray-200 px-4 py-4">
         <div className="max-w-2xl mx-auto flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-            <span className="text-white text-xs font-bold">SA</span>
+            <span className="text-white text-xs font-bold">{getInitials(jobClientName)}</span>
           </div>
           <div>
-            <p className="text-sm font-medium text-gray-900">{EMPLOYER_SHORT_NAME}</p>
-            <p className="text-xs text-gray-500">Application — {job?.title}</p>
+            <p className="text-sm font-medium text-gray-900">{jobClientName}</p>
+            <p className="text-xs text-gray-500">Application - {job?.title}</p>
           </div>
         </div>
       </div>
@@ -643,7 +650,7 @@ export default function Apply() {
             <div>
               <h1 className="text-xl font-semibold text-gray-900">Review the selection process</h1>
               <p className="text-sm text-gray-500 mt-1">
-                Please review these notices before starting your interview for {job?.title} with {EMPLOYER_DISPLAY_NAME}, part of {PARENT_ORG_DISPLAY_NAME}.
+                Please review these notices before starting your interview for {job?.title} with {employerDisplayWithParent}.
               </p>
             </div>
 
@@ -653,7 +660,7 @@ export default function Apply() {
                 <li>Your application materials and interview responses are reviewed against job-related requirements for this role.</li>
                 <li>{getTechnologyCapabilitySentence()}</li>
                 {getRecordingNotice() && <li>{getRecordingNotice()}</li>}
-                <li>The technology does not make final hiring decisions. Human reviewers for {EMPLOYER_DISPLAY_NAME} remain responsible for selection decisions.</li>
+                <li>The technology does not make final hiring decisions. Human reviewers for {jobClientName} remain responsible for selection decisions.</li>
                 <li>Optional EEO information, if you choose to provide it, is stored separately, hidden from hiring reviewers, and not used to evaluate your application.</li>
                 <li>Please avoid including non-job-related medical, disability, genetic information, family medical history, or other protected personal details in your resume or interview responses. This does not limit your right to request a reasonable accommodation.</li>
               </ul>

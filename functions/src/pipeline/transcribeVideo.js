@@ -2,6 +2,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getStorage } from 'firebase-admin/storage'
 import { google } from 'googleapis'
 import { callClaude } from '../utils/anthropic.js'
+import { getCandidateClientName } from '../config/organization.js'
 
 const INTERVIEW_QUESTIONS = {
   'bdc-agent': [
@@ -10,8 +11,8 @@ const INTERVIEW_QUESTIONS = {
     "What are you looking for in your next role, and what usually keeps you engaged and productive long-term?",
     "Tell us about a time you turned around a difficult customer interaction. What was the issue, what did you say, and what was the outcome?",
     "High-volume outbound work can be repetitive. What do you do to keep your tone, urgency, and consistency high over a full day of calls?",
-    "Write a text message and a short email to a lead who asked about a vehicle 48 hours ago and has not responded. Keep the text under 220 characters and the email under 90 words.",
-    "Thank you for calling San Antonio Dodge, this is [Your Name]. How can I assist you in finding a vehicle today?",
+    "Write a text message and a short email to a lead who asked about a role 48 hours ago and has not responded. Keep the text under 220 characters and the email under 90 words.",
+    "Thank you for calling, this is [Your Name]. How can I help you today?",
     "I do have a great idea but I don\u2019t want to overpromise and underdeliver \u2014 may I put you on hold for a quick second?",
     "Hi John, this is [Your Name] and I have some really really great news to share \u2014 please call me when you get this at 210-512-1212, again that\u2019s 210-512-1212.",
     "A bat and a ball cost $1.10 total. The bat costs $1 more than the ball. How much does the ball cost?",
@@ -23,42 +24,31 @@ const INTERVIEW_QUESTIONS = {
   ],
   'sales-rep': [
     "Tell me about yourself and your sales background.",
-    "A customer says the monthly payment is too high. Walk me through your response.",
-    "What does your follow-up process look like after a customer visits but doesn't buy?"
+    "A prospect says the price or budget does not work. Walk me through your response.",
+    "What does your follow-up process look like after a prospect shows interest but does not commit?"
   ],
   'service-advisor': [
-    "Tell me about yourself and your service experience.",
-    "A customer is upset their car wasn't ready when promised. How do you handle it?",
-    "How do you upsell additional services without feeling pushy?"
+    "Tell me about yourself and your customer service experience.",
+    "A customer is upset their request was not completed when promised. How do you handle it?",
+    "How do you recommend additional services without feeling pushy?"
   ]
 }
 
-const SCORING_PROMPTS = {
-  'bdc-agent': `You are evaluating a candidate interview for a BDC Agent role at San Antonio Dodge.
-This interview includes video responses, script readings (word tracks), written communication samples, timed cognitive questions, and values/mindset questions.
+function buildInterviewScoringPrompt(candidate) {
+  const clientName = getCandidateClientName(candidate)
+  const roleName = candidate.jobTitle || 'the open role'
+
+  return `You are evaluating a candidate interview for ${roleName} at ${clientName}.
+This interview may include video responses, script readings, written communication samples, timed cognitive questions, and values/mindset questions.
 
 Score 1-10 based on:
-- Communication clarity, phone manner, and script delivery (weight: 25%)
+- Communication clarity, professionalism, and script delivery (weight: 25%)
 - Customer service orientation, de-escalation, and written outreach quality (weight: 25%)
-- Cognitive speed and accuracy on timed questions (weight: 15%)
+- Role-relevant judgment, problem solving, and cognitive accuracy (weight: 20%)
 - Coachability, motivation, and work discipline (weight: 20%)
-- Values alignment and long-term mindset (weight: 15%)
+- Values alignment and long-term mindset (weight: 10%)
 
-Note: Questions 10-12 are timed cognitive tests. Evaluate correctness and note if answers appear rushed or overthought. Track timing data if available.`,
-
-  'sales-rep': `You are evaluating a candidate interview for a Sales Representative role at San Antonio Dodge.
-Score 1-10 based on:
-- Communication clarity and persuasion (weight: 35%)
-- Sales experience and closing ability (weight: 30%)
-- Customer relationship building (weight: 20%)
-- Motivation and enthusiasm (weight: 15%)`,
-
-  'service-advisor': `You are evaluating a candidate interview for a Service Advisor role at San Antonio Dodge.
-Score 1-10 based on:
-- Communication clarity and professionalism (weight: 35%)
-- Service/automotive knowledge demonstrated (weight: 30%)
-- Customer service orientation and upselling tact (weight: 20%)
-- Motivation and enthusiasm (weight: 15%)`
+Evaluate only job-related evidence. Note if answers appear rushed, over-rehearsed, or unsupported by examples.`
 }
 
 async function transcribeAudio(audioBuffer, mimeHint) {
@@ -181,7 +171,7 @@ export async function transcribeAndScoreVideo(candidateId, candidate) {
   }
 
   // Score the interview with Claude
-  const systemPrompt = SCORING_PROMPTS[roleKey] || SCORING_PROMPTS['sales-rep']
+  const systemPrompt = buildInterviewScoringPrompt(candidate)
 
   const response = await callClaude({
     system: systemPrompt,

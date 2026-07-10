@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '../firebase'
 import { format, formatDistanceToNow } from 'date-fns'
+import { DEFAULT_CLIENT_INITIALS, getJobClientName } from '../config/organization'
 
 // Ordered pipeline for the candidate-facing timeline. We deliberately
 // collapse internal stages ("scored", "to_schedule") into a single
@@ -18,11 +19,12 @@ const TIMELINE = [
 
 function stageHeadline(c) {
   const scheduledAt = c.scheduledAt ? new Date(c.scheduledAt) : null
+  const clientName = getJobClientName(c)
   switch (c.stage) {
     case 'applied':
     case 'scored':
     case 'screening':
-      return { title: "We're reviewing your application", body: "The hiring team at San Antonio Dodge is looking over your resume and interview responses. You'll hear back within 1 business day." }
+      return { title: "We're reviewing your application", body: `The hiring team at ${clientName} is looking over your resume and interview responses. You'll hear back within 1 business day.` }
     case 'to_schedule':
       return { title: "Good news — you're invited to interview!", body: "Check your email for a scheduling link so you can pick a time that works for you." }
     case 'scheduled':
@@ -80,9 +82,9 @@ export default function Status() {
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200 px-4 py-4">
         <div className="max-w-2xl mx-auto flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center"><span className="text-white text-xs font-bold">SA</span></div>
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center"><span className="text-white text-xs font-bold">{DEFAULT_CLIENT_INITIALS}</span></div>
           <div>
-            <p className="text-sm font-medium text-gray-900">San Antonio Dodge</p>
+            <p className="text-sm font-medium text-gray-900">{getJobClientName(candidate)}</p>
             <p className="text-xs text-gray-500">Application status</p>
           </div>
         </div>

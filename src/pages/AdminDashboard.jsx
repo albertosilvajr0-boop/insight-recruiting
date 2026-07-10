@@ -12,14 +12,15 @@ import {
   buildDecisionHistory,
   getDecisionReasons,
 } from "../selection/decisionReasons"
+import { DEFAULT_CLIENT_INITIALS, PLATFORM_NAME } from "../config/organization"
 
 const STAGES = ["applied","scored","to_schedule","scheduled","hired","rejected"]
 const STAGE_LABELS = { applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", hired:"Hired", rejected:"Rejected" }
 // Map old stages to new ones for backwards compatibility
 const STAGE_MIGRATION = { screening: "applied", interview_2: "applied", scheduling: "to_schedule" }
 const ROLE_GROUPS = [
-  { key: "bdc-agent", label: "BDC Agent" },
-  { key: "sales-rep", label: "Salesperson" },
+  { key: "bdc-agent", label: "Customer outreach" },
+  { key: "sales-rep", label: "Sales" },
 ]
 
 // SLA: how long a candidate can sit in a stage before it's considered stale.
@@ -383,8 +384,8 @@ export default function AdminDashboard() {
       <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10">
         <div className="max-w-screen-xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center"><span className="text-white text-xs font-bold">SA</span></div>
-            <span className="font-semibold text-gray-900 text-sm">Insight Recruiting</span>
+            <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center"><span className="text-white text-xs font-bold">{DEFAULT_CLIENT_INITIALS}</span></div>
+            <span className="font-semibold text-gray-900 text-sm">{PLATFORM_NAME}</span>
           </div>
           <div className="flex items-center gap-3">
             {userRole === "superadmin" && (
