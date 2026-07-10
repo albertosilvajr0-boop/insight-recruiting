@@ -19,9 +19,37 @@ Hard disqualifiers (return score 1, autoDisqualified: true): requires sponsorshi
 
 export async function scoreResume(candidateId, candidate) {
   const db = getFirestore()
-  const bucket = getStorage().bucket()
+
+  if (candidate.resumeSkipped || !candidate.resumeUrl) {
+    const skipped = candidate.resumeSkipped === true
+    const result = {
+      score: null,
+      strengths: [],
+      concerns: [skipped ? 'Resume upload skipped by candidate' : 'No resume uploaded by candidate'],
+      reasoning: skipped
+        ? 'Candidate skipped resume upload; resume scoring was not run.'
+        : 'Candidate has no resume file; resume scoring was not run.',
+      autoDisqualified: false,
+      disqualifierReason: null,
+      skipped,
+    }
+
+    await db.collection('candidates').doc(candidateId).update({
+      resumeScore: null,
+      resumeAnalysis: result.reasoning,
+      resumeStrengths: result.strengths,
+      resumeConcerns: result.concerns,
+      autoDisqualified: false,
+      disqualifierReason: null,
+      needsReview: candidate.needsReview || false,
+      updatedAt: FieldValue.serverTimestamp()
+    })
+
+    return result
+  }
 
   // Download resume from Storage
+  const bucket = getStorage().bucket()
   const [resumeBuffer] = await bucket.file(candidate.resumeUrl).download()
   const resumeText = resumeBuffer.toString('utf8').slice(0, 8000) // trim to safe length
 
