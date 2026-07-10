@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
+import { createProfessionalBackdropStream } from '../utils/professionalBackdrop'
 
 const MIME_TYPES = [
   'video/webm;codecs=vp9,opus',
@@ -11,14 +12,17 @@ function getSupportedMimeType() {
   return MIME_TYPES.find(t => MediaRecorder.isTypeSupported(t)) || ''
 }
 
-export default function useMediaRecorder({ mode = 'video' }) {
+export default function useMediaRecorder({ mode = 'video', videoEffect = 'none' }) {
   const [state, setState] = useState('idle') // idle | requesting | ready | recording | stopped | error
   const [error, setError] = useState(null)
+  const [effectWarning, setEffectWarning] = useState(null)
   const [duration, setDuration] = useState(0)
   const [audioLevel, setAudioLevel] = useState(0)
 
   const mediaRecorderRef = useRef(null)
+  const sourceStreamRef = useRef(null)
   const streamRef = useRef(null)
+  const effectCleanupRef = useRef(null)
   const chunksRef = useRef([])
   const timerRef = useRef(null)
   const analyserRef = useRef(null)
@@ -49,6 +53,7 @@ export default function useMediaRecorder({ mode = 'video' }) {
   const requestPermissions = useCallback(async () => {
     setState('requesting')
     setError(null)
+    setEffectWarning(null)
     try {
       let stream
       if (mode === 'video') {
@@ -67,9 +72,24 @@ export default function useMediaRecorder({ mode = 'video' }) {
       } else {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       }
-      streamRef.current = stream
+      sourceStreamRef.current = stream
+
+      if (mode === 'video' && videoEffect === 'professional') {
+        try {
+          const processed = await createProfessionalBackdropStream(stream)
+          effectCleanupRef.current = processed.cleanup
+          streamRef.current = processed.stream
+        } catch (err) {
+          console.warn('Professional backdrop unavailable:', err)
+          setEffectWarning('Professional background is not available on this device. Recording normally.')
+          streamRef.current = stream
+        }
+      } else {
+        streamRef.current = stream
+      }
+
       setState('ready')
-      return stream
+      return streamRef.current
     } catch (err) {
       setError(err.name === 'NotAllowedError'
         ? 'Camera/microphone access was denied. Please allow access and try again.'
@@ -79,7 +99,7 @@ export default function useMediaRecorder({ mode = 'video' }) {
       setState('error')
       return null
     }
-  }, [mode])
+  }, [mode, videoEffect])
 
   const startRecording = useCallback(async () => {
     let stream = streamRef.current
@@ -167,7 +187,13 @@ export default function useMediaRecorder({ mode = 'video' }) {
   }, [])
 
   const releaseStream = useCallback(() => {
-    streamRef.current?.getTracks().forEach(t => t.stop())
+    effectCleanupRef.current?.()
+    effectCleanupRef.current = null
+    if (streamRef.current && streamRef.current !== sourceStreamRef.current) {
+      streamRef.current.getVideoTracks().forEach(t => t.stop())
+    }
+    sourceStreamRef.current?.getTracks().forEach(t => t.stop())
+    sourceStreamRef.current = null
     streamRef.current = null
     setState('idle')
     setDuration(0)
@@ -182,6 +208,7 @@ export default function useMediaRecorder({ mode = 'video' }) {
   return {
     state,
     error,
+    effectWarning,
     duration,
     audioLevel,
     stream: streamRef.current,
