@@ -392,6 +392,7 @@ export default function AdminDashboard() {
               <>
                 <button onClick={() => navigate("/admin/jobs")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Jobs</button>
                 <button onClick={() => navigate("/admin/questions")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Questions</button>
+                <button onClick={() => navigate("/admin/library")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Library</button>
                 <button onClick={() => navigate("/admin/availability")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Availability</button>
                 <button onClick={() => navigate("/admin/onboarding")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Onboarding</button>
                 <button onClick={() => navigate("/admin/users")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Users</button>

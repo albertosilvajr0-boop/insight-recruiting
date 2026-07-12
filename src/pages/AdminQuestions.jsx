@@ -19,6 +19,20 @@ const ROLE_OPTIONS = [
   { value: "technical", label: "Technical or specialized role" },
   { value: "bdc-agent", label: "Customer outreach / call center" },
   { value: "service-advisor", label: "Service advisor" },
+  { value: "entry-sales-rep", label: "Entry-level sales representative" },
+  { value: "service-advisor-full", label: "Service advisor (full battery)" },
+  { value: "shuttle-driver", label: "Shuttle driver" },
+  { value: "lot-attendant", label: "Lot attendant / porter" },
+  { value: "restaurant-gm", label: "Restaurant general manager" },
+  { value: "kitchen-manager", label: "Kitchen manager" },
+  { value: "lead-host", label: "Lead host" },
+  { value: "server", label: "Server" },
+  { value: "fine-dining-server", label: "Fine-dining server / bartender" },
+  { value: "restaurant-manager", label: "Restaurant manager" },
+  { value: "restaurant-manager-staffing", label: "Restaurant manager (staffing focus)" },
+  { value: "assistant-restaurant-manager", label: "Assistant restaurant manager" },
+  { value: "hibachi-chef", label: "Mobile hibachi / event chef" },
+  { value: "shift-leader", label: "Restaurant shift leader" },
 ]
 
 const CATEGORY_OPTIONS = [
@@ -315,7 +329,7 @@ export default function AdminQuestions() {
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
         {/* Filter */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-500">Filter by role:</span>
           {ROLE_OPTIONS.map((r) => (
             <button key={r.value} onClick={() => setFilterRole(r.value)}

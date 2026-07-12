@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, orderBy, query } from "firebase/firestore"
 import { db } from "../firebase"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   APP_URL,
   DEFAULT_CLIENT_NAME,
@@ -9,6 +9,7 @@ import {
   getJobClientName,
   getJobLocation,
 } from "../config/organization"
+import { INDUSTRY_OPTIONS } from "../config/industries"
 
 const ROLE_KEYS = [
   { key: "general", label: "General role" },
@@ -17,7 +18,21 @@ const ROLE_KEYS = [
   { key: "operations", label: "Operations or support role" },
   { key: "technical", label: "Technical or specialized role" },
   { key: "bdc-agent", label: "Customer outreach / call center" },
-  { key: "service-advisor", label: "Service advisor" }
+  { key: "service-advisor", label: "Service advisor" },
+  { key: "entry-sales-rep", label: "Entry-level sales representative" },
+  { key: "service-advisor-full", label: "Service advisor (full battery)" },
+  { key: "shuttle-driver", label: "Shuttle driver" },
+  { key: "lot-attendant", label: "Lot attendant / porter" },
+  { key: "restaurant-gm", label: "Restaurant general manager" },
+  { key: "kitchen-manager", label: "Kitchen manager" },
+  { key: "lead-host", label: "Lead host" },
+  { key: "server", label: "Server" },
+  { key: "fine-dining-server", label: "Fine-dining server / bartender" },
+  { key: "restaurant-manager", label: "Restaurant manager" },
+  { key: "restaurant-manager-staffing", label: "Restaurant manager (staffing focus)" },
+  { key: "assistant-restaurant-manager", label: "Assistant restaurant manager" },
+  { key: "hibachi-chef", label: "Mobile hibachi / event chef" },
+  { key: "shift-leader", label: "Restaurant shift leader" }
 ]
 
 const DEFAULT_JOB_FORM = {
@@ -25,6 +40,7 @@ const DEFAULT_JOB_FORM = {
   clientName: DEFAULT_CLIENT_NAME,
   location: DEFAULT_JOB_LOCATION,
   roleKey: "general",
+  industry: "",
   description: "",
   payRange: { min: 35000, max: 80000 },
   status: "active",
@@ -63,13 +79,25 @@ export default function AdminJobs() {
   const [expandedJob, setExpandedJob] = useState(null)
   const [copied, setCopied] = useState(false)
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   useEffect(() => {
     async function load() {
       const snap = await getDocs(query(collection(db, "jobs"), orderBy("createdAt", "desc")))
-      setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      setJobs(loaded)
+
+      // Deep link from the Question Library: /admin/jobs?edit=<jobId>
+      const editId = searchParams.get("edit")
+      const target = editId && loaded.find(j => j.id === editId)
+      if (target) {
+        setEditing(target.id)
+        setForm({ ...DEFAULT_JOB_FORM, ...target, payRange: { ...DEFAULT_JOB_FORM.payRange, ...target.payRange } })
+        setSearchParams({}, { replace: true })
+      }
     }
     load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleSave = async () => {
@@ -133,6 +161,13 @@ export default function AdminJobs() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Industry (optional)</label>
+                <select value={form.industry || ""} onChange={e => setForm(f => ({ ...f, industry: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="">Not set</option>
+                  {INDUSTRY_OPTIONS.map(i => <option key={i} value={i}>{i}</option>)}
+                </select>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Organization name</label>
                 <input value={form.clientName || ""} onChange={e => setForm(f => ({ ...f, clientName: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder={DEFAULT_CLIENT_NAME} />

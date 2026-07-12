@@ -11,6 +11,7 @@ import AdminJobs from './pages/AdminJobs'
 import AdminUsers from './pages/AdminUsers'
 import AdminAvailability from './pages/AdminAvailability'
 import AdminQuestions from './pages/AdminQuestions'
+import AdminLibrary from './pages/AdminLibrary'
 import AdminAnalytics from './pages/AdminAnalytics'
 import AdminOnboarding from './pages/AdminOnboarding'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -47,6 +48,9 @@ export default function App() {
         } />
         <Route path="/admin/questions" element={
           <ProtectedRoute requiredRole={ROLES.SUPERADMIN} requiredPermission={PERMISSIONS.MANAGE_QUESTIONS}><AdminQuestions /></ProtectedRoute>
+        } />
+        <Route path="/admin/library" element={
+          <ProtectedRoute requiredRole={ROLES.SUPERADMIN} requiredPermission={PERMISSIONS.MANAGE_QUESTIONS}><AdminLibrary /></ProtectedRoute>
         } />
         <Route path="/admin/availability" element={
           <ProtectedRoute requiredRole={ROLES.SUPERADMIN} requiredPermission={PERMISSIONS.MANAGE_AVAILABILITY}><AdminAvailability /></ProtectedRoute>

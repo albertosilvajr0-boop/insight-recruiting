@@ -2,19 +2,26 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getStorage } from 'firebase-admin/storage'
 import { callClaude } from '../utils/anthropic.js'
 import { getCandidateClientName } from '../config/organization.js'
+import { getRoleRubric, formatScoringWeights, formatHardDisqualifiers } from '../utils/roleRubrics.js'
 
-function buildScoringPrompt(candidate) {
-  const clientName = getCandidateClientName(candidate)
-  const roleName = candidate.jobTitle || 'the open role'
-
-  return `You are a recruiter for ${clientName} evaluating a candidate for ${roleName}.
-Score this resume 1-10 based on:
-- Relevant experience for the role (weight: 30%)
+const DEFAULT_RESUME_WEIGHTS = `- Relevant experience for the role (weight: 30%)
 - Customer-facing, operational, technical, or sales experience that matches the job (weight: 25%)
 - Communication quality from resume presentation (weight: 20%)
 - Tenure/stability and progression at previous jobs (weight: 15%)
-- Education, certifications, or role-specific credentials (weight: 10%)
-Hard disqualifiers (return score 1, autoDisqualified: true): requires sponsorship or does not meet a stated must-have requirement.`
+- Education, certifications, or role-specific credentials (weight: 10%)`
+
+const DEFAULT_DISQUALIFIERS = 'requires sponsorship or does not meet a stated must-have requirement'
+
+function buildScoringPrompt(candidate, rubric) {
+  const clientName = getCandidateClientName(candidate)
+  const roleName = candidate.jobTitle || 'the open role'
+  const weights = formatScoringWeights(rubric?.scoringWeights, 'resume') || DEFAULT_RESUME_WEIGHTS
+  const disqualifiers = formatHardDisqualifiers(rubric?.hardDisqualifiers) || DEFAULT_DISQUALIFIERS
+
+  return `You are a recruiter for ${clientName} evaluating a candidate for ${roleName}.
+Score this resume 1-10 based on:
+${weights}
+Hard disqualifiers (return score 1, autoDisqualified: true): ${disqualifiers}.`
 }
 
 export async function scoreResume(candidateId, candidate) {
@@ -53,7 +60,8 @@ export async function scoreResume(candidateId, candidate) {
   const [resumeBuffer] = await bucket.file(candidate.resumeUrl).download()
   const resumeText = resumeBuffer.toString('utf8').slice(0, 8000) // trim to safe length
 
-  const systemPrompt = buildScoringPrompt(candidate)
+  const rubric = await getRoleRubric(candidate.roleKey)
+  const systemPrompt = buildScoringPrompt(candidate, rubric)
 
   const response = await callClaude({
     system: systemPrompt,
