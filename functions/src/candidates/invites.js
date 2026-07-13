@@ -217,7 +217,8 @@ export async function submitInvitedInterviewHandler(data) {
   const complianceNoticeVersion = requireString(data.complianceNoticeVersion, 'complianceNoticeVersion', 40)
   const eeoSurveyVersion = requireString(data.eeoSurveyVersion, 'eeoSurveyVersion', 40)
   const renderedNoticeText = requireString(data.renderedNoticeText, 'renderedNoticeText', 8000)
-  const parentOrgDisplayName = requireString(data.parentOrgDisplayName, 'parentOrgDisplayName', 160)
+  // Parent org is optional display data — most clients don't have one configured.
+  const parentOrgDisplayName = String(data.parentOrgDisplayName || '').slice(0, 160)
   const userAgent = String(data.userAgent || 'unknown').slice(0, 600)
 
   const acknowledgements = data.acknowledgements
