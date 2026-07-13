@@ -49,4 +49,13 @@ export default [
       globals: globals.node,
     },
   },
+  {
+    // Root-level Node scripts (e.g. seed_interview_questions.mjs)
+    files: ['*.mjs'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: globals.node,
+    },
+  },
 ]
