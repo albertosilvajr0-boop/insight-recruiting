@@ -7,51 +7,29 @@ import {
   DEFAULT_CLIENT_NAME,
   DEFAULT_CLIENT_INITIALS,
   getJobClientName,
-  getJobStructuredLocation,
 } from '../config/organization'
 
-function injectJobStructuredData(jobs) {
-  // Remove old structured data
+// Google's guidelines forbid JobPosting markup on list pages — the full
+// JobPosting JSON-LD lives on each /apply/:jobId page (JobPostingSchema).
+// The list page only advertises the individual job URLs.
+function injectJobListStructuredData(jobs) {
   const old = document.getElementById('job-structured-data')
   if (old) old.remove()
 
   if (jobs.length === 0) return
 
-  const jsonLd = jobs.map(job => ({
-    '@context': 'https://schema.org/',
-    '@type': 'JobPosting',
-    title: job.title,
-    description: job.description || `${job.title} position at ${getJobClientName(job)}`,
-    datePosted: job.createdAt?.toDate?.()?.toISOString?.()?.split('T')[0] || new Date().toISOString().split('T')[0],
-    hiringOrganization: {
-      '@type': 'Organization',
-      name: getJobClientName(job),
-      sameAs: APP_URL,
-      logo: `${APP_URL}/logo.png`
-    },
-    jobLocation: getJobStructuredLocation(job),
-    baseSalary: job.payRange ? {
-      '@type': 'MonetaryAmount',
-      currency: 'USD',
-      value: {
-        '@type': 'QuantitativeValue',
-        minValue: job.payRange.min,
-        maxValue: job.payRange.max,
-        unitText: 'YEAR'
-      }
-    } : undefined,
-    employmentType: 'FULL_TIME',
-    directApply: true,
-    applicationContact: {
-      '@type': 'ContactPoint',
-      url: `${APP_URL}/apply/${job.id}`
-    }
-  }))
-
   const script = document.createElement('script')
   script.id = 'job-structured-data'
   script.type = 'application/ld+json'
-  script.textContent = JSON.stringify(jsonLd)
+  script.textContent = JSON.stringify({
+    '@context': 'https://schema.org/',
+    '@type': 'ItemList',
+    itemListElement: jobs.map((job, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      url: `${APP_URL}/apply/${job.id}`,
+    })),
+  })
   document.head.appendChild(script)
 }
 
@@ -71,7 +49,7 @@ export default function JobListings() {
         const snap = await getDocs(q)
         const loadedJobs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
         setJobs(loadedJobs)
-        injectJobStructuredData(loadedJobs)
+        injectJobListStructuredData(loadedJobs)
         setLoadError(null)
       } catch (err) {
         console.error('Failed to load jobs:', err)

@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { db, storage, functions } from '../firebase'
 import VideoRecorder from '../components/VideoRecorder'
 import DeviceCheck from '../components/DeviceCheck'
+import JobPostingSchema from '../components/JobPostingSchema'
 import {
   ACCOMMODATION_EMAIL,
   ACCOMMODATION_PHONE,
@@ -622,6 +623,9 @@ export default function Apply() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Google for Jobs structured data — public applications only; invite
+          pages are private and must not be indexed as job postings. */}
+      {!inviteMode && job && <JobPostingSchema job={job} />}
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-4 py-4">
         <div className="max-w-2xl mx-auto flex items-center gap-3">

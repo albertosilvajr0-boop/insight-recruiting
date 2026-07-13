@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+
+Sitemap: https://insight-recruiting-d37dc.web.app/sitemap.xml

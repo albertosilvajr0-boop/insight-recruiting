@@ -13,6 +13,7 @@ import { sendApplicationReceipt } from './email/sendApplicationReceipt.js'
 import { getAvailableSlots } from './calendar/getAvailableSlots.js'
 import { bookSlot } from './calendar/bookSlot.js'
 import { generateJobFeed } from './jobs/jobFeed.js'
+import { generateSitemap } from './jobs/sitemap.js'
 import { createUserHandler, updateUserHandler, deleteUserHandler, ensureCurrentUserProfileHandler } from './users/manageUsers.js'
 import { sendPhoneVerificationHandler, verifyPhoneCodeHandler } from './verification/phoneVerification.js'
 import { getCandidateStatusHandler } from './candidates/getCandidateStatus.js'
@@ -184,6 +185,22 @@ export const jobFeed = onRequest(
       res.send(xml)
     } catch (err) {
       console.error('[jobFeed] Error:', err)
+      res.status(500).send('Internal error')
+    }
+  }
+)
+
+// ─── XML Sitemap for search engines (served at /sitemap.xml via hosting) ────
+export const sitemap = onRequest(
+  { cors: true },
+  async (req, res) => {
+    try {
+      const xml = await generateSitemap()
+      res.set('Content-Type', 'application/xml')
+      res.set('Cache-Control', 'public, max-age=3600')
+      res.send(xml)
+    } catch (err) {
+      console.error('[sitemap] Error:', err)
       res.status(500).send('Internal error')
     }
   }

@@ -43,8 +43,17 @@ const DEFAULT_JOB_FORM = {
   industry: "",
   description: "",
   payRange: { min: 35000, max: 80000 },
+  payUnit: "HOUR",
+  employmentType: ["FULL_TIME", "PART_TIME"],
   status: "active",
 }
+
+const EMPLOYMENT_TYPE_OPTIONS = [
+  { value: "FULL_TIME", label: "Full-time" },
+  { value: "PART_TIME", label: "Part-time" },
+  { value: "CONTRACTOR", label: "Contractor" },
+  { value: "TEMPORARY", label: "Temporary" },
+]
 
 const JOB_BOARDS = [
   { name: "Indeed", url: "https://employers.indeed.com/jobs", free: true },
@@ -189,6 +198,34 @@ export default function AdminJobs() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Pay max ($)</label>
                 <input type="number" value={form.payRange.max} onChange={e => setForm(f => ({ ...f, payRange: { ...f.payRange, max: +e.target.value } }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Pay period</label>
+                <select value={form.payUnit || "HOUR"} onChange={e => setForm(f => ({ ...f, payUnit: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="HOUR">Per hour</option>
+                  <option value="YEAR">Per year</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Employment type</label>
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5 pt-1.5">
+                  {EMPLOYMENT_TYPE_OPTIONS.map(opt => (
+                    <label key={opt.value} className="inline-flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={(form.employmentType || []).includes(opt.value)}
+                        onChange={e => setForm(f => {
+                          const current = f.employmentType || []
+                          return { ...f, employmentType: e.target.checked ? [...current, opt.value] : current.filter(v => v !== opt.value) }
+                        })}
+                        className="accent-blue-600 w-4 h-4"
+                      />
+                      {opt.label}
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
             <div className="flex gap-3">
