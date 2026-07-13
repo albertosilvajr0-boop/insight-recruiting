@@ -16,6 +16,12 @@ import { createUserHandler, updateUserHandler, deleteUserHandler, ensureCurrentU
 import { sendPhoneVerificationHandler, verifyPhoneCodeHandler } from './verification/phoneVerification.js'
 import { getCandidateStatusHandler } from './candidates/getCandidateStatus.js'
 import { auditCandidateUpdate } from './candidates/auditCandidateChanges.js'
+import {
+  createCandidateInviteHandler,
+  attachInviteResumeHandler,
+  getInviteSessionHandler,
+  submitInvitedInterviewHandler,
+} from './candidates/invites.js'
 import { assertPermission } from './security/assertAccess.js'
 import { PERMISSIONS } from './security/roles.js'
 import { writeAuditLog } from './utils/auditLog.js'
@@ -23,58 +29,68 @@ import { writeAuditLog } from './utils/auditLog.js'
 initializeApp()
 
 // ─── Triggered on new candidate document ───────────────────────────────────
+async function runCandidatePipeline(candidateId, candidate) {
+  console.log(`[pipeline] Starting for candidate ${candidateId}`)
+
+  // Notify admin of new application
+  try {
+    await sendNewApplicationNotification(candidate)
+  } catch (emailErr) {
+    console.error(`[pipeline] Failed to send notification email:`, emailErr.message)
+  }
+
+  // Send candidate-facing receipt with status portal link. Non-fatal;
+  // we never block the pipeline on an email failure.
+  try {
+    const baseUrl = process.env.PUBLIC_BASE_URL || 'https://insight-recruiting.web.app'
+    await sendApplicationReceipt(candidate, baseUrl)
+  } catch (emailErr) {
+    console.error(`[pipeline] Failed to send candidate receipt:`, emailErr.message)
+  }
+
+  // 1. Score resume
+  const resumeResult = await scoreResume(candidateId, candidate)
+  console.log(`[pipeline] Resume scored: ${resumeResult.score}`)
+
+  // If automation flags a concern, stop after routing to human review.
+  if (resumeResult.autoDisqualified) {
+    await routeCandidate(candidateId, resumeResult, { score: 0, strengths: [], concerns: ['Auto-disqualified at resume stage'] })
+    return
+  }
+
+  // 2. Transcribe + score video
+  const videoResult = await transcribeAndScoreVideo(candidateId, candidate)
+  console.log(`[pipeline] Video scored: ${videoResult.score}`)
+
+  // 3. Route candidate based on composite score
+  await routeCandidate(candidateId, resumeResult, videoResult)
+  console.log(`[pipeline] Routing complete for ${candidateId}`)
+  await writeAuditLog({
+    action: 'candidate.pipeline_complete',
+    targetType: 'candidate',
+    targetId: candidateId,
+    metadata: {
+      resumeScore: resumeResult.score,
+      interviewScore: videoResult.score,
+    },
+  })
+}
+
 export const onCandidateCreated = onDocumentCreated(
   'candidates/{candidateId}',
   async (event) => {
     const candidate = event.data.data()
     const candidateId = event.params.candidateId
 
+    // Invited candidates haven't interviewed yet — the pipeline runs when
+    // they submit (invited → applied transition in onCandidateUpdated).
+    if (candidate.stage === 'invited') {
+      console.log(`[pipeline] Skipping invited candidate ${candidateId} — awaiting interview`)
+      return
+    }
+
     try {
-      console.log(`[pipeline] Starting for candidate ${candidateId}`)
-
-      // Notify admin of new application
-      try {
-        await sendNewApplicationNotification(candidate)
-      } catch (emailErr) {
-        console.error(`[pipeline] Failed to send notification email:`, emailErr.message)
-      }
-
-      // Send candidate-facing receipt with status portal link. Non-fatal;
-      // we never block the pipeline on an email failure.
-      try {
-        const baseUrl = process.env.PUBLIC_BASE_URL || 'https://insight-recruiting.web.app'
-        await sendApplicationReceipt(candidate, baseUrl)
-      } catch (emailErr) {
-        console.error(`[pipeline] Failed to send candidate receipt:`, emailErr.message)
-      }
-
-      // 1. Score resume
-      const resumeResult = await scoreResume(candidateId, candidate)
-      console.log(`[pipeline] Resume scored: ${resumeResult.score}`)
-
-      // If automation flags a concern, stop after routing to human review.
-      if (resumeResult.autoDisqualified) {
-        await routeCandidate(candidateId, resumeResult, { score: 0, strengths: [], concerns: ['Auto-disqualified at resume stage'] })
-        return
-      }
-
-      // 2. Transcribe + score video
-      const videoResult = await transcribeAndScoreVideo(candidateId, candidate)
-      console.log(`[pipeline] Video scored: ${videoResult.score}`)
-
-      // 3. Route candidate based on composite score
-      await routeCandidate(candidateId, resumeResult, videoResult)
-      console.log(`[pipeline] Routing complete for ${candidateId}`)
-      await writeAuditLog({
-        action: 'candidate.pipeline_complete',
-        targetType: 'candidate',
-        targetId: candidateId,
-        metadata: {
-          resumeScore: resumeResult.score,
-          interviewScore: videoResult.score,
-        },
-      })
-
+      await runCandidatePipeline(candidateId, candidate)
     } catch (err) {
       console.error(`[pipeline] Error for ${candidateId}:`, err)
     }
@@ -83,7 +99,21 @@ export const onCandidateCreated = onDocumentCreated(
 
 export const onCandidateUpdated = onDocumentUpdated(
   'candidates/{candidateId}',
-  auditCandidateUpdate
+  async (event) => {
+    await auditCandidateUpdate(event)
+
+    // Invited candidate just submitted their interview — run the pipeline now.
+    const before = event.data.before.data()
+    const after = event.data.after.data()
+    if (before.stage === 'invited' && after.stage === 'applied') {
+      const candidateId = event.params.candidateId
+      try {
+        await runCandidatePipeline(candidateId, after)
+      } catch (err) {
+        console.error(`[pipeline] Error for invited candidate ${candidateId}:`, err)
+      }
+    }
+  }
 )
 
 // ─── Daily digest at 7 AM Central Time ─────────────────────────────────────
@@ -118,6 +148,23 @@ export const bookInterview = onCall(async (request) => {
 
 export const getCandidateStatus = onCall(async (request) => {
   return getCandidateStatusHandler(request.data)
+})
+
+// ─── Invited candidates (access-code flow) ──────────────────────────────────
+export const createCandidateInvite = onCall(async (request) => {
+  return createCandidateInviteHandler(request.data, request)
+})
+
+export const attachInviteResume = onCall(async (request) => {
+  return attachInviteResumeHandler(request.data, request)
+})
+
+export const getInviteSession = onCall(async (request) => {
+  return getInviteSessionHandler(request.data)
+})
+
+export const submitInvitedInterview = onCall(async (request) => {
+  return submitInvitedInterviewHandler(request.data)
 })
 
 // ─── XML Job Feed for Indeed / ZipRecruiter crawlers ───────────────────────

@@ -2,8 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc, collection, query, where, orderBy, getDocs, serverTimestamp, writeBatch } from 'firebase/firestore'
 import { ref, uploadBytesResumable } from 'firebase/storage'
+import { httpsCallable } from 'firebase/functions'
 import { v4 as uuidv4 } from 'uuid'
-import { db, storage } from '../firebase'
+import { db, storage, functions } from '../firebase'
 import VideoRecorder from '../components/VideoRecorder'
 import DeviceCheck from '../components/DeviceCheck'
 import {
@@ -55,20 +56,28 @@ async function sha256Hex(value) {
 }
 
 export default function Apply() {
-  const { jobId } = useParams()
+  const { jobId, code } = useParams()
   const navigate = useNavigate()
+  // Invite mode: the candidate arrived via an access code (/i/:code). Their
+  // record already exists (created by an admin with resume on file), so we
+  // skip the info + resume steps and submit through a Cloud Function.
+  const inviteMode = Boolean(code)
 
   const [job, setJob] = useState(null)
+  const [invite, setInvite] = useState(null)
+  const [inviteError, setInviteError] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [step, setStep] = useState('info')
+  const [step, setStep] = useState(inviteMode ? 'compliance' : 'info')
   const [currentQuestion, setCurrentQuestion] = useState(0)
   const [questions, setQuestions] = useState([])
 
   // Candidate ID is stable across reloads — we derive it from localStorage so
   // that video uploads, resume uploads, and the draft all point at the same
-  // record if the user drops off and returns.
-  const draftKey = `${DRAFT_KEY_PREFIX}${jobId}`
-  const [candidateId] = useState(() => {
+  // record if the user drops off and returns. In invite mode it comes from the
+  // server session instead (also stable across reloads).
+  const draftKey = inviteMode ? `${DRAFT_KEY_PREFIX}invite_${code}` : `${DRAFT_KEY_PREFIX}${jobId}`
+  const [candidateId, setCandidateId] = useState(() => {
+    if (inviteMode) return null
     try {
       const existing = JSON.parse(localStorage.getItem(draftKey) || 'null')
       if (existing?.candidateId) return existing.candidateId
@@ -102,6 +111,9 @@ export default function Apply() {
   // save effect pass, briefly clobbering the persisted draft with empty state.
   const [draftLoaded, setDraftLoaded] = useState(false)
   const draftLoadedRef = useRef(false)
+  // Compliance docs are create-once (rules forbid update) — don't rewrite them
+  // if an invited submission is retried after a network failure.
+  const complianceWrittenRef = useRef(false)
 
   // Restore draft once on mount (before loading job so UI flashes at the right step).
   useEffect(() => {
@@ -163,35 +175,72 @@ export default function Apply() {
   }, [draftLoaded, candidateId, form, acknowledgements, eeoSurvey, resumeUrl, resumeFileName, resumeSkipped, videoResponses, textResponses, currentQuestion, step, draftKey])
 
   useEffect(() => {
+    async function loadQuestions(roleKey) {
+      try {
+        const qSnap = await getDocs(
+          query(collection(db, 'interviewQuestions'), where('active', '==', true), orderBy('order', 'asc'))
+        )
+        const allQuestions = qSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        setQuestions(allQuestions.filter(
+          q => q.active !== false && (q.roleKey === 'all' || q.roleKey === roleKey)
+        ))
+      } catch (err) {
+        console.warn('Failed to load questions from Firestore, using empty set:', err)
+        setQuestions([])
+      }
+    }
+
     async function loadJob() {
       try {
         const snap = await getDoc(doc(db, 'jobs', jobId))
-        if (!snap.exists()) { navigate('/'); return }
+        if (!snap.exists()) { navigate('/jobs'); return }
         const jobData = { id: snap.id, ...snap.data() }
         setJob(jobData)
-
-        // Load questions from Firestore for this role + universal
-        try {
-          const qSnap = await getDocs(
-            query(collection(db, 'interviewQuestions'), where('active', '==', true), orderBy('order', 'asc'))
-          )
-          const allQuestions = qSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-          const roleQuestions = allQuestions.filter(
-            q => q.active !== false && (q.roleKey === 'all' || q.roleKey === jobData.roleKey)
-          )
-          setQuestions(roleQuestions)
-        } catch (err) {
-          console.warn('Failed to load questions from Firestore, using empty set:', err)
-          setQuestions([])
-        }
+        await loadQuestions(jobData.roleKey)
       } catch {
-        navigate('/')
+        navigate('/jobs')
       } finally {
         setLoading(false)
       }
     }
-    loadJob()
-  }, [jobId, navigate])
+
+    async function loadInvite() {
+      try {
+        const getInviteSession = httpsCallable(functions, 'getInviteSession')
+        const { data } = await getInviteSession({ code })
+        if (data.alreadySubmitted) {
+          if (data.statusToken) { navigate(`/status/${data.statusToken}`); return }
+          setInviteError('This interview was already submitted.')
+          return
+        }
+        setInvite(data)
+        setCandidateId(data.candidateId)
+        setForm({ firstName: data.firstName, lastName: data.lastName, email: data.email, phone: data.phone })
+        // The job doc may not be publicly readable (e.g. paused) — the session
+        // carries everything the interview needs.
+        setJob({
+          id: data.jobId,
+          title: data.jobTitle,
+          roleKey: data.roleKey,
+          clientName: data.clientName,
+          location: data.location,
+        })
+        await loadQuestions(data.roleKey)
+      } catch (err) {
+        console.warn('Invite session failed:', err)
+        setInviteError(
+          err?.code === 'functions/not-found' || err?.message?.includes('not recognized')
+            ? 'That interview code was not recognized.'
+            : 'We could not load your interview. Please try again in a moment.'
+        )
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    if (inviteMode) loadInvite()
+    else loadJob()
+  }, [jobId, code, inviteMode, navigate])
 
   // Start silent timer whenever question changes
   useEffect(() => {
@@ -408,6 +457,65 @@ export default function Apply() {
     }
   }
 
+  // Invite-mode submission: compliance/EEO records are written client-side
+  // (the candidate doc already exists), then responses go through a Cloud
+  // Function that flips the candidate from 'invited' to 'applied'.
+  const submitInvite = async (questionMap, finalVideoResponses, finalTextResponses) => {
+    const clientName = getJobClientName(job)
+    const normalizedEeoSurvey = normalizeEeoSurvey(eeoSurvey)
+
+    if (!complianceWrittenRef.current) {
+      const renderedNoticeText = buildRenderedSelectionNoticeText(job.title)
+      const renderedTextHash = await sha256Hex(renderedNoticeText)
+      const batch = writeBatch(db)
+      batch.set(doc(db, 'candidateCompliance', candidateId), {
+        candidateId,
+        jobId: job.id,
+        jobTitle: job.title,
+        roleKey: job.roleKey,
+        selectionProcessVersion: SELECTION_PROCESS_VERSION,
+        complianceNoticeVersion: COMPLIANCE_NOTICE_VERSION,
+        eeoSurveyVersion: EEO_SURVEY_VERSION,
+        employerDisplayName: clientName,
+        parentOrgDisplayName: PARENT_ORG_DISPLAY_NAME,
+        renderedTextHash,
+        renderedNoticeText,
+        checkedAcknowledgementIds: REQUIRED_ACKNOWLEDGEMENTS.map((item) => item.key),
+        userAgent: (window.navigator?.userAgent || 'unknown').slice(0, 600),
+        acknowledgements: { ...acknowledgements, acceptedAt: serverTimestamp() },
+        createdAt: serverTimestamp()
+      })
+      if (normalizedEeoSurvey.optedIn) {
+        batch.set(doc(db, 'eeoResponses', candidateId), {
+          candidateId,
+          jobId: job.id,
+          jobTitle: job.title,
+          roleKey: job.roleKey,
+          employerDisplayName: clientName,
+          parentOrgDisplayName: PARENT_ORG_DISPLAY_NAME,
+          eeoSurveyVersion: EEO_SURVEY_VERSION,
+          eeoSurvey: normalizedEeoSurvey,
+          createdAt: serverTimestamp()
+        })
+      }
+      await batch.commit()
+      complianceWrittenRef.current = true
+    }
+
+    const submitInvitedInterview = httpsCallable(functions, 'submitInvitedInterview')
+    const { data } = await submitInvitedInterview({
+      code,
+      videoResponses: finalVideoResponses,
+      textResponses: finalTextResponses,
+      questions: questionMap,
+      timingData,
+      selectionProcessVersion: SELECTION_PROCESS_VERSION,
+      complianceNoticeVersion: COMPLIANCE_NOTICE_VERSION,
+    })
+    clearDraft()
+    navigate(data.statusToken ? `/thank-you?token=${data.statusToken}` : '/thank-you')
+  }
+
   const handleSubmit = async (finalVideoResponses, finalTextResponses) => {
     if (!allRequiredAcknowledgementsAccepted(acknowledgements)) {
       setStep('compliance')
@@ -422,6 +530,11 @@ export default function Apply() {
       questions.forEach((q, i) => {
         questionMap[i] = { questionId: q.id, text: q.text, type: q.type, category: q.category }
       })
+
+      if (inviteMode) {
+        await submitInvite(questionMap, finalVideoResponses || videoResponses, finalTextResponses || textResponses)
+        return
+      }
 
       // Status portal token — lets the candidate check their application
       // status later without needing an account.
@@ -514,8 +627,21 @@ export default function Apply() {
     </div>
   )
 
-  const stepIndex = STEPS.indexOf(step)
-  const progress = ((stepIndex) / (STEPS.length - 1)) * 100
+  if (inviteError) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl border border-gray-200 p-8 max-w-sm text-center space-y-4">
+        <p className="text-gray-900 font-semibold">We couldn't open your interview</p>
+        <p className="text-sm text-gray-500">{inviteError}</p>
+        <button onClick={() => navigate('/')} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl">
+          Re-enter your code
+        </button>
+      </div>
+    </div>
+  )
+
+  const activeSteps = inviteMode ? ['compliance', 'interview', 'submitting'] : STEPS
+  const stepIndex = activeSteps.indexOf(step)
+  const progress = (stepIndex / (activeSteps.length - 1)) * 100
   const requiredAcknowledgementsAccepted = allRequiredAcknowledgementsAccepted(acknowledgements)
   const jobClientName = getJobClientName(job || {})
   const employerDisplayWithParent = PARENT_ORG_DISPLAY_NAME
@@ -550,8 +676,8 @@ export default function Apply() {
         <div className="bg-white border-b border-gray-100">
           <div className="max-w-2xl mx-auto px-4 py-3">
             <div className="flex justify-between text-xs text-gray-500 mb-2">
-              <span className={step === 'info' ? 'text-blue-600 font-medium' : ''}>Your info</span>
-              <span className={step === 'resume' ? 'text-blue-600 font-medium' : ''}>Resume</span>
+              {!inviteMode && <span className={step === 'info' ? 'text-blue-600 font-medium' : ''}>Your info</span>}
+              {!inviteMode && <span className={step === 'resume' ? 'text-blue-600 font-medium' : ''}>Resume</span>}
               <span className={step === 'compliance' ? 'text-blue-600 font-medium' : ''}>Process</span>
               <span className={step === 'interview' ? 'text-blue-600 font-medium' : ''}>
                 Interview {step === 'interview' ? `(${currentQuestion + 1}/${questions.length})` : ''}
@@ -668,6 +794,19 @@ export default function Apply() {
         {/* Step 3: Process notice */}
         {step === 'compliance' && (
           <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-6">
+            {inviteMode && invite && (
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-blue-950">Welcome, {invite.firstName}!</p>
+                  <p className="text-xs text-blue-800 mt-0.5">
+                    You're interviewing for {invite.jobTitle} with {invite.clientName}.
+                  </p>
+                </div>
+                {invite.resumeOnFile && (
+                  <span className="shrink-0 text-[11px] font-medium text-green-700 bg-green-100 px-2.5 py-1 rounded-full">Resume on file &#10003;</span>
+                )}
+              </div>
+            )}
             <div>
               <h1 className="text-xl font-semibold text-gray-900">Review the selection process</h1>
               <p className="text-sm text-gray-500 mt-1">
@@ -757,7 +896,9 @@ export default function Apply() {
             </p>
 
             <div className="flex gap-3">
-              <button onClick={() => setStep('resume')} className="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors">Back</button>
+              {!inviteMode && (
+                <button onClick={() => setStep('resume')} className="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors">Back</button>
+              )}
               <button
                 onClick={handleComplianceNext}
                 disabled={!requiredAcknowledgementsAccepted}

@@ -14,8 +14,8 @@ import {
 } from "../selection/decisionReasons"
 import { DEFAULT_CLIENT_INITIALS, PLATFORM_NAME } from "../config/organization"
 
-const STAGES = ["applied","scored","to_schedule","scheduled","hired","rejected"]
-const STAGE_LABELS = { applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", hired:"Hired", rejected:"Rejected" }
+const STAGES = ["invited","applied","scored","to_schedule","scheduled","hired","rejected"]
+const STAGE_LABELS = { invited:"Invited", applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", hired:"Hired", rejected:"Rejected" }
 // Map old stages to new ones for backwards compatibility
 const STAGE_MIGRATION = { screening: "applied", interview_2: "applied", scheduling: "to_schedule" }
 const ROLE_GROUPS = [
@@ -26,7 +26,7 @@ const ROLE_GROUPS = [
 // SLA: how long a candidate can sit in a stage before it's considered stale.
 // These numbers reflect what a recruiter actually cares about — an "Applied"
 // candidate still unscored at 48h is falling through the cracks.
-const STAGE_SLA_HOURS = { applied: 48, scored: 48, to_schedule: 72, scheduled: 0, hired: 0, rejected: 0 }
+const STAGE_SLA_HOURS = { invited: 72, applied: 48, scored: 48, to_schedule: 72, scheduled: 0, hired: 0, rejected: 0 }
 
 function stageOf(c) {
   return STAGE_MIGRATION[c.stage] || c.stage
@@ -397,8 +397,10 @@ export default function AdminDashboard() {
                 <button onClick={() => navigate("/admin/onboarding")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Onboarding</button>
                 <button onClick={() => navigate("/admin/users")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Users</button>
                 <button onClick={() => navigate("/admin/analytics")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Analytics</button>
+                <button onClick={() => navigate("/admin/demo")} className="text-sm text-purple-700 border border-purple-200 px-3 py-1.5 rounded-lg hover:bg-purple-50">Demo</button>
               </>
             )}
+            <button onClick={() => navigate("/admin/invite")} className="text-sm text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg font-medium">+ Invite candidate</button>
             <button onClick={() => navigate("/")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">View site</button>
             <button
               onClick={() => setRefreshConfirm(true)}
