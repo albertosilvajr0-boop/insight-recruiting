@@ -1,7 +1,7 @@
 export const APP_URL = process.env.PUBLIC_BASE_URL
   || process.env.APP_URL
   || process.env.VITE_APP_URL
-  || 'https://insight-recruiting-d37dc.web.app'
+  || 'https://insightedgehq.com'
 
 export const PLATFORM_NAME = process.env.PLATFORM_NAME
   || process.env.VITE_PLATFORM_NAME
