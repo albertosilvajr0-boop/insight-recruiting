@@ -1,0 +1,228 @@
+[
+  {
+    "roleKey": "entry-sales-rep",
+    "label": "Entry-level sales representative",
+    "industry": "home-services",
+    "industryLabel": "Home Services & Remodeling",
+    "scoringWeights": {
+      "Persuasion & resilience": 35,
+      "Communication clarity": 30,
+      "Coachability": 20,
+      "Drive/values alignment": 15
+    },
+    "hardDisqualifiers": [
+      "Cannot work evenings/weekends",
+      "no reliable transportation"
+    ]
+  },
+  {
+    "roleKey": "service-advisor-full",
+    "label": "Service advisor (full battery)",
+    "industry": "automotive",
+    "industryLabel": "Automotive",
+    "scoringWeights": {
+      "Customer communication": 35,
+      "Relevant service/advisor experience": 30,
+      "Composure under conflict": 20,
+      "Motivation & stability": 15
+    },
+    "hardDisqualifiers": [
+      "No valid driver's license",
+      "requires sponsorship"
+    ]
+  },
+  {
+    "roleKey": "shuttle-driver",
+    "label": "Shuttle driver",
+    "industry": "automotive",
+    "industryLabel": "Automotive",
+    "scoringWeights": {
+      "Reliability signals": 35,
+      "Customer demeanor": 30,
+      "Driving record & judgment": 25,
+      "Values": 10
+    },
+    "hardDisqualifiers": [
+      "No valid driver's license",
+      "unsafe driving record",
+      "requires sponsorship"
+    ]
+  },
+  {
+    "roleKey": "lot-attendant",
+    "label": "Lot attendant / porter",
+    "industry": "automotive",
+    "industryLabel": "Automotive",
+    "scoringWeights": {
+      "Work ethic & initiative": 35,
+      "Attention to detail": 30,
+      "Team attitude": 20,
+      "Stability": 15
+    },
+    "hardDisqualifiers": [
+      "No valid driver's license (must move vehicles)",
+      "requires sponsorship"
+    ]
+  },
+  {
+    "roleKey": "restaurant-gm",
+    "label": "Restaurant general manager",
+    "industry": "restaurants",
+    "industryLabel": "Restaurants & Hospitality",
+    "scoringWeights": {
+      "Leadership evidence": 35,
+      "Ops & P&L literacy": 25,
+      "Communication": 20,
+      "Stability/tenure": 10,
+      "Values": 10
+    },
+    "hardDisqualifiers": [
+      "Less than 2 years management experience",
+      "requires sponsorship"
+    ]
+  },
+  {
+    "roleKey": "kitchen-manager",
+    "label": "Kitchen manager",
+    "industry": "restaurants",
+    "industryLabel": "Restaurants & Hospitality",
+    "scoringWeights": {
+      "Kitchen systems & consistency": 30,
+      "Food safety": 25,
+      "Training/leadership": 25,
+      "Communication & values": 20
+    },
+    "hardDisqualifiers": [
+      "No food handler certification and unwilling to obtain",
+      "requires sponsorship"
+    ]
+  },
+  {
+    "roleKey": "lead-host",
+    "label": "Lead host",
+    "industry": "restaurants",
+    "industryLabel": "Restaurants & Hospitality",
+    "scoringWeights": {
+      "Guest presence & poise": 35,
+      "Conflict handling": 25,
+      "Floor judgment": 20,
+      "Leadership of peers": 20
+    },
+    "hardDisqualifiers": [
+      "Cannot work weekends",
+      "requires sponsorship"
+    ]
+  },
+  {
+    "roleKey": "server",
+    "label": "Server",
+    "industry": "restaurants",
+    "industryLabel": "Restaurants & Hospitality",
+    "scoringWeights": {
+      "Warmth & guest connection": 35,
+      "Multi-table judgment": 25,
+      "Communication": 25,
+      "Reliability signals": 15
+    },
+    "hardDisqualifiers": [
+      "Cannot work weekends",
+      "requires sponsorship"
+    ]
+  },
+  {
+    "roleKey": "fine-dining-server",
+    "label": "Fine-dining server / bartender",
+    "industry": "restaurants",
+    "industryLabel": "Restaurants & Hospitality",
+    "scoringWeights": {
+      "Fine-dining depth": 35,
+      "Polish & communication": 30,
+      "Beverage/cocktail knowledge": 20,
+      "Composure & values": 15
+    },
+    "hardDisqualifiers": [
+      "Under 5 years fine-dining service (their stated requirement — flag, don't auto-reject)",
+      "cannot work weekends"
+    ]
+  },
+  {
+    "roleKey": "restaurant-manager",
+    "label": "Restaurant manager",
+    "industry": "restaurants",
+    "industryLabel": "Restaurants & Hospitality",
+    "scoringWeights": {
+      "Shift execution": 30,
+      "People development": 25,
+      "Metrics literacy": 25,
+      "Communication & values": 20
+    },
+    "hardDisqualifiers": [
+      "Less than 2 years restaurant management",
+      "requires sponsorship"
+    ]
+  },
+  {
+    "roleKey": "restaurant-manager-staffing",
+    "label": "Restaurant manager (staffing focus)",
+    "industry": "restaurants",
+    "industryLabel": "Restaurants & Hospitality",
+    "scoringWeights": {
+      "Hiring & staffing instinct": 30,
+      "Shift leadership": 25,
+      "Team cohesion": 25,
+      "Communication & values": 20
+    },
+    "hardDisqualifiers": [
+      "Less than 2 years restaurant management",
+      "requires sponsorship"
+    ]
+  },
+  {
+    "roleKey": "assistant-restaurant-manager",
+    "label": "Assistant restaurant manager",
+    "industry": "restaurants",
+    "industryLabel": "Restaurants & Hospitality",
+    "scoringWeights": {
+      "Ownership & initiative": 30,
+      "Systems competence": 25,
+      "Crisis handling": 25,
+      "Ambition & values": 20
+    },
+    "hardDisqualifiers": [
+      "No supervisory experience at all",
+      "requires sponsorship"
+    ]
+  },
+  {
+    "roleKey": "hibachi-chef",
+    "label": "Mobile hibachi / event chef",
+    "industry": "events-catering",
+    "industryLabel": "Events & Catering",
+    "scoringWeights": {
+      "Performance & guest energy": 30,
+      "Culinary competence": 25,
+      "Logistics & reliability": 30,
+      "Food safety": 15
+    },
+    "hardDisqualifiers": [
+      "No valid driver's license / cannot travel to events",
+      "no food handler cert and unwilling to obtain"
+    ]
+  },
+  {
+    "roleKey": "shift-leader",
+    "label": "Restaurant shift leader",
+    "industry": "restaurants",
+    "industryLabel": "Restaurants & Hospitality",
+    "scoringWeights": {
+      "Leadership readiness": 30,
+      "Rush execution": 25,
+      "Coaching & communication": 25,
+      "Trustworthiness & values": 20
+    },
+    "hardDisqualifiers": [
+      "Cannot work weekends",
+      "no supervisory interest (role requires it)"
+    ]
+  }
+]
