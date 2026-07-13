@@ -2,6 +2,7 @@ import { initializeApp } from 'firebase-admin/app'
 import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore'
 import { onSchedule } from 'firebase-functions/v2/scheduler'
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https'
+import { defineSecret } from 'firebase-functions/params'
 import { scoreResume } from './pipeline/scoreResume.js'
 import { transcribeAndScoreVideo } from './pipeline/transcribeVideo.js'
 import { routeCandidate } from './pipeline/routeCandidate.js'
@@ -27,6 +28,11 @@ import { PERMISSIONS } from './security/roles.js'
 import { writeAuditLog } from './utils/auditLog.js'
 
 initializeApp()
+
+// Gmail app password for SMTP sending (see email/sendEmail.js). Declared on
+// every function that can send mail so the secret is mounted at runtime.
+const GMAIL_APP_PASSWORD = defineSecret('GMAIL_APP_PASSWORD')
+const EMAIL_SECRETS = [GMAIL_APP_PASSWORD]
 
 // ─── Triggered on new candidate document ───────────────────────────────────
 async function runCandidatePipeline(candidateId, candidate) {
@@ -77,7 +83,7 @@ async function runCandidatePipeline(candidateId, candidate) {
 }
 
 export const onCandidateCreated = onDocumentCreated(
-  'candidates/{candidateId}',
+  { document: 'candidates/{candidateId}', secrets: EMAIL_SECRETS, timeoutSeconds: 540 },
   async (event) => {
     const candidate = event.data.data()
     const candidateId = event.params.candidateId
@@ -98,7 +104,7 @@ export const onCandidateCreated = onDocumentCreated(
 )
 
 export const onCandidateUpdated = onDocumentUpdated(
-  'candidates/{candidateId}',
+  { document: 'candidates/{candidateId}', secrets: EMAIL_SECRETS, timeoutSeconds: 540 },
   async (event) => {
     await auditCandidateUpdate(event)
 
@@ -118,7 +124,7 @@ export const onCandidateUpdated = onDocumentUpdated(
 
 // ─── Daily digest at 7 AM Central Time ─────────────────────────────────────
 export const dailyDigest = onSchedule(
-  { schedule: '0 7 * * *', timeZone: 'America/Chicago' },
+  { schedule: '0 7 * * *', timeZone: 'America/Chicago', secrets: EMAIL_SECRETS },
   async () => {
     await sendDailyDigest()
   }
@@ -126,7 +132,7 @@ export const dailyDigest = onSchedule(
 
 // ─── Reminders: check every hour for upcoming interviews ───────────────────
 export const interviewReminders = onSchedule(
-  { schedule: '0 * * * *', timeZone: 'America/Chicago' },
+  { schedule: '0 * * * *', timeZone: 'America/Chicago', secrets: EMAIL_SECRETS },
   async () => {
     await sendReminders()
   }
@@ -140,7 +146,7 @@ export const getSlots = onCall(async (request) => {
 })
 
 // ─── Callable: book a scheduling slot ──────────────────────────────────────
-export const bookInterview = onCall(async (request) => {
+export const bookInterview = onCall({ secrets: EMAIL_SECRETS }, async (request) => {
   const { token, slotId } = request.data
   if (!token || !slotId) throw new Error('Missing token or slotId')
   return bookSlot(token, slotId)
@@ -151,7 +157,7 @@ export const getCandidateStatus = onCall(async (request) => {
 })
 
 // ─── Invited candidates (access-code flow) ──────────────────────────────────
-export const createCandidateInvite = onCall(async (request) => {
+export const createCandidateInvite = onCall({ secrets: EMAIL_SECRETS }, async (request) => {
   return createCandidateInviteHandler(request.data, request)
 })
 
@@ -201,7 +207,7 @@ export const deleteUser = onCall(async (request) => {
 })
 
 // ─── Manual Scoring (admin trigger) ───────────────────────────────────────
-export const scoreCandidate = onCall(async (request) => {
+export const scoreCandidate = onCall({ secrets: EMAIL_SECRETS, timeoutSeconds: 540 }, async (request) => {
   await assertPermission(request, PERMISSIONS.SCORE_CANDIDATES)
 
   const { candidateId } = request.data

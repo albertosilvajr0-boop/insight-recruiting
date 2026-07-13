@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { randomUUID, createHash } from 'crypto'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { HttpsError } from 'firebase-functions/v2/https'
 import { assertPermission } from '../security/assertAccess.js'
@@ -185,11 +185,15 @@ export async function getInviteSessionHandler(data) {
 }
 
 // ─── Public: submit the invited candidate's interview responses ─────────────
+// Everything (responses + compliance + EEO records) is written server-side in
+// one batch, so a retry after a network failure can never half-submit.
 export async function submitInvitedInterviewHandler(data) {
   const db = getFirestore()
   const found = await findCandidateByCode(db, data?.code)
   if (!found) throw new HttpsError('not-found', 'That code was not recognized.')
   if (found.data.stage !== 'invited') {
+    // Idempotent: a retry after a submit that actually landed is a success.
+    if (found.data.submittedAt) return { statusToken: found.data.statusToken || null }
     throw new HttpsError('failed-precondition', 'This interview was already submitted.')
   }
 
@@ -211,10 +215,32 @@ export async function submitInvitedInterviewHandler(data) {
 
   const selectionProcessVersion = requireString(data.selectionProcessVersion, 'selectionProcessVersion', 40)
   const complianceNoticeVersion = requireString(data.complianceNoticeVersion, 'complianceNoticeVersion', 40)
+  const eeoSurveyVersion = requireString(data.eeoSurveyVersion, 'eeoSurveyVersion', 40)
+  const renderedNoticeText = requireString(data.renderedNoticeText, 'renderedNoticeText', 8000)
+  const parentOrgDisplayName = requireString(data.parentOrgDisplayName, 'parentOrgDisplayName', 160)
+  const userAgent = String(data.userAgent || 'unknown').slice(0, 600)
+
+  const acknowledgements = data.acknowledgements
+  const REQUIRED_ACKS = ['processNoticeAccepted', 'aiReviewAccepted', 'accuracyCertified']
+  if (!acknowledgements || typeof acknowledgements !== 'object'
+    || !REQUIRED_ACKS.every((key) => acknowledgements[key] === true)) {
+    throw new HttpsError('failed-precondition', 'All required acknowledgements must be accepted.')
+  }
+
+  const candidate = found.data
+  const employerDisplayName = candidate.clientName || 'Insight Recruiting'
+  const complianceBase = {
+    candidateId: found.id,
+    jobId: candidate.jobId,
+    jobTitle: candidate.jobTitle,
+    roleKey: candidate.roleKey,
+  }
+
+  const batch = db.batch()
 
   // The invited→applied stage transition kicks off the scoring pipeline
   // (see onCandidateUpdated in index.js).
-  await db.collection('candidates').doc(found.id).update({
+  batch.update(db.collection('candidates').doc(found.id), {
     videoResponses,
     textResponses,
     questions,
@@ -227,5 +253,44 @@ export async function submitInvitedInterviewHandler(data) {
     updatedAt: FieldValue.serverTimestamp(),
   })
 
-  return { statusToken: found.data.statusToken || null }
+  batch.set(db.collection('candidateCompliance').doc(found.id), {
+    ...complianceBase,
+    selectionProcessVersion,
+    complianceNoticeVersion,
+    eeoSurveyVersion,
+    employerDisplayName,
+    parentOrgDisplayName,
+    renderedTextHash: createHash('sha256').update(renderedNoticeText).digest('hex'),
+    renderedNoticeText,
+    checkedAcknowledgementIds: REQUIRED_ACKS,
+    userAgent,
+    acknowledgements: {
+      processNoticeAccepted: true,
+      aiReviewAccepted: true,
+      accuracyCertified: true,
+      acceptedAt: FieldValue.serverTimestamp(),
+    },
+    createdAt: FieldValue.serverTimestamp(),
+  })
+
+  const eeoSurvey = data.eeoSurvey
+  if (eeoSurvey && typeof eeoSurvey === 'object' && eeoSurvey.optedIn === true && eeoSurvey.status === 'provided') {
+    batch.set(db.collection('eeoResponses').doc(found.id), {
+      ...complianceBase,
+      employerDisplayName,
+      parentOrgDisplayName,
+      eeoSurveyVersion,
+      eeoSurvey: {
+        optedIn: true,
+        status: 'provided',
+        gender: String(eeoSurvey.gender || 'Prefer not to answer').slice(0, 80),
+        raceEthnicity: String(eeoSurvey.raceEthnicity || 'Prefer not to answer').slice(0, 80),
+      },
+      createdAt: FieldValue.serverTimestamp(),
+    })
+  }
+
+  await batch.commit()
+
+  return { statusToken: candidate.statusToken || null }
 }

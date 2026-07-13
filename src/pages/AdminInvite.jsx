@@ -192,7 +192,9 @@ export default function AdminInvite() {
             <select value={form.jobId} onChange={e => setForm(f => ({ ...f, jobId: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">Select a job…</option>
               {jobs.map(j => (
-                <option key={j.id} value={j.id}>{j.title} — {j.clientName || j.organizationName || ''} {j.status !== 'active' ? `(${j.status})` : ''}</option>
+                <option key={j.id} value={j.id}>
+                  {j.title}{(j.clientName || j.organizationName) ? ` — ${j.clientName || j.organizationName}` : ''}{j.status !== 'active' ? ` (${j.status})` : ''}
+                </option>
               ))}
             </select>
           </div>

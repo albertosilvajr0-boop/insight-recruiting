@@ -111,9 +111,6 @@ export default function Apply() {
   // save effect pass, briefly clobbering the persisted draft with empty state.
   const [draftLoaded, setDraftLoaded] = useState(false)
   const draftLoadedRef = useRef(false)
-  // Compliance docs are create-once (rules forbid update) — don't rewrite them
-  // if an invited submission is retried after a network failure.
-  const complianceWrittenRef = useRef(false)
 
   // Restore draft once on mount (before loading job so UI flashes at the right step).
   useEffect(() => {
@@ -457,51 +454,10 @@ export default function Apply() {
     }
   }
 
-  // Invite-mode submission: compliance/EEO records are written client-side
-  // (the candidate doc already exists), then responses go through a Cloud
-  // Function that flips the candidate from 'invited' to 'applied'.
+  // Invite-mode submission: responses AND compliance/EEO records all go
+  // through a single Cloud Function that flips the candidate from 'invited'
+  // to 'applied' atomically — safe to retry after a network failure.
   const submitInvite = async (questionMap, finalVideoResponses, finalTextResponses) => {
-    const clientName = getJobClientName(job)
-    const normalizedEeoSurvey = normalizeEeoSurvey(eeoSurvey)
-
-    if (!complianceWrittenRef.current) {
-      const renderedNoticeText = buildRenderedSelectionNoticeText(job.title)
-      const renderedTextHash = await sha256Hex(renderedNoticeText)
-      const batch = writeBatch(db)
-      batch.set(doc(db, 'candidateCompliance', candidateId), {
-        candidateId,
-        jobId: job.id,
-        jobTitle: job.title,
-        roleKey: job.roleKey,
-        selectionProcessVersion: SELECTION_PROCESS_VERSION,
-        complianceNoticeVersion: COMPLIANCE_NOTICE_VERSION,
-        eeoSurveyVersion: EEO_SURVEY_VERSION,
-        employerDisplayName: clientName,
-        parentOrgDisplayName: PARENT_ORG_DISPLAY_NAME,
-        renderedTextHash,
-        renderedNoticeText,
-        checkedAcknowledgementIds: REQUIRED_ACKNOWLEDGEMENTS.map((item) => item.key),
-        userAgent: (window.navigator?.userAgent || 'unknown').slice(0, 600),
-        acknowledgements: { ...acknowledgements, acceptedAt: serverTimestamp() },
-        createdAt: serverTimestamp()
-      })
-      if (normalizedEeoSurvey.optedIn) {
-        batch.set(doc(db, 'eeoResponses', candidateId), {
-          candidateId,
-          jobId: job.id,
-          jobTitle: job.title,
-          roleKey: job.roleKey,
-          employerDisplayName: clientName,
-          parentOrgDisplayName: PARENT_ORG_DISPLAY_NAME,
-          eeoSurveyVersion: EEO_SURVEY_VERSION,
-          eeoSurvey: normalizedEeoSurvey,
-          createdAt: serverTimestamp()
-        })
-      }
-      await batch.commit()
-      complianceWrittenRef.current = true
-    }
-
     const submitInvitedInterview = httpsCallable(functions, 'submitInvitedInterview')
     const { data } = await submitInvitedInterview({
       code,
@@ -511,6 +467,12 @@ export default function Apply() {
       timingData,
       selectionProcessVersion: SELECTION_PROCESS_VERSION,
       complianceNoticeVersion: COMPLIANCE_NOTICE_VERSION,
+      eeoSurveyVersion: EEO_SURVEY_VERSION,
+      parentOrgDisplayName: PARENT_ORG_DISPLAY_NAME,
+      renderedNoticeText: buildRenderedSelectionNoticeText(job.title),
+      userAgent: (window.navigator?.userAgent || 'unknown').slice(0, 600),
+      acknowledgements,
+      eeoSurvey: normalizeEeoSurvey(eeoSurvey),
     })
     clearDraft()
     navigate(data.statusToken ? `/thank-you?token=${data.statusToken}` : '/thank-you')
@@ -615,8 +577,10 @@ export default function Apply() {
       await batch.commit()
       clearDraft()
       navigate(`/thank-you?token=${statusToken}`)
-    } catch {
-      alert('Submission failed. Please try again.')
+    } catch (err) {
+      console.error('Submission failed:', err)
+      const detail = err?.message ? ` (${err.message})` : ''
+      alert(`Submission failed. Please try again.${detail}`)
       setStep(questions.length === 0 ? 'compliance' : 'interview')
     }
   }
