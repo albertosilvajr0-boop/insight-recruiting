@@ -14,6 +14,7 @@ import { getAvailableSlots } from './calendar/getAvailableSlots.js'
 import { bookSlot } from './calendar/bookSlot.js'
 import { generateJobFeed } from './jobs/jobFeed.js'
 import { generateSitemap } from './jobs/sitemap.js'
+import { renderApplyPage } from './jobs/applyPage.js'
 import { createUserHandler, updateUserHandler, deleteUserHandler, ensureCurrentUserProfileHandler } from './users/manageUsers.js'
 import { sendPhoneVerificationHandler, verifyPhoneCodeHandler } from './verification/phoneVerification.js'
 import { getCandidateStatusHandler } from './candidates/getCandidateStatus.js'
@@ -204,6 +205,12 @@ export const sitemap = onRequest(
       res.status(500).send('Internal error')
     }
   }
+)
+
+// ─── Server-rendered job pages: JobPosting JSON-LD for crawlers ─────────────
+export const applyPage = onRequest(
+  { cors: true },
+  renderApplyPage
 )
 
 // ─── User Management (admin only) ─────────────────────────────────────────
