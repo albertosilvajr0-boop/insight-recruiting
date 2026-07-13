@@ -49,7 +49,7 @@ async function runCandidatePipeline(candidateId, candidate) {
   // Send candidate-facing receipt with status portal link. Non-fatal;
   // we never block the pipeline on an email failure.
   try {
-    const baseUrl = process.env.PUBLIC_BASE_URL || 'https://insight-recruiting.web.app'
+    const baseUrl = process.env.PUBLIC_BASE_URL || 'https://insightedgehq.com'
     await sendApplicationReceipt(candidate, baseUrl)
   } catch (emailErr) {
     console.error(`[pipeline] Failed to send candidate receipt:`, emailErr.message)

@@ -1,4 +1,4 @@
-export const APP_URL = import.meta.env.VITE_APP_URL || 'https://insight-recruiting-d37dc.web.app'
+export const APP_URL = import.meta.env.VITE_APP_URL || 'https://insightedgehq.com'
 export const PLATFORM_NAME = import.meta.env.VITE_PLATFORM_NAME || 'Insight Recruiting'
 export const DEFAULT_CLIENT_NAME = import.meta.env.VITE_CLIENT_DISPLAY_NAME || PLATFORM_NAME
 export const DEFAULT_CLIENT_INITIALS = import.meta.env.VITE_CLIENT_INITIALS || 'IR'
