@@ -75,6 +75,11 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      # The applyPage function serves the SPA shell with JobPosting JSON-LD
+      # injected — bundle the freshly built index.html so asset hashes match.
+      - name: Copy app shell into functions
+        run: cp dist/index.html functions/apply-shell.html
+
       - name: Write service account key
         run: |
           cat > /tmp/sa-key.json <<'EOF'

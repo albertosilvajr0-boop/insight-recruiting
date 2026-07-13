@@ -6,3 +6,4 @@ dist
 functions/node_modules
 service-account.json
 *.log
+functions/apply-shell.html
