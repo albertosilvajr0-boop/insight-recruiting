@@ -57,7 +57,7 @@ export default function ThankYou() {
           </ol>
         </div>
 
-        <button onClick={() => navigate('/')} className="text-sm text-gray-500 hover:text-gray-700 underline">View other open positions</button>
+        <button onClick={() => navigate('/jobs')} className="text-sm text-gray-500 hover:text-gray-700 underline">View other open positions</button>
       </div>
     </div>
   )

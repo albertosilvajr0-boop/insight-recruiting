@@ -69,7 +69,7 @@ export default function Status() {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="bg-white rounded-2xl border border-gray-200 p-8 max-w-md text-center space-y-3">
         <p className="text-red-600 font-medium">{error}</p>
-        <Link to="/" className="inline-block text-sm text-blue-600 hover:underline">View open positions</Link>
+        <Link to="/jobs" className="inline-block text-sm text-blue-600 hover:underline">View open positions</Link>
       </div>
     </div>
   )
@@ -155,7 +155,7 @@ export default function Status() {
         </div>
 
         <div className="text-center">
-          <Link to="/" className="text-sm text-gray-500 hover:text-gray-900 underline">View other open positions</Link>
+          <Link to="/jobs" className="text-sm text-gray-500 hover:text-gray-900 underline">View other open positions</Link>
         </div>
       </div>
     </div>

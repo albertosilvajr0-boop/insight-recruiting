@@ -179,6 +179,18 @@ export async function transcribeAndScoreVideo(candidateId, candidate) {
     }
   }
 
+  // Written answers never went through transcription, but they're scoring
+  // evidence too (cognitive tests, written-communication questions). Include
+  // them with time-spent so timed questions can be judged on speed+accuracy.
+  const textResponses = candidate.textResponses || {}
+  const timingData = candidate.timingData || {}
+  for (const [qIndex, answer] of Object.entries(textResponses)) {
+    if (typeof answer !== 'string' || !answer.trim()) continue
+    const elapsed = Number(timingData[qIndex])
+    const timing = Number.isFinite(elapsed) ? ` [answered in ${elapsed}s]` : ''
+    fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questionText(qIndex)}"\nWritten answer${timing}: ${answer.trim().slice(0, 4000)}\n`
+  }
+
   // Score the interview with Claude
   const rubric = await getRoleRubric(roleKey)
   const systemPrompt = buildInterviewScoringPrompt(candidate, rubric)

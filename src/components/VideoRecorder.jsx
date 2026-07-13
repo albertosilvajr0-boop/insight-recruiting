@@ -22,7 +22,7 @@ function WaveformBar({ level, index, total }) {
   )
 }
 
-export default function VideoRecorder({ candidateId, questionIndex, onComplete, onUploadProgress, mode = 'video' }) {
+export default function VideoRecorder({ candidateId, questionIndex, onComplete, onUploadProgress, mode = 'video', demoMode = false }) {
   const videoPreviewRef = useRef(null)
   const [professionalBackdrop, setProfessionalBackdrop] = useState(() => {
     try { return localStorage.getItem(BACKDROP_PREF_KEY) === 'enabled' } catch { return false }
@@ -147,6 +147,11 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
 
   const handleSubmit = async () => {
     if (!blob) return
+    // Demo mode (admin sales preview) — full recording experience, nothing saved.
+    if (demoMode) {
+      onComplete(`demo_q${questionIndex}`, blob)
+      return
+    }
     setUploading(true)
     setUploadProgress(0)
     setUploadError(null)

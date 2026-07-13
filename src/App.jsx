@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import CandidateLogin from './pages/CandidateLogin'
 import JobListings from './pages/JobListings'
 import Apply from './pages/Apply'
 import ThankYou from './pages/ThankYou'
@@ -12,6 +13,8 @@ import AdminUsers from './pages/AdminUsers'
 import AdminAvailability from './pages/AdminAvailability'
 import AdminQuestions from './pages/AdminQuestions'
 import AdminLibrary from './pages/AdminLibrary'
+import AdminInvite from './pages/AdminInvite'
+import AdminDemo from './pages/AdminDemo'
 import AdminAnalytics from './pages/AdminAnalytics'
 import AdminOnboarding from './pages/AdminOnboarding'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -24,8 +27,10 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         {/* Public — candidate facing */}
-        <Route path="/" element={<JobListings />} />
+        <Route path="/" element={<CandidateLogin />} />
+        <Route path="/jobs" element={<JobListings />} />
         <Route path="/apply/:jobId" element={<Apply />} />
+        <Route path="/i/:code" element={<Apply />} />
         <Route path="/thank-you" element={<ThankYou />} />
         <Route path="/status/:token" element={<Status />} />
         <Route path="/schedule/:token" element={<Schedule />} />
@@ -38,6 +43,12 @@ export default function App() {
         } />
         <Route path="/admin/candidates/:candidateId" element={
           <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_CANDIDATES}><AdminCandidate /></ProtectedRoute>
+        } />
+        <Route path="/admin/invite" element={
+          <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_CANDIDATES}><AdminInvite /></ProtectedRoute>
+        } />
+        <Route path="/admin/demo" element={
+          <ProtectedRoute requiredRole={ROLES.SUPERADMIN}><AdminDemo /></ProtectedRoute>
         } />
         {/* Superadmin only */}
         <Route path="/admin/jobs" element={
