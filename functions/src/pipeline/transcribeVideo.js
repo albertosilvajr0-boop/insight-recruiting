@@ -3,6 +3,7 @@ import { getStorage } from 'firebase-admin/storage'
 import { google } from 'googleapis'
 import { callClaude } from '../utils/anthropic.js'
 import { getCandidateClientName } from '../config/organization.js'
+import { getRoleRubric, formatScoringWeights, formatHardDisqualifiers } from '../utils/roleRubrics.js'
 
 const INTERVIEW_QUESTIONS = {
   'bdc-agent': [
@@ -34,20 +35,24 @@ const INTERVIEW_QUESTIONS = {
   ]
 }
 
-function buildInterviewScoringPrompt(candidate) {
+const DEFAULT_INTERVIEW_WEIGHTS = `- Communication clarity, professionalism, and script delivery (weight: 25%)
+- Customer service orientation, de-escalation, and written outreach quality (weight: 25%)
+- Role-relevant judgment, problem solving, and cognitive accuracy (weight: 20%)
+- Coachability, motivation, and work discipline (weight: 20%)
+- Values alignment and long-term mindset (weight: 10%)`
+
+function buildInterviewScoringPrompt(candidate, rubric) {
   const clientName = getCandidateClientName(candidate)
   const roleName = candidate.jobTitle || 'the open role'
+  const weights = formatScoringWeights(rubric?.scoringWeights, 'interview') || DEFAULT_INTERVIEW_WEIGHTS
+  const disqualifiers = formatHardDisqualifiers(rubric?.hardDisqualifiers)
 
   return `You are evaluating a candidate interview for ${roleName} at ${clientName}.
 This interview may include video responses, script readings, written communication samples, timed cognitive questions, and values/mindset questions.
 
 Score 1-10 based on:
-- Communication clarity, professionalism, and script delivery (weight: 25%)
-- Customer service orientation, de-escalation, and written outreach quality (weight: 25%)
-- Role-relevant judgment, problem solving, and cognitive accuracy (weight: 20%)
-- Coachability, motivation, and work discipline (weight: 20%)
-- Values alignment and long-term mindset (weight: 10%)
-
+${weights}
+${disqualifiers ? `\nIf the answers reveal any of these hard disqualifiers, list them prominently in concerns: ${disqualifiers}.\n` : ''}
 Evaluate only job-related evidence. Note if answers appear rushed, over-rehearsed, or unsupported by examples.`
 }
 
@@ -140,7 +145,11 @@ export async function transcribeAndScoreVideo(candidateId, candidate) {
   const bucket = getStorage().bucket()
   const videoResponses = candidate.videoResponses || {}
   const roleKey = candidate.roleKey || 'sales-rep'
-  const questions = INTERVIEW_QUESTIONS[roleKey] || INTERVIEW_QUESTIONS['sales-rep']
+  const fallbackQuestions = INTERVIEW_QUESTIONS[roleKey] || INTERVIEW_QUESTIONS['sales-rep']
+  // The candidate doc stores the exact questions asked (seeded batteries vary
+  // by role); the hardcoded map only covers the original three roles.
+  const storedQuestions = candidate.questions || {}
+  const questionText = (qIndex) => storedQuestions[qIndex]?.text || fallbackQuestions[qIndex] || 'Unknown'
 
   let fullTranscript = ''
   const perQuestion = {} // { [qIndex]: { transcript, segments } }
@@ -148,7 +157,7 @@ export async function transcribeAndScoreVideo(candidateId, candidate) {
   // Transcribe each video response
   for (const [qIndex, path] of Object.entries(videoResponses)) {
     if (!path || path.startsWith('skipped')) {
-      fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questions[qIndex] || 'Unknown'}"\nAnswer: [Skipped]\n`
+      fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questionText(qIndex)}"\nAnswer: [Skipped]\n`
       perQuestion[qIndex] = { transcript: '[Skipped]', segments: [] }
       continue
     }
@@ -157,21 +166,22 @@ export async function transcribeAndScoreVideo(candidateId, candidate) {
       const downloaded = await downloadAndConcatChunks(bucket, path)
       if (downloaded) {
         const { transcript, segments } = await transcribeAudio(downloaded.buffer, downloaded.mime)
-        fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questions[qIndex] || 'Unknown'}"\nAnswer: ${transcript}\n`
+        fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questionText(qIndex)}"\nAnswer: ${transcript}\n`
         perQuestion[qIndex] = { transcript, segments }
       } else {
-        fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questions[qIndex] || 'Unknown'}"\nAnswer: [No audio captured]\n`
+        fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questionText(qIndex)}"\nAnswer: [No audio captured]\n`
         perQuestion[qIndex] = { transcript: '[No audio captured]', segments: [] }
       }
     } catch (err) {
       console.error(`[transcribe] Error for question ${qIndex}:`, err.message)
-      fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questions[qIndex] || 'Unknown'}"\nAnswer: [Transcription failed]\n`
+      fullTranscript += `\nQuestion ${parseInt(qIndex) + 1}: "${questionText(qIndex)}"\nAnswer: [Transcription failed]\n`
       perQuestion[qIndex] = { transcript: '[Transcription failed]', segments: [] }
     }
   }
 
   // Score the interview with Claude
-  const systemPrompt = buildInterviewScoringPrompt(candidate)
+  const rubric = await getRoleRubric(roleKey)
+  const systemPrompt = buildInterviewScoringPrompt(candidate, rubric)
 
   const response = await callClaude({
     system: systemPrompt,

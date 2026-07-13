@@ -228,6 +228,11 @@ service cloud.firestore {
       allow create, update, delete: if hasPermission('manage_questions');
     }
 
+    match /roleRubrics/{roleKey} {
+      allow get, list: if isEnabledAdmin();
+      allow create, update, delete: if hasPermission('manage_questions');
+    }
+
     match /verificationCodes/{codeId} {
       allow read, write: if false;
     }
