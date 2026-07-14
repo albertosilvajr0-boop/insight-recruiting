@@ -1,5 +1,20 @@
 import { useState, useRef, useCallback } from 'react'
-import { createProfessionalBackdropStream } from '../utils/professionalBackdrop'
+
+// If getUserMedia hasn't settled by then the permission prompt was almost
+// certainly suppressed (in-app browsers from email/text links do this) —
+// surface an actionable error instead of spinning forever.
+const PERMISSION_TIMEOUT_MS = 12_000
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => {
+      const err = new Error('Timed out waiting for camera/microphone access')
+      err.name = 'TimeoutError'
+      reject(err)
+    }, ms)),
+  ])
+}
 
 const MIME_TYPES = [
   'video/webm;codecs=vp9,opus',
@@ -12,17 +27,15 @@ function getSupportedMimeType() {
   return MIME_TYPES.find(t => MediaRecorder.isTypeSupported(t)) || ''
 }
 
-export default function useMediaRecorder({ mode = 'video', videoEffect = 'none' }) {
+export default function useMediaRecorder({ mode = 'video' }) {
   const [state, setState] = useState('idle') // idle | requesting | ready | recording | stopped | error
   const [error, setError] = useState(null)
-  const [effectWarning, setEffectWarning] = useState(null)
   const [duration, setDuration] = useState(0)
   const [audioLevel, setAudioLevel] = useState(0)
 
   const mediaRecorderRef = useRef(null)
   const sourceStreamRef = useRef(null)
   const streamRef = useRef(null)
-  const effectCleanupRef = useRef(null)
   const chunksRef = useRef([])
   const timerRef = useRef(null)
   const analyserRef = useRef(null)
@@ -53,7 +66,6 @@ export default function useMediaRecorder({ mode = 'video', videoEffect = 'none' 
   const requestPermissions = useCallback(async () => {
     setState('requesting')
     setError(null)
-    setEffectWarning(null)
     try {
       let stream
       if (mode === 'video') {
@@ -61,32 +73,23 @@ export default function useMediaRecorder({ mode = 'video', videoEffect = 'none' 
         // mobile networks and avoids holding giant blobs in memory (which
         // can trigger tab discards on iOS Safari).
         try {
-          stream = await navigator.mediaDevices.getUserMedia({
+          stream = await withTimeout(navigator.mediaDevices.getUserMedia({
             video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 }, facingMode: 'user' },
             audio: true
-          })
-        } catch {
+          }), PERMISSION_TIMEOUT_MS)
+        } catch (firstErr) {
+          if (firstErr.name === 'TimeoutError') throw firstErr
           // Fallback: accept any camera config the device will give us.
-          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true })
+          stream = await withTimeout(
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true }),
+            PERMISSION_TIMEOUT_MS
+          )
         }
       } else {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        stream = await withTimeout(navigator.mediaDevices.getUserMedia({ audio: true }), PERMISSION_TIMEOUT_MS)
       }
       sourceStreamRef.current = stream
-
-      if (mode === 'video' && videoEffect === 'professional') {
-        try {
-          const processed = await createProfessionalBackdropStream(stream)
-          effectCleanupRef.current = processed.cleanup
-          streamRef.current = processed.stream
-        } catch (err) {
-          console.warn('Professional backdrop unavailable:', err)
-          setEffectWarning('Professional background is not available on this device. Recording normally.')
-          streamRef.current = stream
-        }
-      } else {
-        streamRef.current = stream
-      }
+      streamRef.current = stream
 
       setState('ready')
       return streamRef.current
@@ -95,11 +98,15 @@ export default function useMediaRecorder({ mode = 'video', videoEffect = 'none' 
         ? 'Camera/microphone access was denied. Please allow access and try again.'
         : err.name === 'NotFoundError'
         ? 'No camera or microphone found. Please check your device.'
+        : err.name === 'NotReadableError'
+        ? 'Your camera appears to be in use by another app. Close other camera apps and try again.'
+        : err.name === 'TimeoutError'
+        ? 'We never got an answer from your camera. If no permission prompt appeared and you opened this link from an email or text app, use its menu to choose "Open in browser" (Chrome or Safari) and continue there.'
         : `Could not access media devices: ${err.message}`)
       setState('error')
       return null
     }
-  }, [mode, videoEffect])
+  }, [mode])
 
   const startRecording = useCallback(async () => {
     let stream = streamRef.current
@@ -187,8 +194,6 @@ export default function useMediaRecorder({ mode = 'video', videoEffect = 'none' 
   }, [])
 
   const releaseStream = useCallback(() => {
-    effectCleanupRef.current?.()
-    effectCleanupRef.current = null
     if (streamRef.current && streamRef.current !== sourceStreamRef.current) {
       streamRef.current.getVideoTracks().forEach(t => t.stop())
     }
@@ -208,7 +213,6 @@ export default function useMediaRecorder({ mode = 'video', videoEffect = 'none' 
   return {
     state,
     error,
-    effectWarning,
     duration,
     audioLevel,
     stream: streamRef.current,
