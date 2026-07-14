@@ -50,6 +50,10 @@ service firebase.storage {
         );
     }
 
+    match /resumes/{candidateId} {
+      allow list: if hasPermission('view_candidates');
+    }
+
     match /resumes/{candidateId}/{fileName} {
       allow read: if hasPermission('view_candidates');
       allow create: if validCandidateKey(candidateId)
@@ -60,6 +64,10 @@ service firebase.storage {
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         ];
       allow update, delete: if false;
+    }
+
+    match /videos/{videoKey} {
+      allow list: if hasPermission('view_candidates');
     }
 
     match /videos/{videoKey}/{fileName} {

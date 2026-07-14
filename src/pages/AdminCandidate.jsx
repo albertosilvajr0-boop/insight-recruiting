@@ -150,9 +150,10 @@ export default function AdminCandidate() {
               try {
                 const dirRef = ref(storage, path)
                 const fileList = await listAll(dirRef)
-                const fullRecording = fileList.items.find(f => f.name === 'full_recording.webm')
-                const firstWebm = fileList.items.find(f => f.name.endsWith('.webm'))
-                const videoFile = fullRecording || firstWebm
+                // iPhones record .mp4; Android/desktop record .webm
+                const videoFile = fileList.items.find(f => f.name === 'full_recording.webm')
+                  || fileList.items.find(f => /^recording\.(webm|mp4)$/.test(f.name))
+                  || fileList.items.find(f => /\.(webm|mp4)$/.test(f.name))
                 if (videoFile) {
                   const url = await getDownloadURL(videoFile)
                   urls[qIndex] = url

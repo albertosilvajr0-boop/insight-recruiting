@@ -130,9 +130,11 @@ function buildSummary(candidate, issues) {
 async function resolveVideoFile(path) {
   const dirRef = ref(storage, path)
   const list = await listAll(dirRef)
-  const full = list.items.find(f => f.name === 'full_recording.webm')
-  const firstWebm = list.items.find(f => f.name.endsWith('.webm'))
-  return full || firstWebm || null
+  // iPhones record .mp4; Android/desktop record .webm
+  return list.items.find(f => f.name === 'full_recording.webm')
+    || list.items.find(f => /^recording\.(webm|mp4)$/.test(f.name))
+    || list.items.find(f => /\.(webm|mp4)$/.test(f.name))
+    || null
 }
 
 export async function downloadCandidateProfile(candidate, onProgress) {
@@ -176,7 +178,8 @@ export async function downloadCandidateProfile(candidate, onProgress) {
       if (!file) { issues.push(`video Q${num} (no file found)`); continue }
       const url = await getDownloadURL(file)
       const blob = await fetchBlob(url)
-      zip.file(`videos/Q${num}.webm`, blob)
+      const videoExt = file.name.endsWith('.mp4') ? 'mp4' : 'webm'
+      zip.file(`videos/Q${num}.${videoExt}`, blob)
     } catch (err) {
       console.error(`Video Q${num} fetch failed:`, err)
       issues.push(`video Q${num} (${err.message || err})`)
