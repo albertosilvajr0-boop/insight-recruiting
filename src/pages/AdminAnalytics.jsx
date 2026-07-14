@@ -546,11 +546,12 @@ export default function AdminAnalytics() {
                       <th className="text-left text-xs font-semibold text-gray-600 px-5 py-3">Stage</th>
                       <th className="text-left text-xs font-semibold text-gray-600 px-5 py-3">Score</th>
                       <th className="text-left text-xs font-semibold text-gray-600 px-5 py-3">Applied</th>
+                      <th className="text-left text-xs font-semibold text-gray-600 px-5 py-3">Last Sign-in</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rangedCandidates.length === 0 ? (
-                      <tr><td colSpan={5} className="text-center py-8 text-sm text-gray-400">No applications in this period</td></tr>
+                      <tr><td colSpan={6} className="text-center py-8 text-sm text-gray-400">No applications in this period</td></tr>
                     ) : (
                       rangedCandidates.slice(0, 25).map((c) => {
                         const stageBadgeColor = {
@@ -580,6 +581,15 @@ export default function AdminAnalytics() {
                             </td>
                             <td className="px-5 py-3 text-xs text-gray-500">
                               {c.createdAt?.toDate ? format(c.createdAt.toDate(), "MMM d, h:mm a") : "—"}
+                            </td>
+                            <td className="px-5 py-3 text-xs">
+                              {(c.lastSignInAt || c.firstSignInAt)?.toDate ? (
+                                <span className="text-gray-500">{format((c.lastSignInAt || c.firstSignInAt).toDate(), "MMM d, h:mm a")}</span>
+                              ) : c.accessCode ? (
+                                <span className="font-medium text-amber-600">Never</span>
+                              ) : (
+                                <span className="text-gray-400">—</span>
+                              )}
                             </td>
                           </tr>
                         )

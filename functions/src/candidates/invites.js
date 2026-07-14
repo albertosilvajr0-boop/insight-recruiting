@@ -162,11 +162,10 @@ export async function getInviteSessionHandler(data) {
     return { alreadySubmitted: true, statusToken: candidate.statusToken || null }
   }
 
-  if (!candidate.firstSignInAt) {
-    await db.collection('candidates').doc(found.id).update({
-      firstSignInAt: FieldValue.serverTimestamp(),
-    })
-  }
+  // Engagement tracking: stamp every sign-in, keep the first one separately.
+  const signInStamp = { lastSignInAt: FieldValue.serverTimestamp() }
+  if (!candidate.firstSignInAt) signInStamp.firstSignInAt = FieldValue.serverTimestamp()
+  await db.collection('candidates').doc(found.id).update(signInStamp)
 
   return {
     alreadySubmitted: false,
