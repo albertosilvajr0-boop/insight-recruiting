@@ -4,7 +4,6 @@ import { collection, query, orderBy, onSnapshot } from "firebase/firestore"
 import { httpsCallable } from "firebase/functions"
 import { db, auth, functions } from "../firebase"
 import { PERMISSIONS as APP_PERMISSIONS, ROLE_DEFAULT_PERMISSIONS, ROLES as APP_ROLES } from "../security/roles"
-import { DEFAULT_CLIENT_INITIALS } from "../config/organization"
 
 const ROLE_OPTIONS = [
   { value: APP_ROLES.MANAGER, label: "Manager", description: "Score candidates, schedule interviews, view all candidates and interviews" },
@@ -191,9 +190,7 @@ export default function AdminUsers() {
             <button onClick={() => navigate("/admin/dashboard")} className="text-gray-400 hover:text-gray-600 transition-colors">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
-            <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
-              <span className="text-white text-xs font-bold">{DEFAULT_CLIENT_INITIALS}</span>
-            </div>
+            <img src="/brand-mark.png" alt="Insight Edge" className="w-7 h-7 object-contain" />
             <span className="font-semibold text-gray-900 text-sm">Manage Users</span>
           </div>
           <button

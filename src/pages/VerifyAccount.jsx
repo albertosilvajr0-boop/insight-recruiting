@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom"
 import { onAuthStateChanged, sendEmailVerification } from "firebase/auth"
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore"
 import { auth, db } from "../firebase"
-import { DEFAULT_CLIENT_INITIALS } from "../config/organization"
 
 export default function VerifyAccount() {
   const [user, setUser] = useState(null)
@@ -106,9 +105,7 @@ export default function VerifyAccount() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-white text-xl font-bold">{DEFAULT_CLIENT_INITIALS}</span>
-          </div>
+          <img src="/brand-mark.png" alt="Insight Edge" className="w-14 h-14 mx-auto mb-4 object-contain" />
           <h1 className="text-2xl font-bold text-gray-900">Verify Your Email</h1>
           <p className="text-sm text-gray-500 mt-1">One quick step to access the admin portal.</p>
         </div>

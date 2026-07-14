@@ -12,7 +12,7 @@ import {
   buildDecisionHistory,
   getDecisionReasons,
 } from "../selection/decisionReasons"
-import { DEFAULT_CLIENT_INITIALS, PLATFORM_NAME } from "../config/organization"
+import {  PLATFORM_NAME } from "../config/organization"
 
 const STAGES = ["invited","applied","scored","to_schedule","scheduled","hired","rejected"]
 const STAGE_LABELS = { invited:"Invited", applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", hired:"Hired", rejected:"Rejected" }
@@ -384,7 +384,7 @@ export default function AdminDashboard() {
       <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10">
         <div className="max-w-screen-xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center"><span className="text-white text-xs font-bold">{DEFAULT_CLIENT_INITIALS}</span></div>
+            <img src="/brand-mark.png" alt="Insight Edge" className="w-7 h-7 object-contain" />
             <span className="font-semibold text-gray-900 text-sm">{PLATFORM_NAME}</span>
           </div>
           <div className="flex items-center gap-3">

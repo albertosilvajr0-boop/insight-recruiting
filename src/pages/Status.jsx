@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '../firebase'
 import { format, formatDistanceToNow } from 'date-fns'
-import { DEFAULT_CLIENT_INITIALS, getJobClientName } from '../config/organization'
+import {  getJobClientName } from '../config/organization'
 
 // Ordered pipeline for the candidate-facing timeline. We deliberately
 // collapse internal stages ("scored", "to_schedule") into a single
@@ -82,7 +82,7 @@ export default function Status() {
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200 px-4 py-4">
         <div className="max-w-2xl mx-auto flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center"><span className="text-white text-xs font-bold">{DEFAULT_CLIENT_INITIALS}</span></div>
+          <img src="/brand-mark.png" alt="Insight Edge" className="w-8 h-8 object-contain" />
           <div>
             <p className="text-sm font-medium text-gray-900">{getJobClientName(candidate)}</p>
             <p className="text-xs text-gray-500">Application status</p>

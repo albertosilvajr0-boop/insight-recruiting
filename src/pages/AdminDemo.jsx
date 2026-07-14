@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { collection, query, where, orderBy, getDocs } from 'firebase/firestore'
 import { db } from '../firebase'
 import VideoRecorder from '../components/VideoRecorder'
-import { DEFAULT_CLIENT_INITIALS, PLATFORM_NAME } from '../config/organization'
+import {  PLATFORM_NAME } from '../config/organization'
 import { INDUSTRY_OPTIONS } from '../config/industries'
 
 // Superadmin-only sales demo: walk a prospective client through the exact
@@ -76,9 +76,7 @@ export default function AdminDemo() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-14 flex flex-col items-center">
-        <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mb-5">
-          <span className="text-white text-lg font-bold">{DEFAULT_CLIENT_INITIALS}</span>
-        </div>
+        <img src="/brand-mark.png" alt="Insight Edge" className="w-14 h-14 mb-5 object-contain" />
         <h1 className="text-2xl font-bold text-gray-900 text-center">{PLATFORM_NAME} Careers</h1>
         <p className="text-sm text-gray-500 mt-2 text-center max-w-md">
           Pick a company type and role to walk through the exact interview a candidate experiences — questions, timers, and video recording included.
@@ -196,9 +194,7 @@ function DemoInterview({ role, questions, onExit }) {
       {/* Candidate-style header */}
       <div className="bg-white border-b border-gray-200 px-4 py-4">
         <div className="max-w-2xl mx-auto flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-            <span className="text-white text-xs font-bold">{DEFAULT_CLIENT_INITIALS}</span>
-          </div>
+          <img src="/brand-mark.png" alt="Insight Edge" className="w-8 h-8 object-contain" />
           <div>
             <p className="text-sm font-medium text-gray-900">{role.label || role.roleKey}</p>
             <p className="text-xs text-gray-500">

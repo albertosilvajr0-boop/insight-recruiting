@@ -26,7 +26,7 @@ import {
   getTechnologyCapabilitySentence,
   normalizeEeoSurvey,
 } from '../compliance/selectionProcess'
-import { getInitials, getJobClientName, getJobLocation } from '../config/organization'
+import {  getJobClientName, getJobLocation } from '../config/organization'
 
 const STEPS = ['info', 'resume', 'compliance', 'interview', 'submitting']
 const DRAFT_KEY_PREFIX = 'apply_draft_v1_'
@@ -629,9 +629,7 @@ export default function Apply() {
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-4 py-4">
         <div className="max-w-2xl mx-auto flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-            <span className="text-white text-xs font-bold">{getInitials(jobClientName)}</span>
-          </div>
+          <img src="/brand-mark.png" alt="Insight Edge" className="w-8 h-8 object-contain" />
           <div>
             <p className="text-sm font-medium text-gray-900">{jobClientName}</p>
             <p className="text-xs text-gray-500">Application - {job?.title}</p>

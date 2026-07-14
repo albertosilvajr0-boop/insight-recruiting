@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '../firebase'
 import { format, parseISO } from 'date-fns'
-import { DEFAULT_CLIENT_INITIALS, DEFAULT_JOB_LOCATION, DEFAULT_CLIENT_NAME } from '../config/organization'
+import {  DEFAULT_JOB_LOCATION, DEFAULT_CLIENT_NAME } from '../config/organization'
 
 export default function Schedule() {
   const { token } = useParams()
@@ -93,9 +93,7 @@ export default function Schedule() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-2xl mx-auto px-4 py-12">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-white text-xl font-bold">{DEFAULT_CLIENT_INITIALS}</span>
-          </div>
+          <img src="/brand-mark.png" alt="Insight Edge" className="w-14 h-14 mx-auto mb-4 object-contain" />
           <h1 className="text-2xl font-bold text-gray-900">Schedule Your Interview</h1>
           {candidateName && <p className="text-gray-500 mt-1">Welcome, {candidateName}</p>}
           <p className="text-sm text-gray-500 mt-1">Pick a time that works for you</p>

@@ -5,7 +5,7 @@ import { db } from '../firebase'
 import {
   APP_URL,
   DEFAULT_CLIENT_NAME,
-  DEFAULT_CLIENT_INITIALS,
+  
   getJobClientName,
 } from '../config/organization'
 
@@ -62,14 +62,14 @@ export default function JobListings() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-white">
       <div className="max-w-3xl mx-auto px-4 py-16">
         <div className="text-center mb-10">
-          <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-white text-xl font-bold">{DEFAULT_CLIENT_INITIALS}</span>
-          </div>
+          <img src="/brand-mark.png" alt="Insight Edge" className="w-16 h-16 mx-auto mb-4 object-contain" />
           <h1 className="text-3xl font-bold text-gray-900">{DEFAULT_CLIENT_NAME} Careers</h1>
-
+          <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
+            Apply in minutes with a short online interview — on your schedule, from any device.
+          </p>
         </div>
 
         {loading ? (
@@ -90,17 +90,33 @@ export default function JobListings() {
               <Link
                 key={job.id}
                 to={`/apply/${job.id}`}
-                className="block bg-white rounded-2xl border border-gray-200 p-6 hover:border-blue-300 hover:shadow-sm transition-all"
+                className="group block bg-white rounded-2xl border border-gray-200 p-6 shadow-sm hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 transition-all"
               >
                 <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-lg font-semibold text-gray-900">{job.title}</h2>
+                  <div className="min-w-0">
+                    <h2 className="text-lg font-semibold text-gray-900 group-hover:text-blue-700 transition-colors">{job.title}</h2>
                     <p className="text-sm text-gray-500 mt-0.5">{getJobClientName(job)}</p>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      {job.location && (
+                        <span className="inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                          {job.location}
+                        </span>
+                      )}
+                      {job.payRange?.min > 0 && job.payRange?.max > 0 && (
+                        <span className="text-xs font-medium text-green-700 bg-green-50 px-2.5 py-1 rounded-full">
+                          ${job.payRange.min.toLocaleString()}–${job.payRange.max.toLocaleString()}{(job.payUnit === 'HOUR' || (!job.payUnit && job.payRange.max < 1000)) ? '/hr' : '/yr'}
+                        </span>
+                      )}
+                      {job.industry && (
+                        <span className="text-xs text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full">{job.industry}</span>
+                      )}
+                    </div>
                     {job.description && (
-                      <p className="text-sm text-gray-500 mt-2 line-clamp-2">{job.description}</p>
+                      <p className="text-sm text-gray-500 mt-2.5 line-clamp-2">{job.description}</p>
                     )}
                   </div>
-                  <span className="shrink-0 bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-xl">
+                  <span className="shrink-0 bg-blue-600 group-hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors">
                     Start Interview
                   </span>
                 </div>
@@ -109,7 +125,13 @@ export default function JobListings() {
           </div>
         )}
 
-        <div className="flex justify-end mt-12">
+        <div className="text-center mt-10">
+          <p className="text-sm text-gray-500">
+            Already have an interview code?{' '}
+            <Link to="/" className="text-blue-600 font-medium hover:underline">Start here</Link>
+          </p>
+        </div>
+        <div className="flex justify-end mt-8">
           <Link to="/admin/login" className="text-xs text-gray-400 hover:text-gray-600">
             Admin
           </Link>
