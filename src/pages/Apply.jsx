@@ -876,29 +876,15 @@ export default function Apply() {
           </div>
         )}
 
-        {/* Total time guidance + full question map — shown once at start of interview */}
-        {step === 'interview' && currentQuestion === 0 && !videoResponses[0] && !textResponses[0] && (
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800 space-y-3">
-            <div>
-              <p className="font-semibold">Here's what's coming</p>
-              <p className="text-xs text-blue-700 mt-0.5">
-                {questions.length} questions · about {Math.max(5, Math.round(questions.reduce((s, q) => s + summarizeQuestionTime(q), 0) / 60))} minutes total.
-                A few are timed — you'll see a countdown when they start.
-              </p>
-            </div>
-            <ol className="text-xs text-blue-900 space-y-1 list-decimal list-inside max-h-40 overflow-y-auto">
-              {questions.map((q, i) => {
-                const typeLabel = q.type === 'video_reading' ? 'Script reading'
-                  : q.type === 'text_response' ? 'Written'
-                  : 'Video'
-                const timerLabel = q.timerType === 'hard' ? ` · ${q.timerSeconds}s timer` : q.timerType === 'soft' ? ` · ~${q.timerSeconds}s suggested` : ''
-                return (
-                  <li key={q.id || i} className="truncate">
-                    <span className="font-medium">{typeLabel}</span>{timerLabel}
-                  </li>
-                )
-              })}
-            </ol>
+        {/* Time guidance — shown only alongside the device check, never on questions */}
+        {step === 'interview' && currentQ && !deviceCheckPassed && currentQuestion === 0 &&
+         (currentQ.type === 'video_response' || currentQ.type === 'video_reading') && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+            <p className="font-semibold">Here's what's coming</p>
+            <p className="text-xs text-blue-700 mt-0.5">
+              A series of video and written questions — about {Math.max(5, Math.round(questions.reduce((s, q) => s + summarizeQuestionTime(q), 0) / 60))} minutes
+              total. A few are timed; you'll see a countdown when they start.
+            </p>
           </div>
         )}
 

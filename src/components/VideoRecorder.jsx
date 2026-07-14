@@ -71,6 +71,19 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
     }
   }, [])
 
+  // Turn the live camera preview on immediately when permission is already
+  // granted — no prompt will appear, so no tap is needed. When permission is
+  // still undecided we wait for the Record tap, because mobile browsers
+  // suppress permission prompts that aren't gesture-triggered.
+  useEffect(() => {
+    if (mode !== 'video' || recorded || state !== 'idle') return undefined
+    let active = true
+    navigator.permissions?.query?.({ name: 'camera' })
+      .then(res => { if (active && res.state === 'granted') requestPermissions() })
+      .catch(() => { /* Permissions API unavailable — wait for the tap */ })
+    return () => { active = false }
+  }, [mode, recorded, state, requestPermissions])
+
   const handleStart = async () => {
     setUploadError(null)
     if (state === 'idle') {
@@ -279,11 +292,14 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
           <button
             onClick={handleStart}
             disabled={state === 'requesting'}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-3 px-6 rounded-xl transition-colors"
+            className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium py-3 px-6 rounded-xl transition-colors"
           >
-            {state === 'requesting' ? 'Requesting access...' :
-             state === 'ready' ? `Start ${mode === 'video' ? 'Video' : 'Voice'} Recording` :
-             `Allow ${mode === 'video' ? 'Camera' : 'Microphone'} & Record`}
+            {state === 'requesting' ? 'Requesting access...' : (
+              <span className="inline-flex items-center justify-center gap-2">
+                <span className="w-2.5 h-2.5 bg-white rounded-full" />
+                Record
+              </span>
+            )}
           </button>
         )}
 
