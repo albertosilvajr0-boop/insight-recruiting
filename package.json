@@ -15,7 +15,6 @@
     "deploy": "npm run check && npx firebase-tools deploy"
   },
   "dependencies": {
-    "@mediapipe/selfie_segmentation": "^0.1.1675465747",
     "date-fns": "^3.6.0",
     "firebase": "^12.12.1",
     "jszip": "^3.10.1",

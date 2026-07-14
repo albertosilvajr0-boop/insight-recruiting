@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
+
+// If getUserMedia hasn't settled by then, the permission prompt was almost
+// certainly suppressed (common on mobile when the request isn't triggered by
+// a tap, and in in-app browsers from email/text links).
+const REQUEST_TIMEOUT_MS = 10_000
 
 // Lightweight pre-flight: confirms camera + mic work, measures mic level
 // and rough frame brightness, and surfaces actionable warnings before the
@@ -8,21 +13,31 @@ export default function DeviceCheck({ mode = 'video', onReady, onSkip }) {
   const streamRef = useRef(null)
   const audioCtxRef = useRef(null)
   const rafRef = useRef(null)
-  const [status, setStatus] = useState('requesting') // requesting | ready | error
+  const cancelledRef = useRef(false)
+  const timeoutRef = useRef(null)
+  const [status, setStatus] = useState('requesting') // requesting | ready | stalled | error
   const [error, setError] = useState(null)
   const [audioLevel, setAudioLevel] = useState(0)
   const [audioPeak, setAudioPeak] = useState(0)
   const [brightness, setBrightness] = useState(null)
 
-  useEffect(() => {
-    let cancelled = false
-    async function start() {
+  const start = useCallback(async () => {
+    setStatus('requesting')
+    setError(null)
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    clearTimeout(timeoutRef.current)
+    timeoutRef.current = setTimeout(() => {
+      setStatus(prev => (prev === 'requesting' ? 'stalled' : prev))
+    }, REQUEST_TIMEOUT_MS)
+    const cancelled = () => cancelledRef.current
+    {
       try {
         const constraints = mode === 'video'
           ? { video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }, audio: true }
           : { audio: true }
         const stream = await navigator.mediaDevices.getUserMedia(constraints)
-        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
+        clearTimeout(timeoutRef.current)
+        if (cancelled()) { stream.getTracks().forEach(t => t.stop()); return }
         streamRef.current = stream
         if (videoRef.current && mode === 'video') {
           videoRef.current.srcObject = stream
@@ -67,7 +82,8 @@ export default function DeviceCheck({ mode = 'video', onReady, onSkip }) {
         rafRef.current = requestAnimationFrame(tick)
         setStatus('ready')
       } catch (err) {
-        if (cancelled) return
+        clearTimeout(timeoutRef.current)
+        if (cancelled()) return
         setStatus('error')
         setError(err.name === 'NotAllowedError'
           ? 'Camera and microphone access was denied. Check your browser permissions and try again.'
@@ -76,14 +92,19 @@ export default function DeviceCheck({ mode = 'video', onReady, onSkip }) {
           : `Couldn't access your camera or microphone: ${err.message}`)
       }
     }
+  }, [mode])
+
+  useEffect(() => {
+    cancelledRef.current = false
     start()
     return () => {
-      cancelled = true
+      cancelledRef.current = true
+      clearTimeout(timeoutRef.current)
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       streamRef.current?.getTracks().forEach(t => t.stop())
       audioCtxRef.current?.close().catch(() => {})
     }
-  }, [mode])
+  }, [start])
 
   const handleContinue = () => {
     // Release our preview stream before handing off to the recorder so
@@ -109,10 +130,29 @@ export default function DeviceCheck({ mode = 'video', onReady, onSkip }) {
       </div>
 
       {status === 'error' && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{error}</div>
+        <div className="space-y-3">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{error}</div>
+          <button onClick={start} className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 rounded-xl">
+            Try again
+          </button>
+        </div>
       )}
 
-      {mode === 'video' && status !== 'error' && (
+      {status === 'stalled' && (
+        <div className="space-y-3">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+            Still waiting for camera and microphone access. If you don't see a permission
+            prompt, tap "Try again." If you opened this link from an email or text app,
+            use its menu to choose <span className="font-semibold">"Open in browser"</span>{' '}
+            (Chrome or Safari) and try there.
+          </div>
+          <button onClick={start} className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 rounded-xl">
+            Try again
+          </button>
+        </div>
+      )}
+
+      {mode === 'video' && status !== 'error' && status !== 'stalled' && (
         <div className="relative bg-gray-900 rounded-xl overflow-hidden aspect-video">
           <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
           {status === 'requesting' && (
@@ -165,7 +205,7 @@ export default function DeviceCheck({ mode = 'video', onReady, onSkip }) {
           disabled={status !== 'ready'}
           className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl text-sm"
         >
-          {status === 'ready' ? 'Looks good — continue' : 'Checking your setup…'}
+          {status === 'ready' ? 'Looks good — continue' : status === 'requesting' ? 'Checking your setup…' : 'Waiting for access…'}
         </button>
       </div>
     </div>
