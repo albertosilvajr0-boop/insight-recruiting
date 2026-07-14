@@ -4,7 +4,7 @@ import { createWhiteBackdropStream } from '../utils/whiteBackdrop'
 // If getUserMedia hasn't settled by then the permission prompt was almost
 // certainly suppressed (in-app browsers from email/text links do this) —
 // surface an actionable error instead of spinning forever.
-const PERMISSION_TIMEOUT_MS = 12_000
+const PERMISSION_TIMEOUT_MS = 20_000
 
 function withTimeout(promise, ms) {
   return Promise.race([
@@ -15,6 +15,18 @@ function withTimeout(promise, ms) {
       reject(err)
     }, ms)),
   ])
+}
+
+// getUserMedia with a bounded wait; if the user answers the prompt after the
+// timeout already fired, release the late-granted device instead of leaking it.
+function getMediaWithTimeout(constraints, ms) {
+  const pending = navigator.mediaDevices.getUserMedia(constraints)
+  return withTimeout(pending, ms).catch(err => {
+    if (err.name === 'TimeoutError') {
+      pending.then(s => s.getTracks().forEach(t => t.stop())).catch(() => {})
+    }
+    throw err
+  })
 }
 
 const MIME_TYPES = [
@@ -77,24 +89,32 @@ export default function useMediaRecorder({ mode = 'video', videoEffect = 'none' 
     try {
       let stream
       if (mode === 'video') {
-        // Request a modest resolution — keeps file size small enough for
-        // mobile networks and avoids holding giant blobs in memory (which
-        // can trigger tab discards on iOS Safari).
+        // Ask for the microphone FIRST, then the camera — two separate,
+        // sequential prompts. A combined camera+mic request makes Android
+        // stack two dialogs; one gets lost and first-time candidates fail.
+        const audioStream = await getMediaWithTimeout({ audio: true }, PERMISSION_TIMEOUT_MS)
+        let videoStream
         try {
-          stream = await withTimeout(navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 }, facingMode: 'user' },
-            audio: true
-          }), PERMISSION_TIMEOUT_MS)
-        } catch (firstErr) {
-          if (firstErr.name === 'TimeoutError') throw firstErr
-          // Fallback: accept any camera config the device will give us.
-          stream = await withTimeout(
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true }),
-            PERMISSION_TIMEOUT_MS
-          )
+          // Modest resolution — keeps file size small enough for mobile
+          // networks and avoids holding giant blobs in memory (which can
+          // trigger tab discards on iOS Safari).
+          try {
+            videoStream = await getMediaWithTimeout({
+              video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 }, facingMode: 'user' },
+            }, PERMISSION_TIMEOUT_MS)
+          } catch (firstErr) {
+            if (firstErr.name === 'TimeoutError') throw firstErr
+            // Fallback: accept any camera config the device will give us.
+            videoStream = await getMediaWithTimeout({ video: { facingMode: 'user' } }, PERMISSION_TIMEOUT_MS)
+          }
+        } catch (err) {
+          // Don't hold the mic open if the camera was refused.
+          audioStream.getTracks().forEach(t => t.stop())
+          throw err
         }
+        stream = new MediaStream([...videoStream.getVideoTracks(), ...audioStream.getAudioTracks()])
       } else {
-        stream = await withTimeout(navigator.mediaDevices.getUserMedia({ audio: true }), PERMISSION_TIMEOUT_MS)
+        stream = await getMediaWithTimeout({ audio: true }, PERMISSION_TIMEOUT_MS)
       }
       sourceStreamRef.current = stream
 

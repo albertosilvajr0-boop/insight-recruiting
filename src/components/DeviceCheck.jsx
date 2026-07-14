@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 // If getUserMedia hasn't settled by then, the permission prompt was almost
 // certainly suppressed (common on mobile when the request isn't triggered by
 // a tap, and in in-app browsers from email/text links).
-const REQUEST_TIMEOUT_MS = 10_000
+const REQUEST_TIMEOUT_MS = 20_000
 
 // Lightweight pre-flight: confirms camera + mic work, measures mic level
 // and rough frame brightness, and surfaces actionable warnings before the
@@ -32,10 +32,24 @@ export default function DeviceCheck({ mode = 'video', onReady, onSkip }) {
     const cancelled = () => cancelledRef.current
     {
       try {
-        const constraints = mode === 'video'
-          ? { video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }, audio: true }
-          : { audio: true }
-        const stream = await navigator.mediaDevices.getUserMedia(constraints)
+        // Mic first, camera second — sequential prompts instead of Android's
+        // overlapping combined dialog (see useMediaRecorder for details).
+        let stream
+        if (mode === 'video') {
+          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+          let videoStream
+          try {
+            videoStream = await navigator.mediaDevices.getUserMedia({
+              video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+            })
+          } catch (err) {
+            audioStream.getTracks().forEach(t => t.stop())
+            throw err
+          }
+          stream = new MediaStream([...videoStream.getVideoTracks(), ...audioStream.getAudioTracks()])
+        } else {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        }
         clearTimeout(timeoutRef.current)
         if (cancelled()) { stream.getTracks().forEach(t => t.stop()); return }
         streamRef.current = stream
