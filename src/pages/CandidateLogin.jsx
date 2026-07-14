@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '../firebase'
-import { DEFAULT_CLIENT_INITIALS, PLATFORM_NAME } from '../config/organization'
+import {  PLATFORM_NAME } from '../config/organization'
 
 const CODE_LENGTH = 6
 
@@ -41,11 +41,9 @@ export default function CandidateLogin() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-white flex flex-col">
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-16">
-        <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mb-5">
-          <span className="text-white text-lg font-bold">{DEFAULT_CLIENT_INITIALS}</span>
-        </div>
+        <img src="/brand-mark.png" alt="Insight Edge" className="w-16 h-16 mb-5 object-contain" />
         <h1 className="text-2xl font-bold text-gray-900 text-center">{PLATFORM_NAME} Interviews</h1>
         <p className="text-sm text-gray-500 mt-2 text-center max-w-sm">
           Enter the interview code from your invitation text or email to begin.

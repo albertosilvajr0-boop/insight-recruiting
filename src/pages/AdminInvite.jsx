@@ -4,7 +4,6 @@ import { collection, query, where, getDocs, orderBy } from 'firebase/firestore'
 import { ref, uploadBytesResumable } from 'firebase/storage'
 import { httpsCallable } from 'firebase/functions'
 import { db, storage, functions } from '../firebase'
-import { DEFAULT_CLIENT_INITIALS } from '../config/organization'
 
 const EMPTY_FORM = { firstName: '', lastName: '', email: '', phone: '', jobId: '' }
 
@@ -126,9 +125,7 @@ export default function AdminInvite() {
           <button onClick={() => navigate('/admin/dashboard')} className="text-gray-400 hover:text-gray-600">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
-          <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
-            <span className="text-white text-xs font-bold">{DEFAULT_CLIENT_INITIALS}</span>
-          </div>
+          <img src="/brand-mark.png" alt="Insight Edge" className="w-7 h-7 object-contain" />
           <span className="font-semibold text-gray-900 text-sm">Invite candidate</span>
         </div>
       </div>

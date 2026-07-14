@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { signInWithEmailAndPassword, signOut } from "firebase/auth"
 import { httpsCallable } from "firebase/functions"
 import { auth, functions } from "../firebase"
-import { COPYRIGHT_ORG, DEFAULT_CLIENT_INITIALS, PLATFORM_NAME } from "../config/organization"
+import { COPYRIGHT_ORG,  PLATFORM_NAME } from "../config/organization"
 
 export default function AdminLogin() {
   const [email, setEmail] = useState("")
@@ -33,9 +33,7 @@ export default function AdminLogin() {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-white text-xl font-bold">{DEFAULT_CLIENT_INITIALS}</span>
-          </div>
+          <img src="/brand-mark.png" alt="Insight Edge" className="w-14 h-14 mx-auto mb-4 object-contain" />
           <h1 className="text-2xl font-bold text-gray-900">{PLATFORM_NAME}</h1>
           <p className="text-sm text-gray-500 mt-1">Admin Portal</p>
         </div>
