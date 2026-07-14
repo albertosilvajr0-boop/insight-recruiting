@@ -4,6 +4,7 @@ import { storage } from '../firebase'
 import useMediaRecorder from '../hooks/useMediaRecorder'
 
 const MAX_DURATION = 180 // 3 minutes
+const WHITE_BG_PREF_KEY = 'insight_white_background_v1'
 
 function formatTime(s) {
   const m = Math.floor(s / 60)
@@ -30,12 +31,15 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadError, setUploadError] = useState(null)
   const [retakeCount, setRetakeCount] = useState(0)
+  const [whiteBackground, setWhiteBackground] = useState(() => {
+    try { return localStorage.getItem(WHITE_BG_PREF_KEY) === 'enabled' } catch { return false }
+  })
 
   const {
-    state, error, duration, audioLevel,
+    state, error, effectWarning, duration, audioLevel,
     stream, isSupported,
     requestPermissions, startRecording, stopRecording, releaseStream, reset
-  } = useMediaRecorder({ mode })
+  } = useMediaRecorder({ mode, videoEffect: whiteBackground ? 'white' : 'none' })
 
   // Attach stream to video preview — re-runs on stream change AND retake
   const attachStream = useCallback(() => {
@@ -83,6 +87,18 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
       .catch(() => { /* Permissions API unavailable — wait for the tap */ })
     return () => { active = false }
   }, [mode, recorded, state, requestPermissions])
+
+  const handleWhiteBackgroundToggle = () => {
+    const enabled = !whiteBackground
+    setWhiteBackground(enabled)
+    try { localStorage.setItem(WHITE_BG_PREF_KEY, enabled ? 'enabled' : 'disabled') } catch { /* ignore */ }
+    // Rebuild the preview stream with/without the effect; the auto-preview
+    // effect re-acquires it immediately since permission is already granted.
+    if (state === 'ready') {
+      releaseStream()
+      reset()
+    }
+  }
 
   const handleStart = async () => {
     setUploadError(null)
@@ -257,6 +273,26 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
         </div>
       )}
 
+      {mode === 'video' && !recorded && state !== 'recording' && (
+        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-gray-800">White background</p>
+            <p className="text-xs text-gray-500 mt-0.5">Replaces your surroundings with a clean white backdrop in your saved video.</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={whiteBackground}
+            aria-label="White background"
+            onClick={handleWhiteBackgroundToggle}
+            disabled={state === 'requesting'}
+            className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 ${whiteBackground ? 'bg-blue-600' : 'bg-gray-300'}`}
+          >
+            <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${whiteBackground ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
+      )}
+
       {/* Voice-only waveform */}
       {mode === 'voice' && state === 'recording' && (
         <div className="bg-gray-900 rounded-xl p-6 flex flex-col items-center gap-4">
@@ -285,6 +321,11 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
           {error || uploadError}
         </div>
       )}
+      {effectWarning && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+          {effectWarning}
+        </div>
+      )}
 
       {/* Controls */}
       <div className="flex gap-3">
@@ -294,7 +335,7 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
             disabled={state === 'requesting'}
             className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium py-3 px-6 rounded-xl transition-colors"
           >
-            {state === 'requesting' ? 'Requesting access...' : (
+            {state === 'requesting' ? (whiteBackground ? 'Preparing background...' : 'Requesting access...') : (
               <span className="inline-flex items-center justify-center gap-2">
                 <span className="w-2.5 h-2.5 bg-white rounded-full" />
                 Record
