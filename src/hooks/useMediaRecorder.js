@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
+import { createWhiteBackdropStream } from '../utils/whiteBackdrop'
 
 // If getUserMedia hasn't settled by then the permission prompt was almost
 // certainly suppressed (in-app browsers from email/text links do this) —
@@ -27,15 +28,21 @@ function getSupportedMimeType() {
   return MIME_TYPES.find(t => MediaRecorder.isTypeSupported(t)) || ''
 }
 
-export default function useMediaRecorder({ mode = 'video' }) {
+// The white-background compositor loads a segmentation model — give it a
+// bounded window and fall back to normal recording rather than ever hanging.
+const EFFECT_TIMEOUT_MS = 8_000
+
+export default function useMediaRecorder({ mode = 'video', videoEffect = 'none' }) {
   const [state, setState] = useState('idle') // idle | requesting | ready | recording | stopped | error
   const [error, setError] = useState(null)
+  const [effectWarning, setEffectWarning] = useState(null)
   const [duration, setDuration] = useState(0)
   const [audioLevel, setAudioLevel] = useState(0)
 
   const mediaRecorderRef = useRef(null)
   const sourceStreamRef = useRef(null)
   const streamRef = useRef(null)
+  const effectCleanupRef = useRef(null)
   const chunksRef = useRef([])
   const timerRef = useRef(null)
   const analyserRef = useRef(null)
@@ -66,6 +73,7 @@ export default function useMediaRecorder({ mode = 'video' }) {
   const requestPermissions = useCallback(async () => {
     setState('requesting')
     setError(null)
+    setEffectWarning(null)
     try {
       let stream
       if (mode === 'video') {
@@ -89,7 +97,25 @@ export default function useMediaRecorder({ mode = 'video' }) {
         stream = await withTimeout(navigator.mediaDevices.getUserMedia({ audio: true }), PERMISSION_TIMEOUT_MS)
       }
       sourceStreamRef.current = stream
-      streamRef.current = stream
+
+      if (mode === 'video' && videoEffect === 'white') {
+        // Bounded: if the compositor is slow or broken on this device we
+        // record with the real background instead of hanging the candidate.
+        const pending = createWhiteBackdropStream(stream)
+        try {
+          const processed = await withTimeout(pending, EFFECT_TIMEOUT_MS)
+          effectCleanupRef.current = processed.cleanup
+          streamRef.current = processed.stream
+        } catch (err) {
+          console.warn('White background unavailable:', err)
+          // If it finishes late, tear it down so it doesn't leak a render loop.
+          pending.then(p => p.cleanup()).catch(() => {})
+          setEffectWarning('White background is not available on this device. Recording with your real background.')
+          streamRef.current = stream
+        }
+      } else {
+        streamRef.current = stream
+      }
 
       setState('ready')
       return streamRef.current
@@ -106,7 +132,7 @@ export default function useMediaRecorder({ mode = 'video' }) {
       setState('error')
       return null
     }
-  }, [mode])
+  }, [mode, videoEffect])
 
   const startRecording = useCallback(async () => {
     let stream = streamRef.current
@@ -194,6 +220,8 @@ export default function useMediaRecorder({ mode = 'video' }) {
   }, [])
 
   const releaseStream = useCallback(() => {
+    effectCleanupRef.current?.()
+    effectCleanupRef.current = null
     if (streamRef.current && streamRef.current !== sourceStreamRef.current) {
       streamRef.current.getVideoTracks().forEach(t => t.stop())
     }
@@ -213,6 +241,7 @@ export default function useMediaRecorder({ mode = 'video' }) {
   return {
     state,
     error,
+    effectWarning,
     duration,
     audioLevel,
     stream: streamRef.current,
