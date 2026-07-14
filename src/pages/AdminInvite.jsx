@@ -229,6 +229,11 @@ export default function AdminInvite() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">{c.firstName} {c.lastName}</p>
                   <p className="text-xs text-gray-500 truncate">{c.jobTitle || jobTitle(c.jobId)} · {c.email}</p>
+                  {c.phone && (
+                    <p className="text-xs text-gray-500">
+                      <a href={`tel:${c.phone}`} className="hover:text-blue-600">{c.phone}</a>
+                    </p>
+                  )}
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     {c.inviteEmailSentAt && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Email sent</span>}
                     {c.firstSignInAt
