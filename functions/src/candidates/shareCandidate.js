@@ -8,9 +8,8 @@ import { APP_URL, getCandidateClientName } from '../config/organization.js'
 import { writeAuditLog } from '../utils/auditLog.js'
 
 // Email can't carry a full battery of videos (Gmail caps messages at 25MB)
-// and clients strip playable <video>. So: resume attached, first videos as
-// prominent watch-cards, the rest as links — all one-click, no login.
-const EMBED_COUNT = 3
+// and clients strip playable <video>. So: resume attached, every video as a
+// prominent watch-card — all one-click, no login.
 const MAX_RESUME_ATTACH_BYTES = 20 * 1024 * 1024
 
 function escapeHtml(text) {
@@ -89,18 +88,11 @@ export async function shareCandidateHandler(data, request) {
     }
   }
 
-  const featured = videos.slice(0, EMBED_COUNT)
-  const remaining = videos.slice(EMBED_COUNT)
-
-  const featuredCards = featured.map(v => `
+  const videoCards = videos.map(v => `
       <a href="${v.url}" style="display: block; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 16px 18px; margin: 0 0 10px;">
         <span style="display: inline-block; background: #dc2626; color: #ffffff; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 4px 10px; margin-right: 10px;">&#9654; WATCH</span>
         <span style="color: #1e3a8a; font-size: 14px; font-weight: 600;">Q${v.num} — ${escapeHtml(v.label)}</span>
       </a>`).join('')
-
-  const remainingLinks = remaining.length ? `
-      <p style="font-size: 13px; color: #374151; margin: 18px 0 6px; font-weight: 600;">All other answers:</p>
-      ${remaining.map(v => `<p style="margin: 4px 0;"><a href="${v.url}" style="color: #2563eb; font-size: 13px;">Q${v.num} — ${escapeHtml(v.label)}</a></p>`).join('')}` : ''
 
   const html = `
     <div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #111827;">
@@ -109,9 +101,8 @@ export async function shareCandidateHandler(data, request) {
       <p style="margin: 0 0 16px; color: #6b7280; font-size: 14px;">${escapeHtml(jobTitle)} · ${escapeHtml(clientName)}${candidate.email ? ` · ${escapeHtml(candidate.email)}` : ''}${candidate.phone ? ` · ${escapeHtml(candidate.phone)}` : ''}</p>
       ${note ? `<div style="background: #f9fafb; border-left: 3px solid #2563eb; padding: 10px 14px; margin: 0 0 18px; font-size: 14px; color: #374151;">${escapeHtml(note)}</div>` : ''}
       ${resumeAttached ? '<p style="font-size: 13px; color: #374151; margin: 0 0 18px;">&#128206; Resume attached to this email.</p>' : ''}
-      ${featured.length ? '<p style="font-size: 13px; color: #374151; margin: 0 0 8px; font-weight: 600;">Interview highlights — click to watch:</p>' : '<p style="font-size: 13px; color: #6b7280;">No video answers on file for this candidate.</p>'}
-      ${featuredCards}
-      ${remainingLinks}
+      ${videos.length ? '<p style="font-size: 13px; color: #374151; margin: 0 0 8px; font-weight: 600;">Interview answers — click to watch:</p>' : '<p style="font-size: 13px; color: #6b7280;">No video answers on file for this candidate.</p>'}
+      ${videoCards}
       <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">Shared via Insight Edge by ${escapeHtml(profile.email || request.auth.token?.email || 'an administrator')}. Video links open in the browser — no account needed.</p>
     </div>`
 
