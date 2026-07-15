@@ -20,6 +20,7 @@ import { sendPhoneVerificationHandler, verifyPhoneCodeHandler } from './verifica
 import { getCandidateStatusHandler } from './candidates/getCandidateStatus.js'
 import { auditCandidateUpdate } from './candidates/auditCandidateChanges.js'
 import { shareCandidateHandler } from './candidates/shareCandidate.js'
+import { trackShareClick } from './candidates/shareTracking.js'
 import {
   createCandidateInviteHandler,
   attachInviteResumeHandler,
@@ -216,6 +217,12 @@ export const sitemap = onRequest(
 export const applyPage = onRequest(
   { cors: true },
   renderApplyPage
+)
+
+// ─── Share-email engagement tracking (open pixel + click redirects, /t/**) ──
+export const trackShare = onRequest(
+  { cors: true },
+  trackShareClick
 )
 
 // ─── User Management (admin only) ─────────────────────────────────────────

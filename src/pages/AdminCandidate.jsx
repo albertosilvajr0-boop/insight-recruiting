@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, getDoc, updateDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, deleteDoc, setDoc, serverTimestamp, collection, query, where, getDocs, orderBy } from 'firebase/firestore'
 import { ref, getDownloadURL, listAll } from 'firebase/storage'
 import { auth, db, storage } from '../firebase'
 import { format } from 'date-fns'
@@ -114,6 +114,7 @@ export default function AdminCandidate() {
   const [saving, setSaving] = useState(false)
   const [downloadStatus, setDownloadStatus] = useState('')
   const [showShare, setShowShare] = useState(false) // '' | progress text
+  const [shares, setShares] = useState(null) // null = loading, [] = none
 
   // Manual scores
   const [resumeScores, setResumeScores] = useState({})
@@ -176,6 +177,29 @@ export default function AdminCandidate() {
     }
     load()
   }, [candidateId, navigate])
+
+  // Share activity: every share of this candidate + per-recipient opens/clicks
+  useEffect(() => {
+    async function loadShares() {
+      try {
+        const snap = await getDocs(query(collection(db, 'shares'), where('candidateId', '==', candidateId)))
+        const rows = await Promise.all(snap.docs.map(async d => {
+          const share = { id: d.id, ...d.data(), clicks: [] }
+          try {
+            const clickSnap = await getDocs(query(collection(db, 'shares', d.id, 'clicks'), orderBy('at', 'asc')))
+            share.clicks = clickSnap.docs.map(c => c.data())
+          } catch { /* clicks unreadable — show share without activity */ }
+          return share
+        }))
+        rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+        setShares(rows)
+      } catch (err) {
+        console.error('Failed to load share activity:', err)
+        setShares([])
+      }
+    }
+    loadShares()
+  }, [candidateId, showShare]) // refetch when the share modal closes
 
   const actorSnapshot = () => ({
     uid: auth.currentUser?.uid || null,
@@ -832,6 +856,54 @@ export default function AdminCandidate() {
             {savingNotes ? 'Saving...' : 'Save notes'}
           </button>
         </div>
+
+        {/* Share activity: who this profile was emailed to, who opened, what they watched */}
+        {shares && shares.length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-6">
+            <h2 className="text-sm font-semibold text-gray-900 mb-3">Share activity</h2>
+            <div className="space-y-4">
+              {shares.map(share => (
+                <div key={share.id} className="border border-gray-100 rounded-xl p-4">
+                  <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                    <span className="text-xs text-gray-400">
+                      {share.createdAt?.seconds ? format(new Date(share.createdAt.seconds * 1000), 'MMM d, yyyy h:mm a') : ''}
+                      {share.by ? ` · sent by ${share.by}` : ''}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {(share.recipients || []).map(recipient => {
+                      const events = share.clicks.filter(c => c.recipient === recipient)
+                      const opened = events.some(c => c.target === 'open')
+                      const watches = events.filter(c => c.target !== 'open')
+                      const watchCounts = watches.reduce((acc, c) => {
+                        const key = c.target.replace(/^v/, 'Q')
+                        acc[key] = (acc[key] || 0) + 1
+                        return acc
+                      }, {})
+                      return (
+                        <div key={recipient} className="flex items-start justify-between gap-3 text-sm flex-wrap">
+                          <span className="font-medium text-gray-700">{recipient}</span>
+                          <span className="text-right">
+                            {watches.length > 0 ? (
+                              <span className="text-green-600">
+                                Watched {Object.entries(watchCounts).map(([q, n]) => n > 1 ? `${q} (${n}×)` : q).join(', ')}
+                              </span>
+                            ) : opened ? (
+                              <span className="text-blue-600">Opened — no videos watched yet</span>
+                            ) : (
+                              <span className="text-gray-400">No activity yet</span>
+                            )}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-3">Opens rely on the recipient's email client loading images, so "No activity" can still mean the email was read.</p>
+          </div>
+        )}
       </div>
 
       {/* Decision rationale modal */}
