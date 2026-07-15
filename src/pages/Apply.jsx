@@ -1059,10 +1059,12 @@ export default function Apply() {
                     <p className="text-sm text-gray-700">{videoResponses[currentQuestion] ? 'Video answer recorded.' : 'No recording was made before time ran out.'}</p>
                   )}
                 </div>
-                <button onClick={advanceQuestion}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-colors">
-                  Continue
-                </button>
+                {!reviewReached && currentQuestion === questions.length - 1 && (
+                  <button onClick={advanceQuestion}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-colors">
+                    Continue to review
+                  </button>
+                )}
               </div>
             )}
 
@@ -1119,25 +1121,41 @@ export default function Apply() {
               </div>
             )}
 
-            {/* Back navigation — previous answers stay editable (timed ones lock).
-                Hidden while a hard timer is counting down so it can't be dodged. */}
-            {(currentQuestion > 0 || reviewReached) && !hardTimerExpired
-              && !(currentQ.timerType === 'hard' && hardTimerRemaining > 0 && !isLocked(currentQuestion)) && (
-              <div className="flex items-center justify-between pt-1">
-                {currentQuestion > 0 ? (
-                  <button onClick={() => setCurrentQuestion(q => q - 1)}
-                    className="text-xs text-gray-400 hover:text-gray-600 font-medium">
-                    &#8592; Previous question
-                  </button>
-                ) : <span />}
-                {reviewReached && (
-                  <button onClick={() => setStep('review')}
-                    className="text-xs text-gray-400 hover:text-gray-600 font-medium">
-                    Back to review
-                  </button>
-                )}
-              </div>
-            )}
+            {/* Back / Next navigation at the bottom of every question page —
+                candidates can flip through their answers without returning to
+                the review list. Hidden while a hard timer is counting down so
+                the clock can't be dodged; Next appears once the current
+                question has an answer (or in review/edit mode). */}
+            {!hardTimerExpired
+              && !(currentQ.timerType === 'hard' && hardTimerRemaining > 0 && !isLocked(currentQuestion)) && (() => {
+              const answeredCurrent = currentQ.type === 'text_response'
+                ? Boolean(textResponses[currentQuestion]?.trim())
+                : Boolean(videoResponses[currentQuestion])
+              const canGoBack = currentQuestion > 0
+              const canGoNext = currentQuestion < questions.length - 1
+                && (reviewReached || answeredCurrent || isLocked(currentQuestion))
+              if (!canGoBack && !canGoNext && !reviewReached) return null
+              return (
+                <div className="border-t border-gray-100 pt-4 mt-2 space-y-2">
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setCurrentQuestion(q => q - 1)} disabled={!canGoBack}
+                      className="flex-1 border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium py-2.5 rounded-xl">
+                      &#8592; Back
+                    </button>
+                    <button onClick={() => setCurrentQuestion(q => q + 1)} disabled={!canGoNext}
+                      className="flex-1 border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium py-2.5 rounded-xl">
+                      Next &#8594;
+                    </button>
+                  </div>
+                  {reviewReached && (
+                    <button onClick={() => setStep('review')}
+                      className="w-full text-xs text-gray-400 hover:text-gray-600 font-medium py-1">
+                      See all questions &amp; submit
+                    </button>
+                  )}
+                </div>
+              )
+            })()}
           </div>
         )}
 
