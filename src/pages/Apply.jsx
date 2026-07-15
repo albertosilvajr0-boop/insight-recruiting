@@ -117,6 +117,10 @@ export default function Apply() {
   // save effect pass, briefly clobbering the persisted draft with empty state.
   const [draftLoaded, setDraftLoaded] = useState(false)
   const draftLoadedRef = useRef(false)
+  // Whether the draft found at mount actually contained answers. The persist
+  // effect writes an (empty) draft almost immediately, so "does a draft exist"
+  // checked later is always true — this ref captures the state BEFORE that.
+  const draftHadAnswersRef = useRef(false)
 
   // Restore draft once on mount (before loading job so UI flashes at the right step).
   useEffect(() => {
@@ -137,6 +141,9 @@ export default function Apply() {
       if (draft.videoResponses) setVideoResponses(draft.videoResponses)
       if (draft.textResponses) setTextResponses(draft.textResponses)
       if (draft.timingData) setTimingData(draft.timingData)
+      if (Object.keys(draft.videoResponses || {}).length > 0 || Object.keys(draft.textResponses || {}).length > 0) {
+        draftHadAnswersRef.current = true
+      }
       if (draft.reviewReached) setReviewReached(true)
       if (typeof draft.currentQuestion === 'number') setCurrentQuestion(draft.currentQuestion)
       if (draft.step && STEPS.includes(draft.step) && draft.step !== 'submitting') setStep(draft.step)
@@ -224,15 +231,19 @@ export default function Apply() {
         setCandidateId(data.candidateId)
         setForm({ firstName: data.firstName, lastName: data.lastName, email: data.email, phone: data.phone })
         // Admin reopened this interview: seed the prior answers so the
-        // candidate edits instead of starting over. A local draft (mid-edit
-        // reload) wins over the server copy.
+        // candidate edits instead of starting over. Only a local draft that
+        // actually CONTAINS answers (mid-edit reload) wins over the server
+        // copy — the persist effect auto-writes an empty draft on mount, so
+        // checking mere draft existence here would always skip seeding.
         if (data.reopened) {
           setReopenedSession(true)
-          if (data.priorResponses && !localStorage.getItem(draftKey)) {
+          if (data.priorResponses && !draftHadAnswersRef.current) {
             setVideoResponses(data.priorResponses.videoResponses || {})
             setTextResponses(data.priorResponses.textResponses || {})
             setTimingData(data.priorResponses.timingData || {})
             setReviewReached(true)
+            setStep('compliance')
+            setCurrentQuestion(0)
           }
         }
         // The job doc may not be publicly readable (e.g. paused) — the session
@@ -1136,7 +1147,9 @@ export default function Apply() {
             <div>
               <h2 className="text-xl font-semibold text-gray-900">Review your answers</h2>
               <p className="text-sm text-gray-500 mt-1">
-                Look everything over before you submit — you can still edit any answer that isn't from a timed question.
+                {reopenedSession
+                  ? 'All your previous answers are saved and shown below. Edit only what you need to, then resubmit at the bottom.'
+                  : "Look everything over before you submit — you can still edit any answer that isn't from a timed question."}
               </p>
             </div>
             <div className="space-y-2">
