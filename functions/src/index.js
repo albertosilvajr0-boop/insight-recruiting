@@ -19,6 +19,7 @@ import { createUserHandler, updateUserHandler, deleteUserHandler, ensureCurrentU
 import { sendPhoneVerificationHandler, verifyPhoneCodeHandler } from './verification/phoneVerification.js'
 import { getCandidateStatusHandler } from './candidates/getCandidateStatus.js'
 import { auditCandidateUpdate } from './candidates/auditCandidateChanges.js'
+import { shareCandidateHandler } from './candidates/shareCandidate.js'
 import {
   createCandidateInviteHandler,
   attachInviteResumeHandler,
@@ -159,6 +160,10 @@ export const getCandidateStatus = onCall(async (request) => {
 })
 
 // ─── Invited candidates (access-code flow) ──────────────────────────────────
+export const shareCandidate = onCall({ secrets: EMAIL_SECRETS, timeoutSeconds: 300 }, async (request) => {
+  return shareCandidateHandler(request.data, request)
+})
+
 export const createCandidateInvite = onCall({ secrets: EMAIL_SECRETS }, async (request) => {
   return createCandidateInviteHandler(request.data, request)
 })

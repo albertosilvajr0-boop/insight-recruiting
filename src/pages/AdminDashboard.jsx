@@ -12,7 +12,8 @@ import {
   buildDecisionHistory,
   getDecisionReasons,
 } from "../selection/decisionReasons"
-import {  PLATFORM_NAME } from "../config/organization"
+import { PLATFORM_NAME } from "../config/organization"
+import ShareCandidateModal from "../components/ShareCandidateModal"
 
 const STAGES = ["invited","applied","scored","to_schedule","scheduled","hired","rejected"]
 const STAGE_LABELS = { invited:"Invited", applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", hired:"Hired", rejected:"Rejected" }
@@ -55,6 +56,7 @@ export default function AdminDashboard() {
   const [rejectConfirm, setRejectConfirm] = useState(null)
   const [rejectDecision, setRejectDecision] = useState({ reasonCode: getDecisionReasons(DECISION_OUTCOMES.REJECTED)[0].code, note: "" })
   const [downloadingId, setDownloadingId] = useState(null)
+  const [shareTarget, setShareTarget] = useState(null)
   const navigate = useNavigate()
 
   const handleCardDownload = async (e, c) => {
@@ -361,6 +363,11 @@ export default function AdminDashboard() {
                               <span className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                             ) : '↓'}
                           </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setShareTarget(c) }}
+                            title="Email this profile (resume + videos) to someone"
+                            className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-blue-50 hover:text-blue-600 text-xs"
+                          >&#9993;</button>
                           <button onClick={(e) => toggleFlag(e, c)} title={c.needsReview ? "Unflag" : "Flag for review"} className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-amber-50 hover:text-amber-600 text-xs">⚑</button>
                           {stage !== "rejected" && (
                             <button onClick={(e) => openRejectCandidate(e, c)} title="Reject" className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600 text-xs">&#x2717;</button>
@@ -572,6 +579,10 @@ export default function AdminDashboard() {
       )}
 
       {/* Reject rationale modal */}
+      {shareTarget && (
+        <ShareCandidateModal candidate={shareTarget} onClose={() => setShareTarget(null)} />
+      )}
+
       {rejectConfirm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-lg p-6">
