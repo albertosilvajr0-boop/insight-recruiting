@@ -117,10 +117,6 @@ export default function Apply() {
   // save effect pass, briefly clobbering the persisted draft with empty state.
   const [draftLoaded, setDraftLoaded] = useState(false)
   const draftLoadedRef = useRef(false)
-  // Whether the draft found at mount actually contained answers. The persist
-  // effect writes an (empty) draft almost immediately, so "does a draft exist"
-  // checked later is always true — this ref captures the state BEFORE that.
-  const draftHadAnswersRef = useRef(false)
 
   // Restore draft once on mount (before loading job so UI flashes at the right step).
   useEffect(() => {
@@ -141,9 +137,6 @@ export default function Apply() {
       if (draft.videoResponses) setVideoResponses(draft.videoResponses)
       if (draft.textResponses) setTextResponses(draft.textResponses)
       if (draft.timingData) setTimingData(draft.timingData)
-      if (Object.keys(draft.videoResponses || {}).length > 0 || Object.keys(draft.textResponses || {}).length > 0) {
-        draftHadAnswersRef.current = true
-      }
       if (draft.reviewReached) setReviewReached(true)
       if (typeof draft.currentQuestion === 'number') setCurrentQuestion(draft.currentQuestion)
       if (draft.step && STEPS.includes(draft.step) && draft.step !== 'submitting') setStep(draft.step)
@@ -230,17 +223,18 @@ export default function Apply() {
         setInvite(data)
         setCandidateId(data.candidateId)
         setForm({ firstName: data.firstName, lastName: data.lastName, email: data.email, phone: data.phone })
-        // Admin reopened this interview: seed the prior answers so the
-        // candidate edits instead of starting over. Only a local draft that
-        // actually CONTAINS answers (mid-edit reload) wins over the server
-        // copy — the persist effect auto-writes an empty draft on mount, so
-        // checking mere draft existence here would always skip seeding.
+        // Admin reopened this interview: the server holds a full prior
+        // submission, so ALWAYS seed from it — starting at question 1 with
+        // nothing filled in is never right here. Merge so that any answers
+        // already in local state (a genuine mid-edit draft reload) win
+        // per-question over the server copy.
         if (data.reopened) {
           setReopenedSession(true)
-          if (data.priorResponses && !draftHadAnswersRef.current) {
-            setVideoResponses(data.priorResponses.videoResponses || {})
-            setTextResponses(data.priorResponses.textResponses || {})
-            setTimingData(data.priorResponses.timingData || {})
+          if (data.priorResponses) {
+            const prior = data.priorResponses
+            setVideoResponses(prev => ({ ...(prior.videoResponses || {}), ...prev }))
+            setTextResponses(prev => ({ ...(prior.textResponses || {}), ...prev }))
+            setTimingData(prev => ({ ...(prior.timingData || {}), ...prev }))
             setReviewReached(true)
             setStep('compliance')
             setCurrentQuestion(0)
