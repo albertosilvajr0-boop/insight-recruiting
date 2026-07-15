@@ -28,7 +28,7 @@ import {
 } from '../compliance/selectionProcess'
 import {  getJobClientName, getJobLocation } from '../config/organization'
 
-const STEPS = ['info', 'resume', 'compliance', 'interview', 'submitting']
+const STEPS = ['info', 'resume', 'compliance', 'interview', 'review', 'submitting']
 const DRAFT_KEY_PREFIX = 'apply_draft_v1_'
 // Total length of interview we estimate — used for the progress map.
 function summarizeQuestionTime(q) {
@@ -105,6 +105,11 @@ export default function Apply() {
   const [hardTimerExpired, setHardTimerExpired] = useState(false)
   const [hardTimerWarned, setHardTimerWarned] = useState(false)
   const [draftRestored, setDraftRestored] = useState(false)
+  // Once the candidate has seen the review screen, finishing any question
+  // returns them there instead of marching forward.
+  const [reviewReached, setReviewReached] = useState(false)
+  // Admin reopened a submitted interview — unlocks timed questions for a redo.
+  const [reopenedSession, setReopenedSession] = useState(false)
   const [deviceCheckPassed, setDeviceCheckPassed] = useState(false)
   const [videoUploadProgress, setVideoUploadProgress] = useState({}) // { qIndex: pct }
   // State (not ref) so the save effect can't run until AFTER restored state
@@ -131,6 +136,8 @@ export default function Apply() {
       if (draft.resumeSkipped) setResumeSkipped(true)
       if (draft.videoResponses) setVideoResponses(draft.videoResponses)
       if (draft.textResponses) setTextResponses(draft.textResponses)
+      if (draft.timingData) setTimingData(draft.timingData)
+      if (draft.reviewReached) setReviewReached(true)
       if (typeof draft.currentQuestion === 'number') setCurrentQuestion(draft.currentQuestion)
       if (draft.step && STEPS.includes(draft.step) && draft.step !== 'submitting') setStep(draft.step)
       if (draft.form?.firstName || draft.resumeUrl || draft.resumeSkipped || Object.keys(draft.videoResponses || {}).length > 0) {
@@ -162,6 +169,8 @@ export default function Apply() {
         resumeSkipped,
         videoResponses,
         textResponses,
+        timingData,
+        reviewReached,
         currentQuestion,
         step,
         savedAt: Date.now()
@@ -170,7 +179,7 @@ export default function Apply() {
     } catch {
       /* quota errors are non-fatal — the candidate just loses resume-on-reload */
     }
-  }, [draftLoaded, candidateId, form, acknowledgements, eeoSurvey, resumeUrl, resumeFileName, resumeSkipped, videoResponses, textResponses, currentQuestion, step, draftKey])
+  }, [draftLoaded, candidateId, form, acknowledgements, eeoSurvey, resumeUrl, resumeFileName, resumeSkipped, videoResponses, textResponses, timingData, reviewReached, currentQuestion, step, draftKey])
 
   useEffect(() => {
     async function loadQuestions(roleKey) {
@@ -214,6 +223,18 @@ export default function Apply() {
         setInvite(data)
         setCandidateId(data.candidateId)
         setForm({ firstName: data.firstName, lastName: data.lastName, email: data.email, phone: data.phone })
+        // Admin reopened this interview: seed the prior answers so the
+        // candidate edits instead of starting over. A local draft (mid-edit
+        // reload) wins over the server copy.
+        if (data.reopened) {
+          setReopenedSession(true)
+          if (data.priorResponses && !localStorage.getItem(draftKey)) {
+            setVideoResponses(data.priorResponses.videoResponses || {})
+            setTextResponses(data.priorResponses.textResponses || {})
+            setTimingData(data.priorResponses.timingData || {})
+            setReviewReached(true)
+          }
+        }
         // The job doc may not be publicly readable (e.g. paused) — the session
         // carries everything the interview needs.
         setJob({
@@ -249,7 +270,12 @@ export default function Apply() {
       setHardTimerWarned(false)
 
       const q = questions[currentQuestion]
-      if (q?.timerType === 'hard' && q.timerSeconds > 0) {
+      // Locked (already-attempted hard-timer) questions are read-only — never
+      // restart their countdown.
+      const locked = q?.timerType === 'hard'
+        && timingData[currentQuestion] !== undefined
+        && !reopenedSession
+      if (q?.timerType === 'hard' && q.timerSeconds > 0 && !locked) {
         setHardTimerRemaining(q.timerSeconds)
       } else {
         setHardTimerRemaining(null)
@@ -314,15 +340,24 @@ export default function Apply() {
     if (hardTimerExpired && step === 'interview') {
       // Record timing then advance
       recordTiming()
-      advanceQuestion(videoResponses, textResponses)
+      advanceQuestion()
     }
   }, [hardTimerExpired])
 
   const recordTiming = () => {
     if (questionStartTime) {
       const elapsed = Math.round((Date.now() - questionStartTime) / 1000)
-      setTimingData(prev => ({ ...prev, [currentQuestion]: elapsed }))
+      // First attempt only — edits and re-records keep the original timing
+      // so the hidden speed signal isn't polluted by revisits.
+      setTimingData(prev => prev[currentQuestion] !== undefined ? prev : { ...prev, [currentQuestion]: elapsed })
     }
+  }
+
+  // Hard-timer questions lock after their one attempt: the countdown IS the
+  // assessment. An admin reopen unlocks everything for a fresh redo.
+  const isLocked = (i) => {
+    const q = questions[i]
+    return q?.timerType === 'hard' && timingData[i] !== undefined && !reopenedSession
   }
 
   const formatTimer = (s) => {
@@ -420,7 +455,8 @@ export default function Apply() {
       handleSubmit({}, {})
       return
     }
-    setStep('interview')
+    // Reopened/returning candidates with everything answered go straight to review.
+    setStep(reviewReached ? 'review' : 'interview')
   }
 
   const toggleAcknowledgement = (key) => {
@@ -436,22 +472,25 @@ export default function Apply() {
 
   const handleVideoComplete = (path, _blob) => {
     recordTiming()
-    const updated = { ...videoResponses, [currentQuestion]: path }
-    setVideoResponses(updated)
-    advanceQuestion(updated, textResponses)
+    setVideoResponses(prev => ({ ...prev, [currentQuestion]: path }))
+    advanceQuestion()
   }
 
   const handleTextSubmit = () => {
     if (!textResponses[currentQuestion]?.trim()) return
     recordTiming()
-    advanceQuestion(videoResponses, textResponses)
+    advanceQuestion()
   }
 
-  const advanceQuestion = (vids, texts) => {
-    if (currentQuestion < questions.length - 1) {
+  // Finishing a question moves forward — until the review screen has been
+  // reached once, after which every edit returns there. Nothing submits until
+  // the candidate confirms on the review screen.
+  const advanceQuestion = () => {
+    if (!reviewReached && currentQuestion < questions.length - 1) {
       setCurrentQuestion(q => q + 1)
     } else {
-      handleSubmit(vids, texts)
+      setReviewReached(true)
+      setStep('review')
     }
   }
 
@@ -998,8 +1037,26 @@ export default function Apply() {
               </p>
             </div>
 
+            {/* Locked: hard-timed question already attempted — read-only */}
+            {isLocked(currentQuestion) && (
+              <div className="space-y-3">
+                <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+                  <p className="text-xs font-medium text-gray-400 mb-1">Timed question — answers lock once time starts</p>
+                  {currentQ.type === 'text_response' ? (
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{textResponses[currentQuestion]?.trim() || 'No answer was typed before time ran out.'}</p>
+                  ) : (
+                    <p className="text-sm text-gray-700">{videoResponses[currentQuestion] ? 'Video answer recorded.' : 'No recording was made before time ran out.'}</p>
+                  )}
+                </div>
+                <button onClick={advanceQuestion}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-colors">
+                  Continue
+                </button>
+              </div>
+            )}
+
             {/* Video response or video reading */}
-            {(currentQ.type === 'video_response' || currentQ.type === 'video_reading') && (
+            {!isLocked(currentQuestion) && (currentQ.type === 'video_response' || currentQ.type === 'video_reading') && (
               <>
                 {videoResponses[currentQuestion] && (
                   <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2 text-sm text-green-700 flex items-center gap-2">
@@ -1014,15 +1071,21 @@ export default function Apply() {
                   onComplete={handleVideoComplete}
                   onUploadProgress={(qi, pct) => setVideoUploadProgress(prev => ({ ...prev, [qi]: pct }))}
                 />
+                {videoResponses[currentQuestion] && (
+                  <button onClick={advanceQuestion}
+                    className="w-full border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium py-2.5 rounded-xl">
+                    {reviewReached ? 'Keep this recording & back to review' : 'Keep this recording & continue'}
+                  </button>
+                )}
               </>
             )}
 
             {/* Text response */}
-            {currentQ.type === 'text_response' && (
+            {!isLocked(currentQuestion) && currentQ.type === 'text_response' && (
               <div className="space-y-3">
                 {hardTimerExpired && currentQ.timerType === 'hard' ? (
                   <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 text-center font-medium">
-                    Time's up — moving to next question...
+                    Time's up — moving on...
                   </div>
                 ) : (
                   <>
@@ -1038,12 +1101,93 @@ export default function Apply() {
                       disabled={!textResponses[currentQuestion]?.trim()}
                       className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors"
                     >
-                      {currentQuestion < questions.length - 1 ? 'Submit & Next Question' : 'Submit & Finish'}
+                      {reviewReached ? 'Save & back to review' : currentQuestion < questions.length - 1 ? 'Submit & Next Question' : 'Save & review answers'}
                     </button>
                   </>
                 )}
               </div>
             )}
+
+            {/* Back navigation — previous answers stay editable (timed ones lock).
+                Hidden while a hard timer is counting down so it can't be dodged. */}
+            {(currentQuestion > 0 || reviewReached) && !hardTimerExpired
+              && !(currentQ.timerType === 'hard' && hardTimerRemaining > 0 && !isLocked(currentQuestion)) && (
+              <div className="flex items-center justify-between pt-1">
+                {currentQuestion > 0 ? (
+                  <button onClick={() => setCurrentQuestion(q => q - 1)}
+                    className="text-xs text-gray-400 hover:text-gray-600 font-medium">
+                    &#8592; Previous question
+                  </button>
+                ) : <span />}
+                {reviewReached && (
+                  <button onClick={() => setStep('review')}
+                    className="text-xs text-gray-400 hover:text-gray-600 font-medium">
+                    Back to review
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Review answers before final submit */}
+        {step === 'review' && questions.length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">Review your answers</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Look everything over before you submit — you can still edit any answer that isn't from a timed question.
+              </p>
+            </div>
+            <div className="space-y-2">
+              {questions.map((q, i) => {
+                const text = textResponses[i]
+                const video = videoResponses[i]
+                const answered = q.type === 'text_response' ? Boolean(text?.trim()) : Boolean(video)
+                const locked = isLocked(i)
+                return (
+                  <div key={i} className="border border-gray-100 rounded-xl p-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-gray-400 mb-0.5">
+                        Question {i + 1}{locked ? ' · timed — locked' : ''}
+                      </p>
+                      <p className="text-sm text-gray-700 truncate">{q.text}</p>
+                      {q.type === 'text_response' ? (
+                        <p className={`text-xs mt-1 truncate ${answered ? 'text-gray-500' : 'text-red-500'}`}>
+                          {answered ? `"${text.trim().slice(0, 90)}${text.trim().length > 90 ? '…' : ''}"` : 'No answer yet'}
+                        </p>
+                      ) : (
+                        <p className={`text-xs mt-1 ${answered ? 'text-green-600' : 'text-red-500'}`}>
+                          {answered ? '✓ Video recorded' : 'No recording yet'}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => { setCurrentQuestion(i); setStep('interview') }}
+                      disabled={locked}
+                      className={`shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg border ${locked ? 'border-gray-100 text-gray-300 cursor-not-allowed' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      {locked ? 'Locked' : answered ? 'Edit' : 'Answer'}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+            {(() => {
+              const missing = questions.filter((q, i) =>
+                q.type === 'text_response' ? !textResponses[i]?.trim() : !videoResponses[i]).length
+              return missing > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-sm text-amber-800">
+                  {missing} question{missing === 1 ? ' has' : 's have'} no answer yet. You can still submit, but complete answers make a much stronger impression.
+                </div>
+              )
+            })()}
+            <button
+              onClick={() => handleSubmit(videoResponses, textResponses)}
+              className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 rounded-xl transition-colors"
+            >
+              Submit my interview
+            </button>
           </div>
         )}
 

@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc, updateDoc, deleteDoc, setDoc, serverTimestamp, collection, query, where, getDocs, orderBy } from 'firebase/firestore'
 import { ref, getDownloadURL, listAll } from 'firebase/storage'
-import { auth, db, storage } from '../firebase'
+import { httpsCallable } from 'firebase/functions'
+import { auth, db, storage, functions } from '../firebase'
 import { format } from 'date-fns'
 import ResumeViewer from '../components/ResumeViewer'
 import { downloadCandidateProfile } from '../utils/downloadProfile'
@@ -115,6 +116,7 @@ export default function AdminCandidate() {
   const [downloadStatus, setDownloadStatus] = useState('')
   const [showShare, setShowShare] = useState(false) // '' | progress text
   const [shares, setShares] = useState(null) // null = loading, [] = none
+  const [reopenState, setReopenState] = useState(null) // null | 'confirm' | 'working' | 'done'
 
   // Manual scores
   const [resumeScores, setResumeScores] = useState({})
@@ -403,6 +405,21 @@ export default function AdminCandidate() {
     } catch (err) { alert('Failed to flag: ' + err.message) }
   }
 
+  // Reopen a submitted invite interview: candidate signs back in with the
+  // same code, answers load pre-filled, they edit and resubmit (rescored).
+  const handleReopen = async () => {
+    setReopenState('working')
+    try {
+      const reopenInvite = httpsCallable(functions, 'reopenInvite')
+      await reopenInvite({ candidateId })
+      setCandidate(c => ({ ...c, stage: 'invited' }))
+      setReopenState('done')
+    } catch (err) {
+      alert('Failed to reopen: ' + (err?.message || err))
+      setReopenState(null)
+    }
+  }
+
   const saveAllScores = async () => {
     setSaving(true)
     try {
@@ -475,6 +492,13 @@ export default function AdminCandidate() {
             </button>
             {showShare && candidate && (
               <ShareCandidateModal candidate={{ id: candidateId, ...candidate }} onClose={() => setShowShare(false)} />
+            )}
+            {candidate.accessCode && !['invited', 'hired', 'rejected'].includes(candidate.stage) && (
+              <button onClick={() => setReopenState('confirm')}
+                title="Let this candidate sign back in and edit their answers"
+                className="text-xs font-medium px-3 py-1.5 rounded-lg border bg-white text-gray-700 border-gray-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">
+                &#8635; Reopen
+              </button>
             )}
             <button onClick={toggleFlag} title={candidate.needsReview ? 'Unflag' : 'Flag for second opinion'}
               className={`text-xs font-medium px-3 py-1.5 rounded-lg border ${candidate.needsReview ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-white text-gray-600 border-gray-200 hover:bg-amber-50 hover:text-amber-700'}`}>
@@ -916,6 +940,45 @@ export default function AdminCandidate() {
           onSubmit={submitDecision}
           loading={actionLoading}
         />
+      )}
+
+      {/* Reopen interview confirmation */}
+      {reopenState && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => reopenState !== 'working' && setReopenState(null)}>
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            {reopenState === 'done' ? (
+              <>
+                <div className="text-green-500 text-3xl text-center mb-2">&#10003;</div>
+                <h3 className="text-lg font-semibold text-gray-900 text-center">Interview reopened</h3>
+                <p className="text-sm text-gray-500 mt-2">
+                  Tell <span className="font-medium text-gray-700">{candidate.firstName}</span> to sign back in at{' '}
+                  <span className="font-medium text-gray-700">insightedgehq.com</span> with their same code{' '}
+                  <span className="font-mono font-semibold text-gray-900">{candidate.accessCode}</span>.
+                  All their answers will be pre-filled — they just edit what they need to and resubmit.
+                </p>
+                <button onClick={() => setReopenState(null)}
+                  className="mt-5 w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 rounded-xl">
+                  Done
+                </button>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-semibold text-gray-900">Reopen this interview?</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  <span className="font-medium text-gray-700">{candidate.firstName} {candidate.lastName}</span> will move back to Invited and can sign in with their existing code to edit their answers and resubmit. Scores and analysis will be regenerated when they do.
+                </p>
+                <div className="flex items-center justify-end gap-3 mt-6">
+                  <button onClick={() => setReopenState(null)} disabled={reopenState === 'working'}
+                    className="text-sm text-gray-600 font-medium px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50">Cancel</button>
+                  <button onClick={handleReopen} disabled={reopenState === 'working'}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium px-5 py-2.5 rounded-xl">
+                    {reopenState === 'working' ? 'Reopening…' : 'Reopen interview'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Delete Confirmation */}
