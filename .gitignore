@@ -7,3 +7,7 @@ functions/node_modules
 service-account.json
 *.log
 functions/apply-shell.html
+
+# Generated candidate export packages
+InsightEdge_Candidates/
+InsightEdge_Candidates.zip
