@@ -11,6 +11,12 @@ import { writeAuditLog } from '../utils/auditLog.js'
 // and clients strip playable <video>. So: resume attached, every video as a
 // prominent watch-card — all one-click, no login.
 const MAX_RESUME_ATTACH_BYTES = 20 * 1024 * 1024
+const MAX_RECIPIENTS = 10
+
+// Visible sender. Gmail only honors this when the address is a verified
+// "Send mail as" alias on the SMTP account — otherwise it rewrites the
+// header back to the authenticated sender.
+const SHARE_FROM_EMAIL = process.env.SHARE_FROM_EMAIL || 'albertosilva@insightedgehq.com'
 
 function escapeHtml(text) {
   return String(text)
@@ -33,11 +39,24 @@ export async function shareCandidateHandler(data, request) {
   const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
 
   const candidateId = String(data?.candidateId || '').trim()
-  const toEmail = String(data?.toEmail || '').trim()
   const note = String(data?.note || '').trim().slice(0, 1000)
   if (!candidateId) throw new HttpsError('invalid-argument', 'Missing candidateId.')
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) {
-    throw new HttpsError('invalid-argument', 'Enter a valid recipient email address.')
+
+  // Accept an array (toEmails) or a comma/space-separated string (toEmail).
+  const rawRecipients = Array.isArray(data?.toEmails)
+    ? data.toEmails
+    : String(data?.toEmails || data?.toEmail || '').split(/[\s,;]+/)
+  const toEmails = [...new Set(rawRecipients.map(e => String(e).trim().toLowerCase()).filter(Boolean))]
+  if (!toEmails.length) {
+    throw new HttpsError('invalid-argument', 'Enter at least one recipient email address.')
+  }
+  if (toEmails.length > MAX_RECIPIENTS) {
+    throw new HttpsError('invalid-argument', `Maximum ${MAX_RECIPIENTS} recipients per share.`)
+  }
+  for (const e of toEmails) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) {
+      throw new HttpsError('invalid-argument', `Invalid recipient email address: ${e}`)
+    }
   }
 
   const db = getFirestore()
@@ -88,13 +107,36 @@ export async function shareCandidateHandler(data, request) {
     }
   }
 
-  const videoCards = videos.map(v => `
-      <a href="${v.url}" style="display: block; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 16px 18px; margin: 0 0 10px;">
+  const sharedBy = profile.email || request.auth.token?.email || request.auth.uid
+
+  // Share doc: holds the real video URLs so email links can route through the
+  // /t/{shareId}/{recipientIndex}/{target} tracker (open pixel + click log).
+  const shareRef = db.collection('shares').doc()
+  const links = {}
+  for (const v of videos) links[`v${v.num}`] = { url: v.url, label: v.label, num: v.num }
+  await shareRef.set({
+    candidateId,
+    candidateName: name,
+    jobTitle,
+    recipients: toEmails,
+    note: note || null,
+    by: sharedBy,
+    links,
+    videoCount: videos.length,
+    resumeAttached,
+    createdAt: FieldValue.serverTimestamp(),
+  })
+
+  for (let ri = 0; ri < toEmails.length; ri++) {
+    const trackUrl = target => `${APP_URL}/t/${shareRef.id}/${ri}/${target}`
+
+    const videoCards = videos.map(v => `
+      <a href="${trackUrl(`v${v.num}`)}" style="display: block; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 16px 18px; margin: 0 0 10px;">
         <span style="display: inline-block; background: #dc2626; color: #ffffff; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 4px 10px; margin-right: 10px;">&#9654; WATCH</span>
         <span style="color: #1e3a8a; font-size: 14px; font-weight: 600;">Q${v.num} — ${escapeHtml(v.label)}</span>
       </a>`).join('')
 
-  const html = `
+    const html = `
     <div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #111827;">
       <img src="${APP_URL}/logo.png" alt="Insight Edge" style="height: 44px; margin: 8px 0 16px;" />
       <h2 style="margin: 0 0 4px; color: #111827;">${escapeHtml(name)}</h2>
@@ -103,22 +145,24 @@ export async function shareCandidateHandler(data, request) {
       ${resumeAttached ? '<p style="font-size: 13px; color: #374151; margin: 0 0 18px;">&#128206; Resume attached to this email.</p>' : ''}
       ${videos.length ? '<p style="font-size: 13px; color: #374151; margin: 0 0 8px; font-weight: 600;">Interview answers — click to watch:</p>' : '<p style="font-size: 13px; color: #6b7280;">No video answers on file for this candidate.</p>'}
       ${videoCards}
-      <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">Shared via Insight Edge by ${escapeHtml(profile.email || request.auth.token?.email || 'an administrator')}. Video links open in the browser — no account needed.</p>
+      <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">Shared via Insight Edge by ${escapeHtml(sharedBy)}. Video links open in the browser — no account needed.</p>
+      <img src="${trackUrl('open')}" width="1" height="1" alt="" style="display: none;" />
     </div>`
 
-  await sendEmail({
-    to: toEmail,
-    subject: `Candidate for review: ${name} — ${jobTitle}`,
-    html,
-    attachments,
-  })
+    await sendEmail({
+      to: toEmails[ri],
+      from: SHARE_FROM_EMAIL,
+      subject: `Candidate for review: ${name} — ${jobTitle}`,
+      html,
+      attachments,
+    })
+  }
 
+  const sharedAt = new Date().toISOString()
   await db.collection('candidates').doc(candidateId).update({
-    sharedWith: FieldValue.arrayUnion({
-      email: toEmail,
-      at: new Date().toISOString(),
-      by: profile.email || request.auth.token?.email || request.auth.uid,
-    }),
+    sharedWith: FieldValue.arrayUnion(
+      ...toEmails.map(email => ({ email, at: sharedAt, by: sharedBy }))
+    ),
     updatedAt: FieldValue.serverTimestamp(),
   })
 
@@ -128,8 +172,8 @@ export async function shareCandidateHandler(data, request) {
     action: 'candidate.shared',
     targetType: 'candidate',
     targetId: candidateId,
-    metadata: { toEmail, videos: videos.length, resumeAttached },
+    metadata: { toEmails, shareId: shareRef.id, videos: videos.length, resumeAttached },
   })
 
-  return { success: true, videos: videos.length, resumeAttached }
+  return { success: true, videos: videos.length, resumeAttached, recipients: toEmails }
 }

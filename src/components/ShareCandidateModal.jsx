@@ -69,7 +69,10 @@ export default function ShareCandidateModal({ candidate, onClose }) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+  const emailList = email.split(/[\s,;]+/).map(e => e.trim()).filter(Boolean)
+  const validEmail = emailList.length > 0
+    && emailList.length <= 10
+    && emailList.every(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))
 
   const handleSend = async () => {
     if (!validEmail || sending) return
@@ -79,7 +82,7 @@ export default function ShareCandidateModal({ candidate, onClose }) {
       const shareCandidate = httpsCallable(functions, 'shareCandidate')
       const { data } = await shareCandidate({
         candidateId: candidate.id,
-        toEmail: email.trim(),
+        toEmails: emailList,
         note: note.trim(),
       })
       setResult(data)
@@ -100,8 +103,9 @@ export default function ShareCandidateModal({ candidate, onClose }) {
               <div className="text-green-500 text-3xl">&#10003;</div>
               <h3 className="text-lg font-semibold text-gray-900">Profile sent</h3>
               <p className="text-sm text-gray-500">
-                {candidate.firstName} {candidate.lastName}'s profile went to <span className="font-medium">{email.trim()}</span>
+                {candidate.firstName} {candidate.lastName}'s profile went to <span className="font-medium">{(result.recipients || emailList).join(', ')}</span>
                 {' '}with {result.resumeAttached ? 'the resume attached and ' : ''}{result.videos} video answer{result.videos === 1 ? '' : 's'} linked.
+                Opens and video clicks will show under Share activity on the candidate page.
               </p>
             </div>
             <button onClick={onClose} className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 rounded-xl">Done</button>
@@ -142,13 +146,14 @@ export default function ShareCandidateModal({ candidate, onClose }) {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Send to</label>
                   <input
-                    type="email"
+                    type="text"
                     autoFocus
                     value={email}
                     onChange={e => { setEmail(e.target.value); setError(null) }}
-                    placeholder="hiring.manager@dealership.com"
+                    placeholder="hiring.manager@dealership.com, gm@dealership.com"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                  <p className="text-xs text-gray-400 mt-1">Separate multiple addresses with commas (up to 10). Each person gets their own email.</p>
                 </div>
                 {error && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>}
                 <div className="flex gap-3">

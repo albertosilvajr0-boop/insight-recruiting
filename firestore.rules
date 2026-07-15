@@ -233,6 +233,16 @@ service cloud.firestore {
       allow create, update, delete: if hasPermission('manage_questions');
     }
 
+    match /shares/{shareId} {
+      allow get, list: if hasPermission('view_candidates');
+      allow create, update, delete: if false;
+
+      match /clicks/{clickId} {
+        allow get, list: if hasPermission('view_candidates');
+        allow create, update, delete: if false;
+      }
+    }
+
     match /verificationCodes/{codeId} {
       allow read, write: if false;
     }
