@@ -26,6 +26,7 @@ import {
   attachInviteResumeHandler,
   getInviteSessionHandler,
   submitInvitedInterviewHandler,
+  reopenInviteHandler,
 } from './candidates/invites.js'
 import { assertPermission } from './security/assertAccess.js'
 import { PERMISSIONS } from './security/roles.js'
@@ -179,6 +180,10 @@ export const getInviteSession = onCall(async (request) => {
 
 export const submitInvitedInterview = onCall(async (request) => {
   return submitInvitedInterviewHandler(request.data)
+})
+
+export const reopenInvite = onCall(async (request) => {
+  return reopenInviteHandler(request.data, request)
 })
 
 // ─── XML Job Feed for Indeed / ZipRecruiter crawlers ───────────────────────

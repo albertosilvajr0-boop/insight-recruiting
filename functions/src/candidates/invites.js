@@ -167,6 +167,11 @@ export async function getInviteSessionHandler(data) {
   if (!candidate.firstSignInAt) signInStamp.firstSignInAt = FieldValue.serverTimestamp()
   await db.collection('candidates').doc(found.id).update(signInStamp)
 
+  // Reopened by an admin after submission: hand back the prior responses so
+  // the interview loads pre-filled and the candidate only edits what they
+  // need to (their device's local draft was cleared when they submitted).
+  const reopened = Boolean(candidate.reopenedAt)
+
   return {
     alreadySubmitted: false,
     candidateId: found.id,
@@ -180,7 +185,54 @@ export async function getInviteSessionHandler(data) {
     clientName: candidate.clientName,
     location: candidate.location,
     resumeOnFile: Boolean(candidate.resumeUrl),
+    reopened,
+    priorResponses: reopened ? {
+      videoResponses: candidate.videoResponses || {},
+      textResponses: candidate.textResponses || {},
+      timingData: candidate.timingData || {},
+    } : null,
   }
+}
+
+// ─── Admin: reopen a submitted interview so the candidate can edit ──────────
+// Flips the candidate back to 'invited' — they sign in with the same access
+// code, their answers load pre-filled, and resubmitting re-runs the pipeline.
+export async function reopenInviteHandler(data, request) {
+  const profile = await assertPermission(request, PERMISSIONS.SCORE_CANDIDATES)
+  const db = getFirestore()
+
+  const candidateId = requireString(data.candidateId, 'candidateId', 80)
+  const snap = await db.collection('candidates').doc(candidateId).get()
+  if (!snap.exists) throw new HttpsError('not-found', 'Candidate not found.')
+  const candidate = snap.data()
+
+  if (!candidate.accessCode) {
+    throw new HttpsError('failed-precondition', 'Only invited candidates (with an access code) can be reopened.')
+  }
+  if (candidate.stage === 'invited') {
+    throw new HttpsError('failed-precondition', 'This interview is already open.')
+  }
+  if (['hired', 'rejected'].includes(candidate.stage)) {
+    throw new HttpsError('failed-precondition', 'This candidate has a final decision — change their stage first if you really want to reopen.')
+  }
+
+  await db.collection('candidates').doc(candidateId).update({
+    stage: 'invited',
+    reopenedAt: FieldValue.serverTimestamp(),
+    reopenCount: FieldValue.increment(1),
+    updatedAt: FieldValue.serverTimestamp(),
+  })
+
+  await writeAuditLog({
+    actorUid: request.auth.uid,
+    actorEmail: profile.email || request.auth.token?.email || null,
+    action: 'candidate.interview_reopened',
+    targetType: 'candidate',
+    targetId: candidateId,
+    metadata: { previousStage: candidate.stage },
+  })
+
+  return { success: true, accessCode: candidate.accessCode, inviteLink: `${APP_URL}/i/${candidate.accessCode}` }
 }
 
 // ─── Public: submit the invited candidate's interview responses ─────────────
