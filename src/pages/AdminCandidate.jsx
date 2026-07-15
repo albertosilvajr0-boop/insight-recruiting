@@ -6,6 +6,7 @@ import { auth, db, storage } from '../firebase'
 import { format } from 'date-fns'
 import ResumeViewer from '../components/ResumeViewer'
 import { downloadCandidateProfile } from '../utils/downloadProfile'
+import ShareCandidateModal from '../components/ShareCandidateModal'
 import { adminAuditFields } from '../security/auditFields'
 import { buildInitialOnboardingDoc } from '../onboarding/plan'
 import {
@@ -111,7 +112,8 @@ export default function AdminCandidate() {
   const [decisionModal, setDecisionModal] = useState(null)
   const [decisionForm, setDecisionForm] = useState({ reasonCode: '', note: '' })
   const [saving, setSaving] = useState(false)
-  const [downloadStatus, setDownloadStatus] = useState('') // '' | progress text
+  const [downloadStatus, setDownloadStatus] = useState('')
+  const [showShare, setShowShare] = useState(false) // '' | progress text
 
   // Manual scores
   const [resumeScores, setResumeScores] = useState({})
@@ -442,6 +444,14 @@ export default function AdminCandidate() {
               className="text-xs font-medium px-3 py-1.5 rounded-lg border bg-white text-gray-700 border-gray-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 disabled:opacity-60 disabled:cursor-wait">
               {downloadStatus || '↓ Download profile'}
             </button>
+            <button onClick={() => setShowShare(true)}
+              title="Email this profile (resume + videos) to someone"
+              className="text-xs font-medium px-3 py-1.5 rounded-lg border bg-white text-gray-700 border-gray-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">
+              &#9993; Share
+            </button>
+            {showShare && candidate && (
+              <ShareCandidateModal candidate={{ id: candidateId, ...candidate }} onClose={() => setShowShare(false)} />
+            )}
             <button onClick={toggleFlag} title={candidate.needsReview ? 'Unflag' : 'Flag for second opinion'}
               className={`text-xs font-medium px-3 py-1.5 rounded-lg border ${candidate.needsReview ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-white text-gray-600 border-gray-200 hover:bg-amber-50 hover:text-amber-700'}`}>
               {candidate.needsReview ? '⚑ Flagged' : 'Flag'}

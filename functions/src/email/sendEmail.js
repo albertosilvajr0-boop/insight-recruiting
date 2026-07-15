@@ -21,7 +21,7 @@ function getSmtpTransport() {
   return smtpTransport
 }
 
-export async function sendEmail({ to, subject, html }) {
+export async function sendEmail({ to, subject, html, attachments }) {
   // Preferred path: Gmail SMTP with an app password (GMAIL_APP_PASSWORD
   // secret). The Gmail REST API path below requires domain-wide delegation,
   // which the default runtime service account does not have — without it,
@@ -32,9 +32,15 @@ export async function sendEmail({ to, subject, html }) {
       to,
       subject,
       html,
+      ...(attachments?.length ? { attachments } : {}),
     })
     console.log(`[email] Sent "${subject}" to ${to} via SMTP`)
     return
+  }
+
+  if (attachments?.length) {
+    // The raw Gmail API fallback below doesn't build multipart MIME.
+    throw new Error('Attachments require the SMTP path (GMAIL_APP_PASSWORD secret).')
   }
 
   const gmail = await getGmailClient()
