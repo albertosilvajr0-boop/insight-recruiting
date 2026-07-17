@@ -28,10 +28,18 @@ function escapeHtml(text) {
 
 async function resolveVideoFile(bucket, prefix) {
   const [files] = await bucket.getFiles({ prefix })
-  const vids = files.filter(f => /\.(webm|mp4)$/.test(f.name))
-  return vids.find(f => f.name.endsWith('full_recording.webm'))
-    || vids.find(f => /\/recording\.(webm|mp4)$/.test(f.name))
-    || vids[0]
+  const withBase = files
+    .filter(f => /\.(webm|mp4)$/.test(f.name))
+    .map(f => ({ f, base: f.name.split('/').pop() }))
+  // Newest take wins — re-records upload as take_{timestamp} since storage
+  // rules forbid overwriting an existing file. Legacy names still resolve.
+  const takes = withBase
+    .filter(x => /^take_\d+\.(webm|mp4)$/.test(x.base))
+    .sort((a, b) => b.base.localeCompare(a.base, undefined, { numeric: true }))
+  if (takes.length) return takes[0].f
+  return withBase.find(x => x.base === 'full_recording.webm')?.f
+    || withBase.find(x => /^recording\.(webm|mp4)$/.test(x.base))?.f
+    || withBase[0]?.f
     || null
 }
 

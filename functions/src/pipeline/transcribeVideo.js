@@ -112,9 +112,14 @@ async function transcribeAudio(audioBuffer, mimeHint) {
 async function downloadAndConcatChunks(bucket, videoPath) {
   // videoPath is like "videos/{candidateId}" — list all chunks
   const [files] = await bucket.getFiles({ prefix: videoPath })
+  const baseOf = (f) => f.name.split('/').pop()
 
-  // Prefer full_recording.webm / recording.{webm,mp4} if it exists (single-file upload)
-  const single = files.find(f =>
+  // Newest take first (take_{timestamp} — re-records can't overwrite, storage
+  // rules forbid updates), then legacy single-file names.
+  const takes = files
+    .filter(f => /^take_\d+\.(webm|mp4)$/.test(baseOf(f)))
+    .sort((a, b) => baseOf(b).localeCompare(baseOf(a), undefined, { numeric: true }))
+  const single = takes[0] || files.find(f =>
     f.name.endsWith('full_recording.webm') ||
     f.name.endsWith('recording.webm') ||
     f.name.endsWith('recording.mp4')
@@ -124,9 +129,9 @@ async function downloadAndConcatChunks(bucket, videoPath) {
     return { buffer, mime: single.metadata?.contentType || (single.name.endsWith('.mp4') ? 'video/mp4' : 'video/webm') }
   }
 
-  // Otherwise concat chunks
+  // Otherwise concat chunks (takes excluded — they're standalone recordings)
   const chunkFiles = files
-    .filter(f => (f.name.endsWith('.webm') || f.name.endsWith('.mp4')) && !f.name.includes('manifest'))
+    .filter(f => (f.name.endsWith('.webm') || f.name.endsWith('.mp4')) && !f.name.includes('manifest') && !/^take_/.test(baseOf(f)))
     .sort((a, b) => a.name.localeCompare(b.name))
 
   if (chunkFiles.length === 0) return null

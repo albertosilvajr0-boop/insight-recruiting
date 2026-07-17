@@ -1,5 +1,6 @@
 import { ref, getDownloadURL, listAll } from 'firebase/storage'
 import { storage } from '../firebase'
+import { pickRecordingFile } from './videoFiles'
 
 // Build a candidate profile zip (resume + videos + text summary) and trigger
 // a browser download. Admins use this to email a full profile in one attachment.
@@ -130,11 +131,7 @@ function buildSummary(candidate, issues) {
 async function resolveVideoFile(path) {
   const dirRef = ref(storage, path)
   const list = await listAll(dirRef)
-  // iPhones record .mp4; Android/desktop record .webm
-  return list.items.find(f => f.name === 'full_recording.webm')
-    || list.items.find(f => /^recording\.(webm|mp4)$/.test(f.name))
-    || list.items.find(f => /\.(webm|mp4)$/.test(f.name))
-    || null
+  return pickRecordingFile(list.items)
 }
 
 export async function downloadCandidateProfile(candidate, onProgress) {
