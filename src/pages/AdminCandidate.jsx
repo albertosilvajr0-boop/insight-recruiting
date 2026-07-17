@@ -234,6 +234,8 @@ export default function AdminCandidate() {
   const [showShare, setShowShare] = useState(false) // '' | progress text
   const [shares, setShares] = useState(null) // null = loading, [] = none
   const [reopenState, setReopenState] = useState(null) // null | 'confirm' | 'working' | 'done'
+  const [deleteQuestionConfirm, setDeleteQuestionConfirm] = useState(null)
+  const [deletingQuestion, setDeletingQuestion] = useState(null)
 
   // Manual scores
   const [resumeScores, setResumeScores] = useState({})
@@ -453,15 +455,23 @@ export default function AdminCandidate() {
     return STAGE_FLOW[idx + 1]
   }
 
+  function withoutKey(map, key) {
+    const next = { ...(map || {}) }
+    delete next[key]
+    return next
+  }
+
   // Calculate cumulative score
-  const calcCumulativeScore = () => {
+  const calcCumulativeScoreFrom = (resumeScoreMap = resumeScores, answerScoreMap = answerScores) => {
     const allScores = []
-    Object.values(resumeScores).forEach(v => { if (v) allScores.push(v) })
-    Object.values(answerScores).forEach(v => { if (v) allScores.push(v) })
+    Object.values(resumeScoreMap).forEach(v => { if (v) allScores.push(v) })
+    Object.values(answerScoreMap).forEach(v => { if (v) allScores.push(v) })
     if (allScores.length === 0) return null
     const sum = allScores.reduce((a, b) => a + b, 0)
     return { sum, count: allScores.length, avg: (sum / allScores.length).toFixed(1), max: allScores.length * 5 }
   }
+
+  const calcCumulativeScore = () => calcCumulativeScoreFrom()
 
   const setResumeScore = (key, value) => {
     setResumeScores(prev => ({ ...prev, [key]: value }))
@@ -476,6 +486,67 @@ export default function AdminCandidate() {
   const setAnswerNote = (qIndex, value) => {
     setAnswerNotes(prev => ({ ...prev, [qIndex]: value }))
     dirtyRef.current = true
+  }
+
+  const deleteEvaluationQuestion = async (qIndex) => {
+    if (!candidate || deletingQuestion) return
+
+    setDeletingQuestion(qIndex)
+    setSaveStatus('saving')
+    clearTimeout(saveTimerRef.current)
+
+    const hasQuestionMap = Boolean(candidate.questions)
+    const nextQuestions = hasQuestionMap ? withoutKey(candidate.questions, qIndex) : candidate.questions
+    const nextVideoResponses = withoutKey(candidate.videoResponses, qIndex)
+    const nextTextResponses = withoutKey(candidate.textResponses, qIndex)
+    const nextVideoTranscripts = withoutKey(candidate.videoTranscripts, qIndex)
+    const nextTimingData = withoutKey(candidate.timingData, qIndex)
+    const nextAnswerScores = withoutKey(answerScores, qIndex)
+    const nextAnswerNotes = withoutKey(answerNotes, qIndex)
+    const cumulative = calcCumulativeScoreFrom(resumeScores, nextAnswerScores)
+
+    try {
+      const updatePayload = {
+        videoResponses: nextVideoResponses,
+        textResponses: nextTextResponses,
+        videoTranscripts: nextVideoTranscripts,
+        timingData: nextTimingData,
+        manualAnswerScores: nextAnswerScores,
+        manualAnswerNotes: nextAnswerNotes,
+        manualScore: cumulative ? { avg: parseFloat(cumulative.avg), sum: cumulative.sum, count: cumulative.count, max: cumulative.max } : null,
+        ...adminAuditFields(),
+      }
+      if (hasQuestionMap) updatePayload.questions = nextQuestions
+
+      await updateDoc(doc(db, 'candidates', candidateId), updatePayload)
+
+      setCandidate(c => c ? ({
+        ...c,
+        questions: hasQuestionMap ? nextQuestions : c.questions,
+        videoResponses: nextVideoResponses,
+        textResponses: nextTextResponses,
+        videoTranscripts: nextVideoTranscripts,
+        timingData: nextTimingData,
+        manualAnswerScores: nextAnswerScores,
+        manualAnswerNotes: nextAnswerNotes,
+        manualScore: cumulative ? { avg: parseFloat(cumulative.avg), sum: cumulative.sum, count: cumulative.count, max: cumulative.max } : null,
+      }) : c)
+      setAnswerScores(nextAnswerScores)
+      setAnswerNotes(nextAnswerNotes)
+      setVideoUrls(prev => withoutKey(prev, qIndex))
+      setExpandedTranscripts(prev => withoutKey(prev, qIndex))
+      delete videoElRefs.current[qIndex]
+      dirtyRef.current = false
+      setDeleteQuestionConfirm(null)
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus(s => s === 'saved' ? 'idle' : s), 1500)
+    } catch (err) {
+      console.error('Failed to delete evaluation question:', err)
+      alert('Failed to delete question: ' + (err?.message || err))
+      setSaveStatus('idle')
+    } finally {
+      setDeletingQuestion(null)
+    }
   }
 
   // Auto-save scores ~800ms after the last change. Keeps manual evaluation
@@ -853,7 +924,7 @@ export default function AdminCandidate() {
         </div>
 
         {/* Interview Responses + Scoring */}
-        {(Object.keys(videoUrls).length > 0 || Object.keys(candidate.textResponses || {}).length > 0 || candidate.questions) && (
+        {(Object.keys(videoUrls).length > 0 || Object.keys(candidate.textResponses || {}).length > 0 || Object.keys(candidate.questions || {}).length > 0) && (
           <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-6">
             <h2 className="text-sm font-semibold text-gray-900">Interview Responses</h2>
             {Object.entries(candidate.questions || {}).sort(([a], [b]) => Number(a) - Number(b)).map(([qIndex, qData]) => {
@@ -879,7 +950,38 @@ export default function AdminCandidate() {
                       </div>
                       <p className="text-sm text-gray-900 font-medium leading-relaxed">"{qData.text}"</p>
                     </div>
+                    <button
+                      onClick={() => setDeleteQuestionConfirm(qIndex)}
+                      disabled={deletingQuestion === qIndex}
+                      className="shrink-0 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-100 px-2.5 py-1.5 rounded-lg disabled:opacity-60"
+                    >
+                      Delete from evaluation
+                    </button>
                   </div>
+                  {deleteQuestionConfirm === qIndex && (
+                    <div className="ml-9 bg-red-50 border border-red-200 rounded-lg p-3 space-y-3">
+                      <p className="text-sm font-medium text-red-900">Are you sure?</p>
+                      <p className="text-xs text-red-700">
+                        This removes this question, its response, score, notes, transcript, and timing from this candidate evaluation.
+                      </p>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => setDeleteQuestionConfirm(null)}
+                          disabled={deletingQuestion === qIndex}
+                          className="text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-white disabled:opacity-60"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => deleteEvaluationQuestion(qIndex)}
+                          disabled={deletingQuestion === qIndex}
+                          className="text-xs font-medium px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white"
+                        >
+                          {deletingQuestion === qIndex ? 'Deleting...' : 'Delete question'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {hasVideo && (
                     <div className="ml-9 space-y-2">
                       <video
@@ -966,7 +1068,40 @@ export default function AdminCandidate() {
             {/* Fallback for old applications without question data */}
             {!candidate.questions && Object.entries(videoUrls).map(([qIndex, url]) => (
               <div key={qIndex} className="space-y-3">
-                <p className="text-xs font-medium text-gray-500">Question {parseInt(qIndex) + 1}</p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-medium text-gray-500">Question {parseInt(qIndex) + 1}</p>
+                  <button
+                    onClick={() => setDeleteQuestionConfirm(qIndex)}
+                    disabled={deletingQuestion === qIndex}
+                    className="shrink-0 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-100 px-2.5 py-1.5 rounded-lg disabled:opacity-60"
+                  >
+                    Delete from evaluation
+                  </button>
+                </div>
+                {deleteQuestionConfirm === qIndex && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-3">
+                    <p className="text-sm font-medium text-red-900">Are you sure?</p>
+                    <p className="text-xs text-red-700">
+                      This removes this question, its video response, score, notes, transcript, and timing from this candidate evaluation.
+                    </p>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => setDeleteQuestionConfirm(null)}
+                        disabled={deletingQuestion === qIndex}
+                        className="text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-white disabled:opacity-60"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => deleteEvaluationQuestion(qIndex)}
+                        disabled={deletingQuestion === qIndex}
+                        className="text-xs font-medium px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white"
+                      >
+                        {deletingQuestion === qIndex ? 'Deleting...' : 'Delete question'}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <video controls src={url} className="w-full rounded-lg border border-gray-200" />
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-gray-500 font-medium">Score:</span>
