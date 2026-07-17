@@ -19,10 +19,6 @@ const STAGES = ["invited","applied","scored","to_schedule","scheduled","hired","
 const STAGE_LABELS = { invited:"Invited", applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", hired:"Hired", rejected:"Rejected" }
 // Map old stages to new ones for backwards compatibility
 const STAGE_MIGRATION = { screening: "applied", interview_2: "applied", scheduling: "to_schedule" }
-const ROLE_GROUPS = [
-  { key: "bdc-agent", label: "Customer outreach" },
-  { key: "sales-rep", label: "Sales" },
-]
 
 // SLA: how long a candidate can sit in a stage before it's considered stale.
 // These numbers reflect what a recruiter actually cares about — an "Applied"
@@ -275,17 +271,6 @@ export default function AdminDashboard() {
     }).length
   ), [candidates])
 
-  const groupedCandidates = useMemo(() => {
-    const groups = ROLE_GROUPS.map(group => ({
-      ...group,
-      candidates: filteredCandidates.filter(c => c.roleKey === group.key),
-    }))
-    const matchedIds = new Set(groups.flatMap(group => group.candidates.map(c => c.id)))
-    const otherCandidates = filteredCandidates.filter(c => !matchedIds.has(c.id))
-    if (otherCandidates.length) groups.push({ key: "other", label: "Other Roles", candidates: otherCandidates })
-    return groups
-  }, [filteredCandidates])
-
   const renderKanbanBoard = (roleCandidates, roleScope) => (
     <div className="overflow-x-auto">
       <div className="flex gap-4 min-w-max">
@@ -483,18 +468,14 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Kanban by role group */}
-        <div className="space-y-6">
-          {groupedCandidates.map(group => (
-            <section key={group.key}>
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-sm font-semibold text-gray-900">{group.label}</h2>
-                <span className="text-xs text-gray-500">{group.candidates.length} candidate{group.candidates.length !== 1 ? "s" : ""}</span>
-              </div>
-              {renderKanbanBoard(group.candidates, group.key)}
-            </section>
-          ))}
-        </div>
+        {/* Kanban — one board for everyone; each card shows the role under the name */}
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-semibold text-gray-900">Pipeline</h2>
+            <span className="text-xs text-gray-500">{filteredCandidates.length} candidate{filteredCandidates.length !== 1 ? "s" : ""}</span>
+          </div>
+          {renderKanbanBoard(filteredCandidates, "all")}
+        </section>
 
         {/* Upcoming Interviews */}
         {(() => {

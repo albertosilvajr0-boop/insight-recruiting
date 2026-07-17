@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '../firebase'
 import { format, formatDistanceToNow } from 'date-fns'
-import {  getJobClientName } from '../config/organization'
+import { DEFAULT_CONTACT_EMAIL, getJobClientName } from '../config/organization'
 
 // Ordered pipeline for the candidate-facing timeline. We deliberately
 // collapse internal stages ("scored", "to_schedule") into a single
@@ -150,7 +150,7 @@ export default function Status() {
           <ul className="list-disc list-inside text-blue-800 text-xs space-y-1 mt-1">
             <li>Check your email (including spam) — we'll reach out there first.</li>
             <li>Bookmark this page to come back anytime.</li>
-            <li>Questions? Email <a href="mailto:albertosilva@silvaconsultinggroup.com" className="underline">albertosilva@silvaconsultinggroup.com</a>.</li>
+            <li>Questions? Email <a href={`mailto:${DEFAULT_CONTACT_EMAIL}`} className="underline">{DEFAULT_CONTACT_EMAIL}</a>.</li>
           </ul>
         </div>
 
