@@ -1,6 +1,4 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
-import { v4 as uuidv4 } from 'uuid'
-import { sendScheduleLink } from '../email/sendScheduleLink.js'
 
 const WEIGHTS = { resume: 0.4, interview: 0.6 }
 
@@ -80,7 +78,7 @@ export async function routeCandidate(candidateId, resumeResult, videoResult) {
     decisionReason = {
       reasonCode: 'invite_threshold_met',
       reasonLabel: 'Selection score met interview invite threshold',
-      note: `Composite score ${compositeScore}/10 met the configured scheduling threshold.`,
+      note: `Composite score ${compositeScore}/10 met the configured interview threshold.`,
     }
   } else {
     stage = 'scored'
@@ -91,8 +89,6 @@ export async function routeCandidate(candidateId, resumeResult, videoResult) {
       note: `Composite score ${compositeScore}/10 needs recruiter review.`,
     }
   }
-
-  const schedulingToken = stage === 'to_schedule' ? uuidv4() : null
 
   const strengths = [...new Set([...(resumeResult.strengths || []), ...(videoResult.strengths || [])])]
   const concerns = [...new Set([...(resumeResult.concerns || []), ...(videoResult.concerns || [])])]
@@ -108,12 +104,9 @@ export async function routeCandidate(candidateId, resumeResult, videoResult) {
       ...decisionReason,
       candidate,
     }),
-    ...(schedulingToken ? { schedulingToken } : {}),
     updatedAt: FieldValue.serverTimestamp(),
   })
 
-  if (stage === 'to_schedule') {
-    await sendScheduleLink(candidateId, schedulingToken)
-  }
+  // stage === 'to_schedule' awaits direct recruiter outreach for the next step.
   // stage === 'scored' awaits human review before any rejection notice.
 }
