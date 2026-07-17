@@ -535,8 +535,11 @@ export default function AdminAnalytics() {
             {/* ─── Recent Candidates Table ───────────────────────────── */}
             {showCandidates && (
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100">
-                  <h3 className="text-sm font-semibold text-gray-900">Recent Applications</h3>
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-gray-900">Applications</h3>
+                  <span className="text-xs text-gray-400">
+                    {rangedCandidates.length} application{rangedCandidates.length === 1 ? "" : "s"}
+                  </span>
                 </div>
                 <table className="w-full">
                   <thead>
@@ -553,7 +556,7 @@ export default function AdminAnalytics() {
                     {rangedCandidates.length === 0 ? (
                       <tr><td colSpan={6} className="text-center py-8 text-sm text-gray-400">No applications in this period</td></tr>
                     ) : (
-                      rangedCandidates.slice(0, 25).map((c) => {
+                      rangedCandidates.map((c) => {
                         const stageBadgeColor = {
                           scheduled: "bg-green-100 text-green-700", rejected: "bg-red-100 text-red-700",
                           scored: "bg-blue-100 text-blue-700", applied: "bg-amber-100 text-amber-700",
@@ -597,11 +600,6 @@ export default function AdminAnalytics() {
                     )}
                   </tbody>
                 </table>
-                {rangedCandidates.length > 25 && (
-                  <div className="px-5 py-3 border-t border-gray-100 text-center">
-                    <span className="text-xs text-gray-400">Showing 25 of {rangedCandidates.length} applications</span>
-                  </div>
-                )}
               </div>
             )}
           </>
