@@ -101,7 +101,7 @@ function buildWorkQueue(candidates) {
         priority: "High",
         rank: 15,
         title: "Reopened interview pending",
-        detail: `${candidateName(c)} can edit answers with the same code. Confirm they know it is reopened.`,
+        detail: `${candidateName(c)} can redo video answers with the same code. Written answers stay locked.`,
         action: "Open profile",
       })
     }

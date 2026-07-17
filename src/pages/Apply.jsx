@@ -115,7 +115,8 @@ export default function Apply() {
   // Once the candidate has seen the review screen, finishing any question
   // returns them there instead of marching forward.
   const [reviewReached, setReviewReached] = useState(false)
-  // Admin reopened a submitted interview — unlocks timed questions for a redo.
+  // Reopened submitted interview: video answers can be redone, while
+  // written/problem-solving answers stay locked to the prior submission.
   const [reopenedSession, setReopenedSession] = useState(false)
   const [deviceCheckPassed, setDeviceCheckPassed] = useState(false)
   const [videoUploadProgress, setVideoUploadProgress] = useState({}) // { qIndex: pct }
@@ -223,8 +224,8 @@ export default function Apply() {
         const getInviteSession = httpsCallable(functions, 'getInviteSession')
         const { data } = await getInviteSession({ code })
         if (data.alreadySubmitted) {
-          // Don't bounce straight to status — offer the choice to reopen and
-          // improve answers (feedback loop with the recruiter).
+          // Don't bounce straight to status; offer the choice to reopen video
+          // answers while preserving written/problem-solving responses.
           setSubmittedSession({ statusToken: data.statusToken || null })
           return
         }
@@ -244,7 +245,7 @@ export default function Apply() {
           if (data.priorResponses) {
             const prior = data.priorResponses
             setVideoResponses(prev => ({ ...(prior.videoResponses || {}), ...prev }))
-            setTextResponses(prev => ({ ...(prior.textResponses || {}), ...prev }))
+            setTextResponses(prior.textResponses || {})
             setTimingData(prev => ({ ...(prior.timingData || {}), ...prev }))
             setReviewReached(true)
             setStep(data.complianceCurrent ? 'review' : 'compliance')
@@ -288,17 +289,15 @@ export default function Apply() {
       setHardTimerWarned(false)
 
       const q = questions[currentQuestion]
-      // Locked (already-attempted hard-timer) questions are read-only — never
-      // restart their countdown.
-      const locked = q?.timerType === 'hard'
-        && timingData[currentQuestion] !== undefined
-        && !reopenedSession
+      // Locked questions are read-only, so never restart their countdown.
+      const locked = (reopenedSession && q?.type === 'text_response')
+        || (q?.timerType === 'hard' && timingData[currentQuestion] !== undefined && !reopenedSession)
       if (q?.timerType === 'hard' && q.timerSeconds > 0 && !locked) {
         setHardTimerRemaining(q.timerSeconds)
       } else {
         setHardTimerRemaining(null)
       }
-      if (q?.timerType === 'soft' && q.timerSeconds > 0) {
+      if (q?.timerType === 'soft' && q.timerSeconds > 0 && !locked) {
         setSoftTimerRemaining(q.timerSeconds)
       } else {
         setSoftTimerRemaining(null)
@@ -371,10 +370,13 @@ export default function Apply() {
     }
   }
 
-  // Hard-timer questions lock after their one attempt: the countdown IS the
-  // assessment. An admin reopen unlocks everything for a fresh redo.
+  const isReopenWrittenLocked = (i) => reopenedSession && questions[i]?.type === 'text_response'
+
+  // Hard-timer questions lock after their one attempt. On reopen, video
+  // answers can be redone, but written/problem-solving answers remain locked.
   const isLocked = (i) => {
     const q = questions[i]
+    if (isReopenWrittenLocked(i)) return true
     return q?.timerType === 'hard' && timingData[i] !== undefined && !reopenedSession
   }
 
@@ -676,13 +678,13 @@ export default function Apply() {
           <div className="text-green-500 text-3xl">&#10003;</div>
           <p className="text-gray-900 font-semibold">Your interview is submitted</p>
           <p className="text-sm text-gray-500">
-            Want to improve any of your answers? You can reopen your interview — everything you
-            already recorded stays saved, and you only redo what you choose. When you resubmit,
-            your new answers replace the old ones.
+            Want to improve a video answer? You can reopen your interview. Your written/problem-solving
+            answers stay saved from the original submission, and any video answers you redo will replace
+            the old recordings when you resubmit.
           </p>
           <button onClick={handleSelfReopen} disabled={reopening}
             className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-medium py-3 rounded-xl">
-            {reopening ? 'Reopening…' : 'Reopen & improve my answers'}
+            {reopening ? 'Reopening...' : 'Reopen video answers'}
           </button>
           {submittedSession.statusToken && (
             <button onClick={() => navigate(`/status/${submittedSession.statusToken}`)}
@@ -1113,11 +1115,15 @@ export default function Apply() {
               </p>
             </div>
 
-            {/* Locked: hard-timed question already attempted — read-only */}
+            {/* Locked: hard-timed or reopened written question — read-only */}
             {isLocked(currentQuestion) && (
               <div className="space-y-3">
                 <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
-                  <p className="text-xs font-medium text-gray-400 mb-1">Timed question — answers lock once time starts</p>
+                  <p className="text-xs font-medium text-gray-400 mb-1">
+                    {isReopenWrittenLocked(currentQuestion)
+                      ? 'Written/problem-solving answer - locked from prior submission'
+                      : 'Timed question - answers lock once time starts'}
+                  </p>
                   {currentQ.type === 'text_response' ? (
                     <p className="text-sm text-gray-700 whitespace-pre-wrap">{textResponses[currentQuestion]?.trim() || 'No answer was typed before time ran out.'}</p>
                   ) : (
@@ -1231,7 +1237,7 @@ export default function Apply() {
               <h2 className="text-xl font-semibold text-gray-900">Review your answers</h2>
               <p className="text-sm text-gray-500 mt-1">
                 {reopenedSession
-                  ? 'All your previous answers are saved and shown below. Edit only what you need to, then resubmit at the bottom.'
+                  ? 'Your previous answers are saved below. You can re-record video answers; written/problem-solving answers stay locked from the prior submission.'
                   : "Look everything over before you submit — you can still edit any answer that isn't from a timed question."}
               </p>
             </div>
@@ -1245,7 +1251,7 @@ export default function Apply() {
                   <div key={i} className="border border-gray-100 rounded-xl p-3 flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-xs font-medium text-gray-400 mb-0.5">
-                        Question {i + 1}{locked ? ' · timed — locked' : ''}
+                        Question {i + 1}{locked ? (isReopenWrittenLocked(i) ? ' · written answer locked' : ' · timed — locked') : ''}
                       </p>
                       <p className="text-sm text-gray-700 truncate">{q.text}</p>
                       {q.type === 'text_response' ? (
