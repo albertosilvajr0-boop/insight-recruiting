@@ -320,6 +320,307 @@ function buildBulkEmailHtml({ candidates, videosByCandidate, note, sharedBy, tra
     </div>`
 }
 
+function scoreValue(candidate) {
+  const value = candidate.manualScore?.avg
+  if (value == null) return null
+  const score = Number(value)
+  return Number.isFinite(score) ? score : null
+}
+
+function answerScoreValue(candidate, qIndex) {
+  const value = candidate.manualAnswerScores?.[qIndex]
+  if (value == null) return null
+  const score = Number(value)
+  return Number.isFinite(score) ? score : null
+}
+
+function rankedCandidates(candidates) {
+  return candidates
+    .map((candidate, index) => ({ candidate, index, score: scoreValue(candidate) }))
+    .sort((a, b) => {
+      if (a.score == null && b.score == null) return a.index - b.index
+      if (a.score == null) return 1
+      if (b.score == null) return -1
+      if (a.score !== b.score) return b.score - a.score
+      return a.index - b.index
+    })
+    .map(item => item.candidate)
+}
+
+function shortlistRoles(candidates) {
+  return uniqueList(candidates.map(candidate => candidate.jobTitle).filter(Boolean))
+    .filter(role => role !== 'Open role')
+}
+
+function shortlistSubject(candidates) {
+  const roles = shortlistRoles(candidates)
+  const count = candidates.length
+  if (roles.length === 1) {
+    return `Shortlist: ${count} screened ${roles[0]} candidate${count === 1 ? '' : 's'}`
+  }
+  return `Shortlist: ${count} screened candidate${count === 1 ? '' : 's'}`
+}
+
+function shortlistRolePhrase(candidates) {
+  const roles = shortlistRoles(candidates)
+  if (roles.length === 1) return `the ${roles[0]} role`
+  return candidates.length === 1 ? 'your open role' : 'your open roles'
+}
+
+function joinNames(names) {
+  if (!names.length) return 'the strongest candidate'
+  if (names.length === 1) return names[0]
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+function candidatePrimaryStrength(candidate) {
+  const strengths = candidateStrengths(candidate)
+  if (strengths.length) return truncate(strengths[0], 170)
+  if (candidate.interviewAnalysis) return truncate(candidate.interviewAnalysis, 170)
+  if (candidate.resumeAnalysis) return truncate(candidate.resumeAnalysis, 170)
+  return 'Structured responses and score are ready for manager review.'
+}
+
+function candidatePrimaryConcern(candidate) {
+  const concerns = candidateConcerns(candidate)
+  if (concerns.length) return truncate(concerns[0], 170)
+  return 'Confirm compensation, schedule, and manager fit before advancing.'
+}
+
+function candidateContactLine(candidate) {
+  return [candidate.email, candidate.phone].filter(Boolean).join(' - ')
+}
+
+function bestCandidateVideos(candidate, videos, limit = 2) {
+  return [...videos]
+    .sort((a, b) => {
+      const scoreA = answerScoreValue(candidate, a.qIndex) ?? -1
+      const scoreB = answerScoreValue(candidate, b.qIndex) ?? -1
+      if (scoreA !== scoreB) return scoreB - scoreA
+      const noteA = candidate.manualAnswerNotes?.[a.qIndex] ? 1 : 0
+      const noteB = candidate.manualAnswerNotes?.[b.qIndex] ? 1 : 0
+      if (noteA !== noteB) return noteB - noteA
+      return Number(a.qIndex) - Number(b.qIndex)
+    })
+    .slice(0, limit)
+}
+
+function topScoringNotes(candidate, limit = 2) {
+  const questions = candidate.questions || {}
+  return Object.keys(candidate.manualAnswerNotes || {})
+    .sort((a, b) => Number(a) - Number(b))
+    .map(qIndex => {
+      const note = truncate(candidate.manualAnswerNotes?.[qIndex], 260)
+      if (!note) return null
+      const num = Number(qIndex) + 1
+      const score = answerScoreValue(candidate, qIndex)
+      return {
+        num,
+        score,
+        question: truncate(questions[qIndex]?.text || `Interview answer ${num}`, 110),
+        note,
+      }
+    })
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
+function summaryVideoCellHtml(candidate, videos, trackUrl) {
+  if (!videos.length) return '<span style="color: #6b7280; font-size: 12px;">No video response</span>'
+  const bestVideo = bestCandidateVideos(candidate, videos, 1)[0]
+  return `
+    <a href="${trackUrl(bestVideo.target)}" style="display: inline-block; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 6px 10px; color: #1d4ed8; font-size: 12px; font-weight: 800;">Watch Q${bestVideo.num}</a>
+    <p style="margin: 5px 0 0; color: #6b7280; font-size: 11px;">${videos.length} video response${videos.length === 1 ? '' : 's'}</p>`
+}
+
+function shortlistSummaryTableHtml({ candidates, videosByCandidate, trackUrl }) {
+  return `
+    <div style="margin: 18px 0 20px;">
+      <p style="margin: 0 0 10px; color: #111827; font-size: 15px; font-weight: 800;">Shortlist at a glance</p>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border: 1px solid #d1d5db; border-radius: 12px; overflow: hidden;">
+        <thead>
+          <tr style="background: #f9fafb;">
+            <th align="left" style="padding: 10px; color: #6b7280; font-size: 11px; text-transform: uppercase;">Candidate</th>
+            <th align="left" style="padding: 10px; color: #6b7280; font-size: 11px; text-transform: uppercase;">AI score</th>
+            <th align="left" style="padding: 10px; color: #6b7280; font-size: 11px; text-transform: uppercase;">Why review</th>
+            <th align="left" style="padding: 10px; color: #6b7280; font-size: 11px; text-transform: uppercase;">Video</th>
+            <th align="left" style="padding: 10px; color: #6b7280; font-size: 11px; text-transform: uppercase;">Verify</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${candidates.map((candidate, index) => {
+            const videos = videosByCandidate.get(candidate.id) || []
+            return `
+              <tr>
+                <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb; color: #111827; font-size: 13px; font-weight: 800;">
+                  ${index + 1}. ${escapeHtml(candidateName(candidate))}
+                  <p style="margin: 3px 0 0; color: #6b7280; font-size: 11px; font-weight: 500;">${escapeHtml(candidate.jobTitle || 'Open role')}</p>
+                </td>
+                <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb; color: #111827; font-size: 13px; font-weight: 800;">${escapeHtml(formatScore(scoreValue(candidate), 5))}</td>
+                <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb; color: #374151; font-size: 12px; line-height: 1.45;">${escapeHtml(candidatePrimaryStrength(candidate))}</td>
+                <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb;">${summaryVideoCellHtml(candidate, videos, trackUrl)}</td>
+                <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb; color: #92400e; font-size: 12px; line-height: 1.45;">${escapeHtml(candidatePrimaryConcern(candidate))}</td>
+              </tr>`
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`
+}
+
+function videoLinksHtml(candidate, videos, trackUrl) {
+  const bestVideos = bestCandidateVideos(candidate, videos, 2)
+  if (!bestVideos.length) return ''
+  return `
+    <div style="margin-top: 12px;">
+      <p style="margin: 0 0 8px; color: #111827; font-size: 13px; font-weight: 800;">Watch first</p>
+      ${bestVideos.map(video => `
+        <div style="margin: 0 0 8px;">
+          <a href="${trackUrl(video.target)}" style="display: inline-block; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 7px 12px; color: #1d4ed8; font-size: 12px; font-weight: 800;">Watch Q${video.num}</a>
+          <span style="color: #4b5563; font-size: 12px; line-height: 1.45;"> ${escapeHtml(truncate(video.label, 120))}</span>
+        </div>`).join('')}
+    </div>`
+}
+
+function scoringNotesHtml(candidate) {
+  const notes = topScoringNotes(candidate, 2)
+  if (!notes.length) return ''
+  return `
+    <div style="margin-top: 12px; background: #fffbeb; border-left: 3px solid #f59e0b; padding: 10px 12px;">
+      <p style="margin: 0 0 7px; color: #92400e; font-size: 13px; font-weight: 800;">Scoring notes</p>
+      ${notes.map(note => `
+        <p style="margin: 0 0 7px; color: #78350f; font-size: 12px; line-height: 1.45;">
+          <strong>Q${note.num}${note.score != null ? ` - ${note.score}/5` : ''}:</strong> ${escapeHtml(note.note)}
+        </p>`).join('')}
+    </div>`
+}
+
+function candidateV2CardHtml({ candidate, videos, trackUrl, rank }) {
+  const score = scoreValue(candidate)
+  const band = scoreBand(score, 5)
+  const contactLine = candidateContactLine(candidate)
+  const videoText = videos.length
+    ? `${videos.length} video response${videos.length === 1 ? '' : 's'} available`
+    : 'No video responses available'
+  return `
+    <section style="border: 1px solid #d1d5db; border-radius: 14px; padding: 18px; margin: 0 0 16px; background: #ffffff;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+        <tr>
+          <td valign="top">
+            <p style="margin: 0 0 4px; color: #6b7280; font-size: 11px; font-weight: 800; text-transform: uppercase;">Candidate ${rank}</p>
+            <h2 style="margin: 0 0 4px; color: #111827; font-size: 19px;">${escapeHtml(candidateName(candidate))}</h2>
+            <p style="margin: 0; color: #6b7280; font-size: 12px;">${escapeHtml(candidate.jobTitle || 'Open role')} - ${escapeHtml(getCandidateClientName(candidate))}</p>
+            ${contactLine ? `<p style="margin: 4px 0 0; color: #6b7280; font-size: 12px;">${escapeHtml(contactLine)}</p>` : ''}
+          </td>
+          <td valign="top" align="right" style="padding-left: 12px;">
+            <div style="display: inline-block; background: ${band.bg}; border-radius: 12px; padding: 10px 12px; text-align: left; min-width: 96px;">
+              <p style="margin: 0 0 3px; color: ${band.color}; font-size: 10px; font-weight: 800; text-transform: uppercase;">AI score</p>
+              <p style="margin: 0; color: #111827; font-size: 20px; font-weight: 800;">${escapeHtml(formatScore(score, 5))}</p>
+              <p style="margin: 3px 0 0; color: ${band.color}; font-size: 11px; font-weight: 700;">${candidate.manualScore?.count ? `${candidate.manualScore.count} scored response${candidate.manualScore.count === 1 ? '' : 's'}` : 'Pending score'}</p>
+            </div>
+          </td>
+        </tr>
+      </table>
+      <p style="margin: 12px 0 0; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 8px 10px; font-size: 12px; font-weight: 800;">Video evidence: ${escapeHtml(videoText)}</p>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; margin-top: 12px;">
+        <tr>
+          <td valign="top" style="padding: 10px; border: 1px solid #d1fae5; background: #f0fdf4; border-radius: 10px;">
+            <p style="margin: 0 0 4px; color: #047857; font-size: 11px; font-weight: 800; text-transform: uppercase;">Best fit signal</p>
+            <p style="margin: 0; color: #064e3b; font-size: 13px; line-height: 1.45;">${escapeHtml(candidatePrimaryStrength(candidate))}</p>
+          </td>
+        </tr>
+        <tr>
+          <td valign="top" style="padding: 10px; border: 1px solid #fde68a; background: #fffbeb; border-radius: 10px;">
+            <p style="margin: 0 0 4px; color: #92400e; font-size: 11px; font-weight: 800; text-transform: uppercase;">Verify before advancing</p>
+            <p style="margin: 0; color: #78350f; font-size: 13px; line-height: 1.45;">${escapeHtml(candidatePrimaryConcern(candidate))}</p>
+          </td>
+        </tr>
+      </table>
+      ${scoringNotesHtml(candidate)}
+      ${videoLinksHtml(candidate, videos, trackUrl)}
+    </section>`
+}
+
+function shortlistPipelineFooterHtml() {
+  return `
+    <div style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-top: 20px;">
+      <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 800;">Next step</p>
+      <p style="margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.55;">Reply with who you want to advance, or send the next batch and I can apply this same structured screen across every applicant in your pipeline.</p>
+      <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.45;">Each review keeps the AI score, scoring notes, video evidence, and verification points in one manager-ready summary.</p>
+    </div>`
+}
+
+function buildBulkEmailV2Html({ candidates, videosByCandidate, note, sharedBy, trackUrl }) {
+  const ranked = rankedCandidates(candidates)
+  const topNames = joinNames(ranked.slice(0, Math.min(2, ranked.length)).map(candidateName))
+  const leadSentence = ranked.length === 1
+    ? `${topNames} is ready for manager review based on score, response quality, and fit signals.`
+    : `I would start with ${topNames} based on score, response quality, and fit signals.`
+
+  return `
+    <div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 760px; margin: 0 auto; color: #111827;">
+      <p style="margin: 0 0 6px; color: #2563eb; font-size: 12px; font-weight: 800; text-transform: uppercase;">Candidate shortlist</p>
+      <h1 style="margin: 0 0 8px; color: #111827; font-size: 26px;">${candidates.length} screened candidate${candidates.length === 1 ? '' : 's'} for ${escapeHtml(shortlistRolePhrase(candidates))}</h1>
+      <p style="margin: 0 0 16px; color: #374151; font-size: 14px; line-height: 1.55;">I screened this shortlist so your team can review the strongest evidence first. ${escapeHtml(leadSentence)} The summary below shows who is worth reviewing, what to watch, and what to verify before moving forward.</p>
+      ${note ? `<div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px 14px; margin: 0 0 18px; font-size: 14px; color: #1e3a8a; line-height: 1.5;">${escapeHtml(note)}</div>` : ''}
+      ${shortlistSummaryTableHtml({ candidates: ranked, videosByCandidate, trackUrl })}
+      ${ranked.map((candidate, index) => candidateV2CardHtml({
+        candidate,
+        videos: videosByCandidate.get(candidate.id) || [],
+        trackUrl,
+        rank: index + 1,
+      })).join('')}
+      ${shortlistPipelineFooterHtml()}
+      <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">Sent by ${escapeHtml(sharedBy)}. Reply to this email with questions or candidates you'd like screened next.</p>
+    </div>`
+}
+
+function buildBulkEmailV2Text({ candidates, videosByCandidate, note, sharedBy, trackUrl }) {
+  const ranked = rankedCandidates(candidates)
+  const topNames = joinNames(ranked.slice(0, Math.min(2, ranked.length)).map(candidateName))
+  const leadSentence = ranked.length === 1
+    ? `${topNames} is ready for manager review based on score, response quality, and fit signals.`
+    : `I would start with ${topNames} based on score, response quality, and fit signals.`
+  const lines = [
+    'Hi,',
+    '',
+    `I screened ${candidates.length} candidate${candidates.length === 1 ? '' : 's'} for ${shortlistRolePhrase(candidates)}. ${leadSentence}`,
+    'The summary below shows who is worth reviewing, what to watch, and what to verify before moving forward.',
+  ]
+
+  if (note) lines.push('', `Share note: ${note}`)
+
+  lines.push('', 'Shortlist at a glance:')
+  ranked.forEach((candidate, index) => {
+    const videos = videosWithTrackedUrls(videosByCandidate.get(candidate.id) || [], trackUrl)
+    const bestVideo = bestCandidateVideos(candidate, videos, 1)[0]
+    lines.push('', `${index + 1}. ${candidateName(candidate)} - ${formatScore(scoreValue(candidate), 5)}`)
+    lines.push(`   Why review: ${candidatePrimaryStrength(candidate)}`)
+    lines.push(`   Verify: ${candidatePrimaryConcern(candidate)}`)
+    if (videos.length) {
+      lines.push(`   Video evidence: ${videos.length} video response${videos.length === 1 ? '' : 's'}${bestVideo ? `; watch Q${bestVideo.num}: ${bestVideo.url}` : ''}`)
+    }
+  })
+
+  const candidateNotes = ranked
+    .map(candidate => ({ candidate, notes: topScoringNotes(candidate, 2) }))
+    .filter(item => item.notes.length)
+
+  if (candidateNotes.length) lines.push('', 'Candidate notes:')
+  candidateNotes.forEach(({ candidate, notes }) => {
+    lines.push('', `${candidateName(candidate)} scoring notes:`)
+    notes.forEach(noteItem => {
+      lines.push(`- Q${noteItem.num}${noteItem.score != null ? ` (${noteItem.score}/5)` : ''}: ${noteItem.note}`)
+    })
+  })
+
+  lines.push(
+    '',
+    'Reply with who you want to advance, or send the next batch and I can apply this same structured screen across every applicant in your pipeline.',
+    `Sent by ${sharedBy}`
+  )
+  return lines.join('\n')
+}
+
 function buildCandidatePacketText(candidate, videos, note = '') {
   const lines = []
   lines.push(`${candidateName(candidate)} - ${candidate.jobTitle || 'Open role'}`)
@@ -498,6 +799,7 @@ export async function shareCandidatesHandler(data, request) {
   const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
   const toEmails = validateRecipients(data)
   const note = String(data?.note || '').trim().slice(0, 1200)
+  const emailVersion = data?.emailVersion === 'v2' ? 'v2' : 'v1'
   const candidateIds = [...new Set((Array.isArray(data?.candidateIds) ? data.candidateIds : [])
     .map(id => String(id || '').trim())
     .filter(Boolean))]
@@ -559,24 +861,38 @@ export async function shareCandidatesHandler(data, request) {
     links,
     videoCount: Object.keys(links).length,
     resumeAttachedCount,
+    emailVersion,
     createdAt: FieldValue.serverTimestamp(),
   })
 
   for (let ri = 0; ri < toEmails.length; ri++) {
     const trackUrl = target => `${APP_URL}/t/${shareRef.id}/${ri}/${target}`
+    const v2 = emailVersion === 'v2'
     await sendEmail({
       to: toEmails[ri],
       from: SHARE_FROM_EMAIL,
       replyTo: replyAddressFor(sharedBy),
-      subject: `Candidate shortlist for review (${candidates.length})`,
-      text: buildBulkEmailText({
+      subject: v2 ? shortlistSubject(candidates) : `Candidate shortlist for review (${candidates.length})`,
+      text: v2 ? buildBulkEmailV2Text({
+        candidates,
+        videosByCandidate,
+        note,
+        sharedBy,
+        trackUrl,
+      }) : buildBulkEmailText({
         candidates,
         videosByCandidate,
         note,
         sharedBy,
         trackUrl,
       }),
-      html: buildBulkEmailHtml({
+      html: v2 ? buildBulkEmailV2Html({
+        candidates,
+        videosByCandidate,
+        note,
+        sharedBy,
+        trackUrl,
+      }) : buildBulkEmailHtml({
         candidates,
         videosByCandidate,
         note,
@@ -606,6 +922,7 @@ export async function shareCandidatesHandler(data, request) {
       candidateIds: candidates.map(c => c.id),
       videos: Object.keys(links).length,
       resumeAttachedCount,
+      emailVersion,
     },
   })
 
@@ -615,5 +932,6 @@ export async function shareCandidatesHandler(data, request) {
     videos: Object.keys(links).length,
     resumeAttachedCount,
     recipients: toEmails,
+    emailVersion,
   }
 }

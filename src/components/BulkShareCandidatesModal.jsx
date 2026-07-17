@@ -103,6 +103,8 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState(false)
   const draftText = buildShortlistDraft(candidates, note)
+  const isEmailMode = mode === 'email' || mode === 'emailV2'
+  const emailVersion = mode === 'emailV2' ? 'v2' : 'v1'
 
   const emailList = email.split(/[\s,;]+/).map(e => e.trim()).filter(Boolean)
   const validEmail = emailList.length > 0
@@ -119,6 +121,7 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
         candidateIds: candidates.map(candidate => candidate.id),
         toEmails: emailList,
         note: note.trim(),
+        emailVersion,
       })
       setResult(data)
       onSent?.()
@@ -148,6 +151,7 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
                 Sent {result.candidates} candidate{result.candidates === 1 ? '' : 's'} to{' '}
                 <span className="font-medium">{(result.recipients || emailList).join(', ')}</span>
                 {' '}with {result.videos} tracked video link{result.videos === 1 ? '' : 's'} and {result.resumeAttachedCount} resume attachment{result.resumeAttachedCount === 1 ? '' : 's'}.
+                {result.emailVersion === 'v2' ? ' V2 summary-first format was used.' : ''}
               </p>
             </div>
             <button onClick={onClose} className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 rounded-xl">Done</button>
@@ -159,12 +163,14 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
               <p className="text-xs text-gray-500 mt-1">
                 {mode === 'email'
                   ? 'Send one employer-ready email with the selected candidates, AI scores, scoring notes, response evidence, and tracked video links.'
+                  : mode === 'emailV2'
+                    ? 'Send a summary-first version with a ranked table, compact candidate cards, and the clearest video response links.'
                   : 'Build a ready-to-send shortlist draft you can paste into Gmail from your own mailbox.'}
               </p>
             </div>
 
             <div className="flex rounded-xl bg-gray-100 p-1">
-              {[['email', 'Send email'], ['draft', 'Copy email draft']].map(([value, label]) => (
+              {[['email', 'Send email'], ['emailV2', 'Send email V2'], ['draft', 'Copy email draft']].map(([value, label]) => (
                 <button key={value} onClick={() => setMode(value)}
                   className={`flex-1 text-sm font-medium py-2 rounded-lg transition-colors ${mode === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                   {label}
@@ -186,7 +192,7 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
               ))}
             </div>
 
-            {mode === 'email' && (
+            {isEmailMode && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Employer emails</label>
                 <input
@@ -223,14 +229,14 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
               />
             )}
 
-            {error && mode === 'email' && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>}
+            {error && isEmailMode && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>}
 
             <div className="flex gap-3">
               <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium py-2.5 rounded-xl">Cancel</button>
-              {mode === 'email' ? (
+              {isEmailMode ? (
                 <button onClick={handleSend} disabled={!validEmail || sending || candidates.length === 0}
                   className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-xl">
-                  {sending ? 'Sending...' : `Send ${candidates.length} candidate${candidates.length === 1 ? '' : 's'}`}
+                  {sending ? 'Sending...' : mode === 'emailV2' ? 'Send email V2' : `Send ${candidates.length} candidate${candidates.length === 1 ? '' : 's'}`}
                 </button>
               ) : (
                 <button onClick={handleCopy} disabled={!draftText}
