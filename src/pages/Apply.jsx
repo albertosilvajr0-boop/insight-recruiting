@@ -67,6 +67,9 @@ export default function Apply() {
   const [job, setJob] = useState(null)
   const [invite, setInvite] = useState(null)
   const [inviteError, setInviteError] = useState(null)
+  // Already-submitted invite session: { statusToken } — offers view-status vs reopen
+  const [submittedSession, setSubmittedSession] = useState(null)
+  const [reopening, setReopening] = useState(false)
   const [loading, setLoading] = useState(true)
   const [step, setStep] = useState(inviteMode ? 'compliance' : 'info')
   const [currentQuestion, setCurrentQuestion] = useState(0)
@@ -216,8 +219,9 @@ export default function Apply() {
         const getInviteSession = httpsCallable(functions, 'getInviteSession')
         const { data } = await getInviteSession({ code })
         if (data.alreadySubmitted) {
-          if (data.statusToken) { navigate(`/status/${data.statusToken}`); return }
-          setInviteError('This interview was already submitted.')
+          // Don't bounce straight to status — offer the choice to reopen and
+          // improve answers (feedback loop with the recruiter).
+          setSubmittedSession({ statusToken: data.statusToken || null })
           return
         }
         setInvite(data)
@@ -635,6 +639,46 @@ export default function Apply() {
       <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
     </div>
   )
+
+  if (submittedSession) {
+    const handleSelfReopen = async () => {
+      if (reopening) return
+      setReopening(true)
+      try {
+        const reopenOwnInterview = httpsCallable(functions, 'reopenOwnInterview')
+        await reopenOwnInterview({ code })
+        // Reload so the session comes back reopened with answers pre-filled
+        window.location.reload()
+      } catch (err) {
+        setReopening(false)
+        setSubmittedSession(null)
+        setInviteError(err?.message || 'We could not reopen your interview. Please try again.')
+      }
+    }
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <div className="bg-white rounded-2xl border border-gray-200 p-8 max-w-sm text-center space-y-4">
+          <div className="text-green-500 text-3xl">&#10003;</div>
+          <p className="text-gray-900 font-semibold">Your interview is submitted</p>
+          <p className="text-sm text-gray-500">
+            Want to improve any of your answers? You can reopen your interview — everything you
+            already recorded stays saved, and you only redo what you choose. When you resubmit,
+            your new answers replace the old ones.
+          </p>
+          <button onClick={handleSelfReopen} disabled={reopening}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-medium py-3 rounded-xl">
+            {reopening ? 'Reopening…' : 'Reopen & improve my answers'}
+          </button>
+          {submittedSession.statusToken && (
+            <button onClick={() => navigate(`/status/${submittedSession.statusToken}`)}
+              className="w-full border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium py-3 rounded-xl">
+              Just check my application status
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   if (inviteError) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
