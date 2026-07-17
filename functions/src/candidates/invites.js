@@ -194,6 +194,39 @@ export async function getInviteSessionHandler(data) {
   }
 }
 
+// ─── Public: candidate reopens their OWN submitted interview ────────────────
+// After feedback, candidates can choose to improve answers themselves: sign
+// in with the same code → reopen → everything loads pre-filled → resubmit.
+export async function reopenOwnInterviewHandler(data) {
+  const db = getFirestore()
+  const found = await findCandidateByCode(db, data?.code)
+  if (!found) throw new HttpsError('not-found', 'That code was not recognized.')
+  const candidate = found.data
+
+  if (candidate.stage === 'invited') return { success: true } // already open
+  if (['hired', 'rejected'].includes(candidate.stage)) {
+    throw new HttpsError('failed-precondition', 'A final decision has been made on this application. Reach out to your recruiter if you have questions.')
+  }
+
+  await db.collection('candidates').doc(found.id).update({
+    stage: 'invited',
+    reopenedAt: FieldValue.serverTimestamp(),
+    reopenCount: FieldValue.increment(1),
+    reopenedBy: 'candidate',
+    updatedAt: FieldValue.serverTimestamp(),
+  })
+
+  await writeAuditLog({
+    actorEmail: candidate.email || null,
+    action: 'candidate.interview_reopened_self',
+    targetType: 'candidate',
+    targetId: found.id,
+    metadata: { previousStage: candidate.stage },
+  })
+
+  return { success: true }
+}
+
 // ─── Admin: reopen a submitted interview so the candidate can edit ──────────
 // Flips the candidate back to 'invited' — they sign in with the same access
 // code, their answers load pre-filled, and resubmitting re-runs the pipeline.

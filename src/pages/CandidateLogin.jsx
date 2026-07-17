@@ -21,15 +21,9 @@ export default function CandidateLogin() {
     setError(null)
     try {
       const getInviteSession = httpsCallable(functions, 'getInviteSession')
-      const { data } = await getInviteSession({ code: normalized })
-      if (data.alreadySubmitted) {
-        if (data.statusToken) {
-          navigate(`/status/${data.statusToken}`)
-        } else {
-          setError('This interview was already submitted. Reach out to your recruiter if you think this is a mistake.')
-        }
-        return
-      }
+      await getInviteSession({ code: normalized })
+      // The interview page handles every session state — fresh, reopened, or
+      // already submitted (where it offers status vs. reopen-and-improve).
       navigate(`/i/${normalized}`)
     } catch (err) {
       setError(err?.code === 'functions/not-found' || err?.message?.includes('not recognized')
