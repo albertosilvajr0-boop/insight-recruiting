@@ -136,7 +136,7 @@ function buildSupportChecklist({ candidate, shares, effectiveScore }) {
 
 function nextSupportAction(candidate, checklist, effectiveScore) {
   if (candidate.stage === 'invited' && candidate.reopenedAt) {
-    return 'Confirm the candidate knows the interview is reopened and can resubmit with the same code.'
+    return 'Confirm the candidate knows video answers are reopened and they can resubmit with the same code.'
   }
   if (candidate.stage === 'invited' && candidate.accessCode && !candidate.firstSignInAt) {
     return 'Send a reminder with the interview code and confirm they can access the link.'
@@ -535,7 +535,7 @@ export default function AdminCandidate() {
   }
 
   // Reopen a submitted invite interview: candidate signs back in with the
-  // same code, answers load pre-filled, they edit and resubmit (rescored).
+  // same code, video answers can be redone, then they resubmit (rescored).
   const handleReopen = async () => {
     setReopenState('working')
     try {
@@ -639,7 +639,7 @@ export default function AdminCandidate() {
             )}
             {candidate.accessCode && !['invited', 'hired', 'rejected'].includes(candidate.stage) && (
               <button onClick={() => setReopenState('confirm')}
-                title="Let this candidate sign back in and edit their answers"
+                title="Let this candidate sign back in and redo video answers"
                 className="text-xs font-medium px-3 py-1.5 rounded-lg border bg-white text-gray-700 border-gray-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">
                 &#8635; Reopen
               </button>
@@ -1151,7 +1151,7 @@ export default function AdminCandidate() {
                   Tell <span className="font-medium text-gray-700">{candidate.firstName}</span> to sign back in at{' '}
                   <span className="font-medium text-gray-700">insightedgehq.com</span> with their same code{' '}
                   <span className="font-mono font-semibold text-gray-900">{candidate.accessCode}</span>.
-                  All their answers will be pre-filled — they just edit what they need to and resubmit.
+                  Their prior answers will be pre-filled. They can redo video answers only; written/problem-solving answers stay locked from the prior submission.
                 </p>
                 <button onClick={() => setReopenState(null)}
                   className="mt-5 w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 rounded-xl">
@@ -1162,7 +1162,7 @@ export default function AdminCandidate() {
               <>
                 <h3 className="text-lg font-semibold text-gray-900">Reopen this interview?</h3>
                 <p className="text-sm text-gray-500 mt-1">
-                  <span className="font-medium text-gray-700">{candidate.firstName} {candidate.lastName}</span> will move back to Invited and can sign in with their existing code to edit their answers and resubmit. Scores and analysis will be regenerated when they do.
+                  <span className="font-medium text-gray-700">{candidate.firstName} {candidate.lastName}</span> will move back to Invited and can sign in with their existing code to redo video answers only. Written/problem-solving answers will stay locked. Scores and analysis will be regenerated when they resubmit.
                 </p>
                 <div className="flex items-center justify-end gap-3 mt-6">
                   <button onClick={() => setReopenState(null)} disabled={reopenState === 'working'}

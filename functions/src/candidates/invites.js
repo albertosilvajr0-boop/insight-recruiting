@@ -56,6 +56,48 @@ async function hasCurrentSelectionCompliance(db, candidateId) {
     && REQUIRED_ACKS.every((key) => compliance.acknowledgements?.[key] === true)
 }
 
+// ─── Invite response helpers ────────────────────────────────────────────────
+function isVideoQuestionType(question) {
+  return question?.type === 'video_response' || question?.type === 'video_reading'
+}
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key)
+}
+
+function preserveLockedReopenResponses(candidate, submittedQuestions, submittedVideoResponses, submittedTextResponses, submittedTimingData) {
+  if (!candidate.reopenedAt) {
+    return {
+      videoResponses: submittedVideoResponses,
+      textResponses: submittedTextResponses,
+      timingData: submittedTimingData,
+    }
+  }
+
+  const policyQuestions = candidate.questions || submittedQuestions || {}
+  const previousVideoResponses = candidate.videoResponses || {}
+  const previousTextResponses = candidate.textResponses || {}
+  const previousTimingData = candidate.timingData || {}
+  const videoResponses = { ...submittedVideoResponses }
+  const textResponses = { ...submittedTextResponses }
+  const timingData = { ...submittedTimingData }
+
+  for (const [qIndex, question] of Object.entries(policyQuestions)) {
+    if (isVideoQuestionType(question)) continue
+
+    if (hasOwn(previousVideoResponses, qIndex)) videoResponses[qIndex] = previousVideoResponses[qIndex]
+    else delete videoResponses[qIndex]
+
+    if (hasOwn(previousTextResponses, qIndex)) textResponses[qIndex] = previousTextResponses[qIndex]
+    else delete textResponses[qIndex]
+
+    if (hasOwn(previousTimingData, qIndex)) timingData[qIndex] = previousTimingData[qIndex]
+    else delete timingData[qIndex]
+  }
+
+  return { videoResponses, textResponses, timingData }
+}
+
 // ─── Admin: create an invited candidate ─────────────────────────────────────
 export async function createCandidateInviteHandler(data, request) {
   const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
@@ -182,9 +224,8 @@ export async function getInviteSessionHandler(data) {
   if (!candidate.firstSignInAt) signInStamp.firstSignInAt = FieldValue.serverTimestamp()
   await db.collection('candidates').doc(found.id).update(signInStamp)
 
-  // Reopened by an admin after submission: hand back the prior responses so
-  // the interview loads pre-filled and the candidate only edits what they
-  // need to (their device's local draft was cleared when they submitted).
+  // Reopened after submission: hand back prior responses so video answers can
+  // be redone while non-video/problem-solving answers remain preserved.
   const reopened = Boolean(candidate.reopenedAt)
   const complianceCurrent = reopened
     ? await hasCurrentSelectionCompliance(db, found.id)
@@ -214,8 +255,8 @@ export async function getInviteSessionHandler(data) {
 }
 
 // ─── Public: candidate reopens their OWN submitted interview ────────────────
-// After feedback, candidates can choose to improve answers themselves: sign
-// in with the same code → reopen → everything loads pre-filled → resubmit.
+// After feedback, candidates can choose to improve video answers themselves:
+// sign in with the same code, redo video answers, then resubmit.
 export async function reopenOwnInterviewHandler(data) {
   const db = getFirestore()
   const found = await findCandidateByCode(db, data?.code)
@@ -246,9 +287,9 @@ export async function reopenOwnInterviewHandler(data) {
   return { success: true }
 }
 
-// ─── Admin: reopen a submitted interview so the candidate can edit ──────────
-// Flips the candidate back to 'invited' — they sign in with the same access
-// code, their answers load pre-filled, and resubmitting re-runs the pipeline.
+// ─── Admin: reopen a submitted interview so video answers can be redone ─────
+// Flips the candidate back to 'invited'. They sign in with the same access
+// code, prior answers load pre-filled, and resubmitting re-runs the pipeline.
 export async function reopenInviteHandler(data, request) {
   const profile = await assertPermission(request, PERMISSIONS.SCORE_CANDIDATES)
   const db = getFirestore()
@@ -317,6 +358,7 @@ export async function submitInvitedInterviewHandler(data) {
   }
 
   const candidate = found.data
+  const reopenedResponses = preserveLockedReopenResponses(candidate, questions, videoResponses, textResponses, timingData)
   const reuseCurrentCompliance = Boolean(data.reuseCurrentCompliance)
     && await hasCurrentSelectionCompliance(db, found.id)
   const needsCompliance = !reuseCurrentCompliance
@@ -361,10 +403,10 @@ export async function submitInvitedInterviewHandler(data) {
   // The invited→applied stage transition kicks off the scoring pipeline
   // (see onCandidateUpdated in index.js).
   const candidateUpdate = {
-    videoResponses,
-    textResponses,
+    videoResponses: reopenedResponses.videoResponses,
+    textResponses: reopenedResponses.textResponses,
     questions,
-    timingData,
+    timingData: reopenedResponses.timingData,
     stage: 'applied',
     submittedAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
