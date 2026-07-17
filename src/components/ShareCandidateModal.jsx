@@ -2,12 +2,11 @@ import { useState, useEffect } from 'react'
 import { httpsCallable } from 'firebase/functions'
 import { ref, listAll, getDownloadURL } from 'firebase/storage'
 import { functions, storage } from '../firebase'
+import { pickRecordingFile } from '../utils/videoFiles'
 
 async function resolveVideoUrl(path) {
   const list = await listAll(ref(storage, path))
-  const file = list.items.find(f => f.name === 'full_recording.webm')
-    || list.items.find(f => /^recording\.(webm|mp4)$/.test(f.name))
-    || list.items.find(f => /\.(webm|mp4)$/.test(f.name))
+  const file = pickRecordingFile(list.items)
   return file ? getDownloadURL(file) : null
 }
 

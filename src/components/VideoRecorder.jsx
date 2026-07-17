@@ -162,7 +162,9 @@ export default function VideoRecorder({ candidateId, questionIndex, onComplete, 
     const contentType = rawContentType.includes('mp4') ? 'video/mp4' : 'video/webm'
     const ext = contentType.includes('mp4') ? 'mp4' : 'webm'
     const dirPath = `videos/${candidateId}_q${questionIndex}`
-    const storagePath = `${dirPath}/recording.${ext}`
+    // Unique name per take: storage rules forbid overwrites (update: false),
+    // so re-records MUST be new files — viewers pick the newest take.
+    const storagePath = `${dirPath}/take_${Date.now()}.${ext}`
 
     // Retry several times on transient failures — mobile networks drop
     // connections constantly, and a single hiccup shouldn't force a retake.

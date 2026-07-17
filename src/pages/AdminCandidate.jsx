@@ -7,6 +7,7 @@ import { auth, db, storage, functions } from '../firebase'
 import { format } from 'date-fns'
 import ResumeViewer from '../components/ResumeViewer'
 import { downloadCandidateProfile } from '../utils/downloadProfile'
+import { pickRecordingFile } from '../utils/videoFiles'
 import ShareCandidateModal from '../components/ShareCandidateModal'
 import { adminAuditFields } from '../security/auditFields'
 import { buildInitialOnboardingDoc } from '../onboarding/plan'
@@ -155,10 +156,7 @@ export default function AdminCandidate() {
               try {
                 const dirRef = ref(storage, path)
                 const fileList = await listAll(dirRef)
-                // iPhones record .mp4; Android/desktop record .webm
-                const videoFile = fileList.items.find(f => f.name === 'full_recording.webm')
-                  || fileList.items.find(f => /^recording\.(webm|mp4)$/.test(f.name))
-                  || fileList.items.find(f => /\.(webm|mp4)$/.test(f.name))
+                const videoFile = pickRecordingFile(fileList.items)
                 if (videoFile) {
                   const url = await getDownloadURL(videoFile)
                   urls[qIndex] = url

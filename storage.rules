@@ -75,7 +75,7 @@ service firebase.storage {
       allow create: if validVideoKey(videoKey)
         && request.resource.size <= 250 * 1024 * 1024
         && validVideoContentType()
-        && fileName.matches('^(recording|full_recording|chunk_[0-9]{4})\\.(webm|mp4)$');
+        && fileName.matches('^(recording|full_recording|chunk_[0-9]{4}|take_[0-9]{10,16})\\.(webm|mp4)$');
       allow update, delete: if false;
     }
 
