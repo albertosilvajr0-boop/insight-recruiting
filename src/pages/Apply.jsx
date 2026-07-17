@@ -27,6 +27,7 @@ import {
   normalizeEeoSurvey,
 } from '../compliance/selectionProcess'
 import {  getJobClientName, getJobLocation } from '../config/organization'
+import { questionsFromStoredMap, selectQuestionsForRole } from '../library/questionSelection'
 
 const STEPS = ['info', 'resume', 'compliance', 'interview', 'review', 'submitting']
 const DRAFT_KEY_PREFIX = 'apply_draft_v1_'
@@ -196,9 +197,7 @@ export default function Apply() {
           query(collection(db, 'interviewQuestions'), where('active', '==', true), orderBy('order', 'asc'))
         )
         const allQuestions = qSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-        setQuestions(allQuestions.filter(
-          q => q.active !== false && (q.roleKey === 'all' || q.roleKey === roleKey)
-        ))
+        setQuestions(selectQuestionsForRole(allQuestions, roleKey))
       } catch (err) {
         console.warn('Failed to load questions from Firestore, using empty set:', err)
         setQuestions([])
@@ -223,6 +222,7 @@ export default function Apply() {
       try {
         const getInviteSession = httpsCallable(functions, 'getInviteSession')
         const { data } = await getInviteSession({ code })
+        let loadedStoredReopenQuestions = false
         if (data.alreadySubmitted) {
           // Don't bounce straight to status; offer the choice to reopen video
           // answers while preserving written/problem-solving responses.
@@ -244,6 +244,11 @@ export default function Apply() {
           }
           if (data.priorResponses) {
             const prior = data.priorResponses
+            const storedQuestions = questionsFromStoredMap(prior.questions)
+            if (storedQuestions.length > 0) {
+              setQuestions(storedQuestions)
+              loadedStoredReopenQuestions = true
+            }
             setVideoResponses(prev => ({ ...(prior.videoResponses || {}), ...prev }))
             setTextResponses(prior.textResponses || {})
             setTimingData(prev => ({ ...(prior.timingData || {}), ...prev }))
@@ -263,7 +268,7 @@ export default function Apply() {
           clientName: data.clientName,
           location: data.location,
         })
-        await loadQuestions(data.roleKey)
+        if (!loadedStoredReopenQuestions) await loadQuestions(data.roleKey)
       } catch (err) {
         console.warn('Invite session failed:', err)
         setInviteError(
@@ -553,7 +558,17 @@ export default function Apply() {
       // Build question map for storage
       const questionMap = {}
       questions.forEach((q, i) => {
-        questionMap[i] = { questionId: q.id, text: q.text, type: q.type, category: q.category }
+        questionMap[i] = {
+          questionId: q.questionId || q.id,
+          text: q.text,
+          type: q.type,
+          category: q.category,
+          roleKey: q.roleKey,
+          order: q.order,
+          timerType: q.timerType || 'none',
+          timerSeconds: q.timerSeconds || 0,
+          questionSetVersion: q.questionSetVersion || null,
+        }
       })
 
       if (inviteMode) {

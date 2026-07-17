@@ -5,6 +5,7 @@ import { db } from '../firebase'
 import VideoRecorder from '../components/VideoRecorder'
 import {  PLATFORM_NAME } from '../config/organization'
 import { INDUSTRY_OPTIONS } from '../config/industries'
+import { selectQuestionsForRole } from '../library/questionSelection'
 
 // Superadmin-only sales demo: walk a prospective client through the exact
 // interview experience their candidates would get. Nothing is saved.
@@ -53,9 +54,7 @@ export default function AdminDemo() {
     [rubrics, industry])
 
   const questionsForRole = (roleKey) =>
-    questions
-      .filter(q => q.roleKey === roleKey)
-      .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+    selectQuestionsForRole(questions, roleKey)
 
   if (activeRole) {
     return (

@@ -16,6 +16,22 @@
     ]
   },
   {
+    "roleKey": "service-advisor",
+    "label": "Service advisor",
+    "industry": "automotive",
+    "industryLabel": "Automotive",
+    "scoringWeights": {
+      "Customer communication": 35,
+      "Relevant service/advisor experience": 30,
+      "Composure under conflict": 20,
+      "Motivation and stability": 15
+    },
+    "hardDisqualifiers": [
+      "No valid driver's license",
+      "requires sponsorship"
+    ]
+  },
+  {
     "roleKey": "service-advisor-full",
     "label": "Service advisor (full battery)",
     "industry": "automotive",

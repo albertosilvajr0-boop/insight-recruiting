@@ -8,9 +8,9 @@ const CATEGORIES = ['intro', 'experience', 'situational', 'word_track', 'compete
 const TIMER_TYPES = ['none', 'hard', 'soft']
 
 describe('interview battery seed data', () => {
-  it('contains 14 rubrics and 149 questions', () => {
-    expect(rubrics).toHaveLength(14)
-    expect(questions).toHaveLength(149)
+  it('contains 15 rubrics and 158 questions', () => {
+    expect(rubrics).toHaveLength(15)
+    expect(questions).toHaveLength(158)
   })
 
   it('every question matches the interviewQuestions schema', () => {
@@ -36,6 +36,16 @@ describe('interview battery seed data', () => {
     for (const q of questions) {
       expect(byKey[q.roleKey], `rubric for ${q.roleKey}`).toBeDefined()
       expect(q.industry).toBe(byKey[q.roleKey].industry)
+    }
+  })
+
+  it('uses standalone V2 batteries for future server and advisor applicants', () => {
+    const v2Roles = ['server', 'service-advisor', 'service-advisor-full']
+    for (const roleKey of v2Roles) {
+      const roleQuestions = questions.filter(q => q.roleKey === roleKey)
+      expect(roleQuestions.length, roleKey).toBeGreaterThan(0)
+      expect(roleQuestions.every(q => q.questionSetVersion === '2026-07-v2')).toBe(true)
+      expect(roleQuestions.every(q => q.standaloneRoleBattery === true)).toBe(true)
     }
   })
 

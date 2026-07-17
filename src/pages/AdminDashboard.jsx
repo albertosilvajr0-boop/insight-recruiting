@@ -579,11 +579,18 @@ export default function AdminDashboard() {
           </button>
         </div>
 
+        {/* Pipeline */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-900">Pipeline</h2>
+            <span className="text-xs text-gray-500">{filteredCandidates.length} candidate{filteredCandidates.length !== 1 ? "s" : ""}</span>
+          </div>
+
         {/* Work queue */}
-        <section className="bg-white border border-gray-200 rounded-xl mb-4 overflow-hidden">
+        <section className="bg-white border border-gray-200 rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-gray-900">Today&apos;s work queue</h2>
+              <h3 className="text-sm font-semibold text-gray-900">Today&apos;s work queue</h3>
               <p className="text-xs text-gray-500 mt-0.5">Candidates who need scoring, reminders, review, or employer follow-up.</p>
             </div>
             <div className="flex items-center gap-2">
@@ -624,8 +631,9 @@ export default function AdminDashboard() {
           )}
         </section>
 
+
         {/* Filter bar */}
-        <div className="bg-white border border-gray-200 rounded-xl p-3 mb-4 flex items-center gap-2 flex-wrap">
+        <div className="bg-white border border-gray-200 rounded-xl p-3 flex items-center gap-2 flex-wrap">
           <input
             type="text"
             placeholder="Search name, email, or role…"
@@ -648,9 +656,10 @@ export default function AdminDashboard() {
           )}
         </div>
 
+
         {/* Bulk action bar */}
         {selectedIds.size > 0 && (
-          <div className="bg-blue-600 text-white rounded-xl px-4 py-2.5 mb-4 flex items-center justify-between sticky top-14 z-10 shadow">
+          <div className="bg-blue-600 text-white rounded-xl px-4 py-2.5 flex items-center justify-between sticky top-14 z-10 shadow">
             <p className="text-sm font-medium">{selectedIds.size} selected</p>
             <div className="flex items-center gap-2">
               <button onClick={() => setBulkConfirm({ action: "advance" })} className="text-xs font-medium bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg">Advance stage</button>
@@ -663,12 +672,8 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Kanban — one board for everyone; each card shows the role under the name */}
-        <section>
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-semibold text-gray-900">Pipeline</h2>
-            <span className="text-xs text-gray-500">{filteredCandidates.length} candidate{filteredCandidates.length !== 1 ? "s" : ""}</span>
-          </div>
+
+          {/* Kanban - one board for everyone; each card shows the role under the name */}
           {renderKanbanBoard(filteredCandidates, "all")}
         </section>
 
