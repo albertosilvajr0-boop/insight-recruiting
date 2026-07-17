@@ -122,6 +122,7 @@ export default function AdminCandidate() {
   // Manual scores
   const [resumeScores, setResumeScores] = useState({})
   const [answerScores, setAnswerScores] = useState({})
+  const [answerNotes, setAnswerNotes] = useState({})
   const [expandedTranscripts, setExpandedTranscripts] = useState({})
   const [saveStatus, setSaveStatus] = useState('idle') // idle | saving | saved
   const videoElRefs = useRef({})
@@ -141,6 +142,7 @@ export default function AdminCandidate() {
         setNotes(data.adminNotes || '')
         setResumeScores(data.manualResumeScores || {})
         setAnswerScores(data.manualAnswerScores || {})
+        setAnswerNotes(data.manualAnswerNotes || {})
 
         if (data.resumeUrl) {
           try {
@@ -355,6 +357,11 @@ export default function AdminCandidate() {
     dirtyRef.current = true
   }
 
+  const setAnswerNote = (qIndex, value) => {
+    setAnswerNotes(prev => ({ ...prev, [qIndex]: value }))
+    dirtyRef.current = true
+  }
+
   // Auto-save scores ~800ms after the last change. Keeps manual evaluation
   // incremental — evaluators never lose work mid-review.
   useEffect(() => {
@@ -368,9 +375,17 @@ export default function AdminCandidate() {
         await updateDoc(doc(db, 'candidates', candidateId), {
           manualResumeScores: resumeScores,
           manualAnswerScores: answerScores,
+          manualAnswerNotes: answerNotes,
           manualScore: cumulative ? { avg: parseFloat(cumulative.avg), sum: cumulative.sum, count: cumulative.count, max: cumulative.max } : null,
           ...adminAuditFields()
         })
+        setCandidate(c => c ? ({
+          ...c,
+          manualResumeScores: resumeScores,
+          manualAnswerScores: answerScores,
+          manualAnswerNotes: answerNotes,
+          manualScore: cumulative ? { avg: parseFloat(cumulative.avg), sum: cumulative.sum, count: cumulative.count, max: cumulative.max } : null,
+        }) : c)
         dirtyRef.current = false
         setSaveStatus('saved')
         setTimeout(() => setSaveStatus(s => s === 'saved' ? 'idle' : s), 1500)
@@ -380,7 +395,7 @@ export default function AdminCandidate() {
       }
     }, 800)
     return () => clearTimeout(saveTimerRef.current)
-  }, [resumeScores, answerScores]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [resumeScores, answerScores, answerNotes]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDownload = async () => {
     if (downloadStatus) return
@@ -425,6 +440,7 @@ export default function AdminCandidate() {
       await updateDoc(doc(db, 'candidates', candidateId), {
         manualResumeScores: resumeScores,
         manualAnswerScores: answerScores,
+        manualAnswerNotes: answerNotes,
         manualScore: cumulative ? { avg: parseFloat(cumulative.avg), sum: cumulative.sum, count: cumulative.count, max: cumulative.max } : null,
         stage: candidate.stage === 'applied' ? 'scored' : candidate.stage,
         ...adminAuditFields()
@@ -433,6 +449,7 @@ export default function AdminCandidate() {
         ...c,
         manualResumeScores: resumeScores,
         manualAnswerScores: answerScores,
+        manualAnswerNotes: answerNotes,
         manualScore: cumulative ? { avg: parseFloat(cumulative.avg), sum: cumulative.sum, count: cumulative.count, max: cumulative.max } : null,
         stage: c.stage === 'applied' ? 'scored' : c.stage,
       }))
@@ -455,10 +472,9 @@ export default function AdminCandidate() {
     return 'text-red-600'
   }
 
-  // Determine which questions are "scorable" (not competence puzzle type that's right/wrong)
-  const isScorableQuestion = (qData) => {
-    return qData?.type !== 'text_response'
-  }
+  // Every question can carry score notes so the share email has complete
+  // evaluator context across video, written, and timed answers.
+  const isScorableQuestion = () => true
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -484,12 +500,22 @@ export default function AdminCandidate() {
               {downloadStatus || '↓ Download profile'}
             </button>
             <button onClick={() => setShowShare(true)}
-              title="Email this profile (resume + videos) to someone"
+              title="Email an employer-ready candidate packet"
               className="text-xs font-medium px-3 py-1.5 rounded-lg border bg-white text-gray-700 border-gray-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">
               &#9993; Share
             </button>
             {showShare && candidate && (
-              <ShareCandidateModal candidate={{ id: candidateId, ...candidate }} onClose={() => setShowShare(false)} />
+              <ShareCandidateModal
+                candidate={{
+                  id: candidateId,
+                  ...candidate,
+                  manualResumeScores: resumeScores,
+                  manualAnswerScores: answerScores,
+                  manualAnswerNotes: answerNotes,
+                  manualScore: cumulative ? { avg: parseFloat(cumulative.avg), sum: cumulative.sum, count: cumulative.count, max: cumulative.max } : candidate.manualScore,
+                }}
+                onClose={() => setShowShare(false)}
+              />
             )}
             {candidate.accessCode && !['invited', 'hired', 'rejected'].includes(candidate.stage) && (
               <button onClick={() => setReopenState('confirm')}
@@ -751,14 +777,27 @@ export default function AdminCandidate() {
                   )}
                   {/* Score this answer (not for text/puzzle questions) */}
                   {scorable && (
-                    <div className="ml-9 flex items-center gap-3">
-                      <span className="text-xs text-gray-500 font-medium">Score:</span>
-                      <div className="flex gap-1">
-                        {[1, 2, 3, 4, 5].map(v => (
-                          <ScoreButton key={v} value={v} selected={answerScores[qIndex] === v} onClick={() => setAnswerScore(qIndex, v)} />
-                        ))}
+                    <div className="ml-9 space-y-2">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-gray-500 font-medium">Score:</span>
+                        <div className="flex gap-1">
+                          {[1, 2, 3, 4, 5].map(v => (
+                            <ScoreButton key={v} value={v} selected={answerScores[qIndex] === v} onClick={() => setAnswerScore(qIndex, v)} />
+                          ))}
+                        </div>
+                        {answerScores[qIndex] && <span className="text-xs text-gray-400">{answerScores[qIndex]}/5</span>}
                       </div>
-                      {answerScores[qIndex] && <span className="text-xs text-gray-400">{answerScores[qIndex]}/5</span>}
+                      <label className="block">
+                        <span className="block text-xs font-medium text-gray-500 mb-1">Scoring notes</span>
+                        <textarea
+                          value={answerNotes[qIndex] || ''}
+                          onChange={(e) => setAnswerNote(qIndex, e.target.value)}
+                          rows={2}
+                          maxLength={1200}
+                          placeholder="Add AI scoring notes, evaluator rationale, standout evidence, or client-facing context for this answer."
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                        />
+                      </label>
                     </div>
                   )}
                 </div>

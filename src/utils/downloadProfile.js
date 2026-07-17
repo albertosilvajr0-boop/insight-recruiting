@@ -106,6 +106,11 @@ function buildSummary(candidate, issues) {
       }
       const answerScore = candidate.manualAnswerScores?.[k]
       if (answerScore) L.push(`  Evaluator score: ${answerScore}/5`)
+      const answerNote = candidate.manualAnswerNotes?.[k]
+      if (answerNote) {
+        L.push(`  Evaluator notes:`)
+        String(answerNote).split('\n').forEach(line => L.push(`    ${line}`))
+      }
     }
   }
 

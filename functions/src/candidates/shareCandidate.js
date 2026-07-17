@@ -7,50 +7,91 @@ import { sendEmail } from '../email/sendEmail.js'
 import { APP_URL, getCandidateClientName } from '../config/organization.js'
 import { writeAuditLog } from '../utils/auditLog.js'
 
-// Email can't carry a full battery of videos (Gmail caps messages at 25MB)
-// and clients strip playable <video>. So: resume attached, every video as a
-// prominent watch-card — all one-click, no login.
 const MAX_RESUME_ATTACH_BYTES = 20 * 1024 * 1024
+const MAX_BULK_ATTACH_BYTES = 18 * 1024 * 1024
 const MAX_RECIPIENTS = 10
-
-// Visible sender. Gmail only honors this when the address is a verified
-// "Send mail as" alias on the SMTP account — otherwise it rewrites the
-// header back to the authenticated sender.
+const MAX_BULK_CANDIDATES = 12
 const SHARE_FROM_EMAIL = process.env.SHARE_FROM_EMAIL || 'albertosilva@insightedgehq.com'
 
 function escapeHtml(text) {
-  return String(text)
+  return String(text || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 }
 
-async function resolveVideoFile(bucket, prefix) {
-  const [files] = await bucket.getFiles({ prefix })
-  const withBase = files
-    .filter(f => /\.(webm|mp4)$/.test(f.name))
-    .map(f => ({ f, base: f.name.split('/').pop() }))
-  // Newest take wins — re-records upload as take_{timestamp} since storage
-  // rules forbid overwriting an existing file. Legacy names still resolve.
-  const takes = withBase
-    .filter(x => /^take_\d+\.(webm|mp4)$/.test(x.base))
-    .sort((a, b) => b.base.localeCompare(a.base, undefined, { numeric: true }))
-  if (takes.length) return takes[0].f
-  return withBase.find(x => x.base === 'full_recording.webm')?.f
-    || withBase.find(x => /^recording\.(webm|mp4)$/.test(x.base))?.f
-    || withBase[0]?.f
-    || null
+function truncate(text, max = 700) {
+  const cleaned = String(text || '').replace(/\s+/g, ' ').trim()
+  if (!cleaned) return ''
+  return cleaned.length > max ? `${cleaned.slice(0, max - 1)}...` : cleaned
 }
 
-export async function shareCandidateHandler(data, request) {
-  const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
+function sanitizeFilename(text) {
+  return String(text || 'candidate')
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80) || 'candidate'
+}
 
-  const candidateId = String(data?.candidateId || '').trim()
-  const note = String(data?.note || '').trim().slice(0, 1000)
-  if (!candidateId) throw new HttpsError('invalid-argument', 'Missing candidateId.')
+function candidateName(candidate) {
+  return `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || 'Candidate'
+}
 
-  // Accept an array (toEmails) or a comma/space-separated string (toEmail).
+function formatScore(value, max) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${value.toFixed(1)}/${max}`
+    : 'Pending'
+}
+
+function scoreBand(value, max) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return { label: 'Pending review', color: '#6b7280', bg: '#f3f4f6' }
+  }
+  const ratio = value / max
+  if (ratio >= 0.8) return { label: 'Priority review', color: '#047857', bg: '#ecfdf5' }
+  if (ratio >= 0.6) return { label: 'Worth review', color: '#b45309', bg: '#fffbeb' }
+  return { label: 'Review carefully', color: '#b91c1c', bg: '#fef2f2' }
+}
+
+function uniqueList(...groups) {
+  return [...new Set(groups.flat().filter(Boolean).map(item => String(item).trim()).filter(Boolean))]
+}
+
+function candidateStrengths(candidate) {
+  return uniqueList(candidate.strengths, candidate.resumeStrengths, candidate.interviewStrengths).slice(0, 5)
+}
+
+function candidateConcerns(candidate) {
+  return uniqueList(candidate.concerns, candidate.resumeConcerns, candidate.interviewConcerns).slice(0, 5)
+}
+
+function cleanObjectMap(value, maxEntries = 200, maxLength = 1200) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).slice(0, maxEntries).map(([key, val]) => [
+    String(key).slice(0, 40),
+    typeof val === 'number' ? val : String(val || '').slice(0, maxLength),
+  ]))
+}
+
+function applyShareOverrides(candidate, data) {
+  return {
+    ...candidate,
+    ...(data?.manualResumeScores ? { manualResumeScores: cleanObjectMap(data.manualResumeScores) } : {}),
+    ...(data?.manualAnswerScores ? { manualAnswerScores: cleanObjectMap(data.manualAnswerScores) } : {}),
+    ...(data?.manualAnswerNotes ? { manualAnswerNotes: cleanObjectMap(data.manualAnswerNotes) } : {}),
+    ...(data?.manualScore && typeof data.manualScore === 'object' ? {
+      manualScore: {
+        avg: Number(data.manualScore.avg),
+        sum: Number(data.manualScore.sum),
+        count: Number(data.manualScore.count),
+        max: Number(data.manualScore.max),
+      },
+    } : {}),
+  }
+}
+
+function validateRecipients(data) {
   const rawRecipients = Array.isArray(data?.toEmails)
     ? data.toEmails
     : String(data?.toEmails || data?.toEmail || '').split(/[\s,;]+/)
@@ -66,35 +107,25 @@ export async function shareCandidateHandler(data, request) {
       throw new HttpsError('invalid-argument', `Invalid recipient email address: ${e}`)
     }
   }
+  return toEmails
+}
 
-  const db = getFirestore()
-  const snap = await db.collection('candidates').doc(candidateId).get()
-  if (!snap.exists) throw new HttpsError('not-found', 'Candidate not found.')
-  const candidate = snap.data()
-  const bucket = getStorage().bucket()
+async function resolveVideoFile(bucket, prefix) {
+  const [files] = await bucket.getFiles({ prefix })
+  const withBase = files
+    .filter(f => /\.(webm|mp4)$/.test(f.name))
+    .map(f => ({ f, base: f.name.split('/').pop() }))
+  const takes = withBase
+    .filter(x => /^take_\d+\.(webm|mp4)$/.test(x.base))
+    .sort((a, b) => b.base.localeCompare(a.base, undefined, { numeric: true }))
+  if (takes.length) return takes[0].f
+  return withBase.find(x => x.base === 'full_recording.webm')?.f
+    || withBase.find(x => /^recording\.(webm|mp4)$/.test(x.base))?.f
+    || withBase[0]?.f
+    || null
+}
 
-  const name = `${candidate.firstName} ${candidate.lastName}`
-  const clientName = getCandidateClientName(candidate)
-  const jobTitle = candidate.jobTitle || 'the open role'
-
-  // Resume: attach when present and small enough
-  const attachments = []
-  let resumeAttached = false
-  if (candidate.resumeUrl) {
-    try {
-      const file = bucket.file(candidate.resumeUrl)
-      const [meta] = await file.getMetadata()
-      if (Number(meta.size) <= MAX_RESUME_ATTACH_BYTES) {
-        const [content] = await file.download()
-        attachments.push({ filename: candidate.resumeUrl.split('/').pop(), content })
-        resumeAttached = true
-      }
-    } catch (err) {
-      console.warn(`[share] Resume attach failed for ${candidateId}:`, err.message)
-    }
-  }
-
-  // Videos: durable watch links (download tokens set by the client SDK)
+async function resolveCandidateVideos(bucket, candidate, targetPrefix = 'v') {
   const questions = candidate.questions || {}
   const videoEntries = Object.entries(candidate.videoResponses || {})
     .filter(([, path]) => path && !String(path).startsWith('skipped'))
@@ -106,62 +137,289 @@ export async function shareCandidateHandler(data, request) {
       const file = await resolveVideoFile(bucket, path)
       if (!file) continue
       const url = await getDownloadURL(file)
+      const num = Number(qIndex) + 1
       const label = questions[qIndex]?.text
         ? String(questions[qIndex].text).slice(0, 110)
-        : `Interview answer ${Number(qIndex) + 1}`
-      videos.push({ num: Number(qIndex) + 1, label, url })
+        : `Interview answer ${num}`
+      videos.push({ qIndex, num, target: `${targetPrefix}${num}`, label, url })
     } catch (err) {
-      console.warn(`[share] Video link failed for ${candidateId} q${qIndex}:`, err.message)
+      console.warn(`[share] Video link failed for ${candidate.id || candidate.candidateId || 'candidate'} q${qIndex}:`, err.message)
     }
+  }
+  return videos
+}
+
+async function attachResumeIfSmall(bucket, candidate, attachments, bytesRemaining, filenamePrefix = '') {
+  if (!candidate.resumeUrl || bytesRemaining <= 0) return { attached: false, bytes: 0 }
+  try {
+    const file = bucket.file(candidate.resumeUrl)
+    const [meta] = await file.getMetadata()
+    const size = Number(meta.size || 0)
+    if (size > Math.min(MAX_RESUME_ATTACH_BYTES, bytesRemaining)) return { attached: false, bytes: 0 }
+    const [content] = await file.download()
+    const ext = candidate.resumeUrl.split('.').pop() || 'pdf'
+    attachments.push({
+      filename: `${filenamePrefix}${sanitizeFilename(candidateName(candidate))}_resume.${ext}`,
+      content,
+    })
+    return { attached: true, bytes: size }
+  } catch (err) {
+    console.warn(`[share] Resume attach failed for ${candidate.id || candidate.candidateId || 'candidate'}:`, err.message)
+    return { attached: false, bytes: 0 }
+  }
+}
+
+function scoreCardsHtml(candidate) {
+  const band = scoreBand(candidate.compositeScore, 10)
+  const manual = candidate.manualScore?.avg
+  return `
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin: 16px 0; border-collapse: separate; border-spacing: 8px;">
+      <tr>
+        <td style="background: ${band.bg}; border: 1px solid ${band.bg}; border-radius: 12px; padding: 14px; width: 33%;">
+          <p style="margin: 0 0 4px; color: ${band.color}; font-size: 11px; font-weight: 700; text-transform: uppercase;">AI composite</p>
+          <p style="margin: 0; color: #111827; font-size: 24px; font-weight: 800;">${escapeHtml(formatScore(candidate.compositeScore, 10))}</p>
+          <p style="margin: 4px 0 0; color: ${band.color}; font-size: 12px; font-weight: 700;">${band.label}</p>
+        </td>
+        <td style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; width: 33%;">
+          <p style="margin: 0 0 4px; color: #64748b; font-size: 11px; font-weight: 700; text-transform: uppercase;">Resume / interview</p>
+          <p style="margin: 0; color: #111827; font-size: 16px; font-weight: 800;">${escapeHtml(formatScore(candidate.resumeScore, 10))} / ${escapeHtml(formatScore(candidate.interviewScore, 10))}</p>
+          <p style="margin: 4px 0 0; color: #64748b; font-size: 12px;">AI sub-scores</p>
+        </td>
+        <td style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; width: 33%;">
+          <p style="margin: 0 0 4px; color: #64748b; font-size: 11px; font-weight: 700; text-transform: uppercase;">Evaluator score</p>
+          <p style="margin: 0; color: #111827; font-size: 24px; font-weight: 800;">${escapeHtml(formatScore(manual, 5))}</p>
+          <p style="margin: 4px 0 0; color: #64748b; font-size: 12px;">${candidate.manualScore?.count ? `${candidate.manualScore.count} scored items` : 'Not manually scored'}</p>
+        </td>
+      </tr>
+    </table>`
+}
+
+function listHtml(title, items, color) {
+  if (!items.length) return ''
+  return `
+    <div style="margin: 14px 0;">
+      <p style="margin: 0 0 8px; color: #111827; font-size: 13px; font-weight: 800;">${escapeHtml(title)}</p>
+      <ul style="margin: 0; padding-left: 18px; color: ${color}; font-size: 13px; line-height: 1.55;">
+        ${items.map(item => `<li>${escapeHtml(truncate(item, 220))}</li>`).join('')}
+      </ul>
+    </div>`
+}
+
+function trackedVideoButton(video, trackUrl) {
+  if (!video) return ''
+  return `
+    <a href="${trackUrl(video.target)}" style="display: inline-block; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 7px 12px; margin-top: 8px;">
+      <span style="color: #1d4ed8; font-size: 12px; font-weight: 800;">WATCH Q${video.num}</span>
+    </a>`
+}
+
+function responseEvidenceHtml(candidate, videos, trackUrl, limit = 20) {
+  const questions = candidate.questions || {}
+  const qKeys = Object.keys(questions).sort((a, b) => Number(a) - Number(b)).slice(0, limit)
+  if (!qKeys.length) return ''
+  const videosByIndex = new Map(videos.map(v => [String(v.qIndex), v]))
+
+  return `
+    <div style="margin-top: 18px;">
+      <p style="margin: 0 0 10px; color: #111827; font-size: 14px; font-weight: 800;">Interview evidence</p>
+      ${qKeys.map((qIndex) => {
+        const q = questions[qIndex] || {}
+        const num = Number(qIndex) + 1
+        const video = videosByIndex.get(String(qIndex))
+        const answerScore = candidate.manualAnswerScores?.[qIndex]
+        const note = truncate(candidate.manualAnswerNotes?.[qIndex], 850)
+        const written = truncate(candidate.textResponses?.[qIndex], 900)
+        const transcript = truncate(candidate.videoTranscripts?.[qIndex]?.transcript, 900)
+        return `
+          <div style="border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; margin: 0 0 10px;">
+            <p style="margin: 0 0 5px; color: #6b7280; font-size: 11px; font-weight: 800; text-transform: uppercase;">Question ${num}${answerScore ? ` - score ${escapeHtml(answerScore)}/5` : ''}</p>
+            <p style="margin: 0 0 8px; color: #111827; font-size: 13px; font-weight: 700; line-height: 1.45;">${escapeHtml(q.text || `Interview answer ${num}`)}</p>
+            ${note ? `<p style="margin: 0 0 8px; color: #92400e; background: #fffbeb; border-left: 3px solid #f59e0b; padding: 8px 10px; font-size: 13px; line-height: 1.45;"><strong>Evaluator note:</strong> ${escapeHtml(note)}</p>` : ''}
+            ${written ? `<p style="margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.45;"><strong>Written answer:</strong> ${escapeHtml(written)}</p>` : ''}
+            ${!written && transcript ? `<p style="margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.45;"><strong>Transcript excerpt:</strong> ${escapeHtml(transcript)}</p>` : ''}
+            ${trackedVideoButton(video, trackUrl)}
+          </div>`
+      }).join('')}
+    </div>`
+}
+
+function analysisHtml(candidate) {
+  const resume = truncate(candidate.resumeAnalysis, 900)
+  const interview = truncate(candidate.interviewAnalysis, 900)
+  if (!resume && !interview && !candidate.standoutQuotes?.length) return ''
+  return `
+    <div style="margin-top: 18px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px;">
+      <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 800;">AI review summary</p>
+      ${resume ? `<p style="margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.5;"><strong>Resume:</strong> ${escapeHtml(resume)}</p>` : ''}
+      ${interview ? `<p style="margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.5;"><strong>Interview:</strong> ${escapeHtml(interview)}</p>` : ''}
+      ${(candidate.standoutQuotes || []).slice(0, 3).map(quote => `<p style="margin: 6px 0 0; color: #4b5563; font-size: 13px; font-style: italic;">"${escapeHtml(truncate(quote, 240))}"</p>`).join('')}
+    </div>`
+}
+
+function candidateSectionHtml({ candidate, videos, trackUrl, compact = false }) {
+  const name = candidateName(candidate)
+  const jobTitle = candidate.jobTitle || 'Open role'
+  const clientName = getCandidateClientName(candidate)
+  const strengths = candidateStrengths(candidate)
+  const concerns = candidateConcerns(candidate)
+  const email = candidate.email ? ` - ${candidate.email}` : ''
+  const phone = candidate.phone ? ` - ${candidate.phone}` : ''
+
+  return `
+    <section style="border: 1px solid #d1d5db; border-radius: 16px; padding: ${compact ? '18px' : '22px'}; margin: 0 0 18px; background: #ffffff;">
+      <h2 style="margin: 0 0 4px; color: #111827; font-size: ${compact ? '18px' : '22px'};">${escapeHtml(name)}</h2>
+      <p style="margin: 0 0 12px; color: #6b7280; font-size: 13px;">${escapeHtml(jobTitle)} - ${escapeHtml(clientName)}${escapeHtml(email)}${escapeHtml(phone)}</p>
+      ${scoreCardsHtml(candidate)}
+      ${listHtml('Why this candidate is worth reviewing', strengths, '#047857')}
+      ${listHtml('Points to verify in manager review', concerns, '#b45309')}
+      ${analysisHtml(candidate)}
+      ${responseEvidenceHtml(candidate, videos, trackUrl, compact ? 8 : 20)}
+    </section>`
+}
+
+function valuePropHtml() {
+  return `
+    <div style="background: #0f172a; border-radius: 16px; padding: 18px; margin: 18px 0; color: #ffffff;">
+      <p style="margin: 0 0 8px; font-size: 14px; font-weight: 800;">What this shows about the hiring workflow</p>
+      <ul style="margin: 0; padding-left: 18px; color: #dbeafe; font-size: 13px; line-height: 1.6;">
+        <li>Every applicant can be captured in the same structured interview flow, not scattered across resumes, voicemails, and manager notes.</li>
+        <li>Hiring managers get original responses, AI scoring, evaluator notes, strengths, and risk flags in one packet.</li>
+        <li>Your team can compare candidates faster while keeping the final hiring decision with human reviewers.</li>
+      </ul>
+    </div>`
+}
+
+function buildSingleEmailHtml({ candidate, videos, note, sharedBy, trackUrl, resumeAttached, packetAttached }) {
+  const name = candidateName(candidate)
+  const jobTitle = candidate.jobTitle || 'Open role'
+  return `
+    <div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 680px; margin: 0 auto; color: #111827;">
+      <img src="${APP_URL}/logo.png" alt="Insight Edge" style="height: 44px; margin: 8px 0 16px;" />
+      <p style="margin: 0 0 6px; color: #2563eb; font-size: 12px; font-weight: 800; text-transform: uppercase;">Screened candidate packet</p>
+      <h1 style="margin: 0 0 6px; color: #111827; font-size: 26px;">${escapeHtml(name)} for ${escapeHtml(jobTitle)}</h1>
+      <p style="margin: 0 0 16px; color: #4b5563; font-size: 14px;">A structured candidate review prepared by Insight Edge so your hiring team can review evidence quickly and consistently.</p>
+      ${note ? `<div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px 14px; margin: 0 0 18px; font-size: 14px; color: #1e3a8a; line-height: 1.5;">${escapeHtml(note)}</div>` : ''}
+      ${resumeAttached || packetAttached ? `<p style="font-size: 13px; color: #374151; margin: 0 0 12px;">${resumeAttached ? 'Resume attached. ' : ''}${packetAttached ? 'Candidate packet attached as text. ' : ''}Video links open in the browser without an account.</p>` : ''}
+      ${candidateSectionHtml({ candidate, videos, trackUrl })}
+      ${valuePropHtml()}
+      <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">Shared via Insight Edge by ${escapeHtml(sharedBy)}. Opens and video clicks are tracked so follow-up can be prioritized.</p>
+      <img src="${trackUrl('open')}" width="1" height="1" alt="" style="display: none;" />
+    </div>`
+}
+
+function buildBulkEmailHtml({ candidates, videosByCandidate, note, sharedBy, trackUrl, recipientIndex }) {
+  return `
+    <div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 720px; margin: 0 auto; color: #111827;">
+      <img src="${APP_URL}/logo.png" alt="Insight Edge" style="height: 44px; margin: 8px 0 16px;" />
+      <p style="margin: 0 0 6px; color: #2563eb; font-size: 12px; font-weight: 800; text-transform: uppercase;">Employer shortlist</p>
+      <h1 style="margin: 0 0 6px; color: #111827; font-size: 26px;">${candidates.length} screened candidate${candidates.length === 1 ? '' : 's'} ready for review</h1>
+      <p style="margin: 0 0 16px; color: #4b5563; font-size: 14px;">Here is a clean shortlist with scores, evidence, response links, and evaluator notes so your team can move faster without losing review quality.</p>
+      ${note ? `<div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px 14px; margin: 0 0 18px; font-size: 14px; color: #1e3a8a; line-height: 1.5;">${escapeHtml(note)}</div>` : ''}
+      ${valuePropHtml()}
+      ${candidates.map(candidate => candidateSectionHtml({
+        candidate,
+        videos: videosByCandidate.get(candidate.id) || [],
+        trackUrl,
+        compact: true,
+      })).join('')}
+      <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">Shared via Insight Edge by ${escapeHtml(sharedBy)}. This email was sent to recipient ${recipientIndex + 1} in the share batch.</p>
+      <img src="${trackUrl('open')}" width="1" height="1" alt="" style="display: none;" />
+    </div>`
+}
+
+function buildCandidatePacketText(candidate, videos, note = '') {
+  const lines = []
+  lines.push(`${candidateName(candidate)} - ${candidate.jobTitle || 'Open role'}`)
+  lines.push(`AI composite: ${formatScore(candidate.compositeScore, 10)}`)
+  lines.push(`Resume/interview: ${formatScore(candidate.resumeScore, 10)} / ${formatScore(candidate.interviewScore, 10)}`)
+  if (candidate.manualScore?.avg != null) lines.push(`Evaluator score: ${formatScore(candidate.manualScore.avg, 5)}`)
+  if (candidate.email) lines.push(`Email: ${candidate.email}`)
+  if (candidate.phone) lines.push(`Phone: ${candidate.phone}`)
+  if (note) lines.push(`\nShare note: ${note}`)
+  const strengths = candidateStrengths(candidate)
+  if (strengths.length) lines.push(`\nStrengths:\n${strengths.map(s => `- ${s}`).join('\n')}`)
+  const concerns = candidateConcerns(candidate)
+  if (concerns.length) lines.push(`\nReview flags:\n${concerns.map(s => `- ${s}`).join('\n')}`)
+  if (candidate.resumeAnalysis) lines.push(`\nAI resume analysis:\n${candidate.resumeAnalysis}`)
+  if (candidate.interviewAnalysis) lines.push(`\nAI interview analysis:\n${candidate.interviewAnalysis}`)
+
+  const questions = candidate.questions || {}
+  for (const qIndex of Object.keys(questions).sort((a, b) => Number(a) - Number(b))) {
+    const q = questions[qIndex]
+    const num = Number(qIndex) + 1
+    lines.push(`\nQ${num}: ${q.text || ''}`)
+    if (candidate.manualAnswerScores?.[qIndex]) lines.push(`Score: ${candidate.manualAnswerScores[qIndex]}/5`)
+    if (candidate.manualAnswerNotes?.[qIndex]) lines.push(`Notes: ${candidate.manualAnswerNotes[qIndex]}`)
+    if (candidate.textResponses?.[qIndex]) lines.push(`Written answer: ${candidate.textResponses[qIndex]}`)
+    if (candidate.videoTranscripts?.[qIndex]?.transcript) lines.push(`Transcript: ${candidate.videoTranscripts[qIndex].transcript}`)
+    const video = videos.find(v => String(v.qIndex) === String(qIndex))
+    if (video) lines.push(`Video: ${video.url}`)
+  }
+  return lines.join('\n')
+}
+
+export async function shareCandidateHandler(data, request) {
+  const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
+  const candidateId = String(data?.candidateId || '').trim()
+  const note = String(data?.note || '').trim().slice(0, 1000)
+  if (!candidateId) throw new HttpsError('invalid-argument', 'Missing candidateId.')
+  const toEmails = validateRecipients(data)
+
+  const db = getFirestore()
+  const snap = await db.collection('candidates').doc(candidateId).get()
+  if (!snap.exists) throw new HttpsError('not-found', 'Candidate not found.')
+
+  const candidate = applyShareOverrides({ id: snap.id, ...snap.data() }, data)
+  const bucket = getStorage().bucket()
+  const attachments = []
+  const resume = await attachResumeIfSmall(bucket, candidate, attachments, MAX_RESUME_ATTACH_BYTES)
+  const videos = await resolveCandidateVideos(bucket, candidate, 'v')
+  let packetAttached = false
+  if (process.env.GMAIL_APP_PASSWORD) {
+    attachments.push({
+      filename: `${sanitizeFilename(candidateName(candidate))}_candidate_packet.txt`,
+      content: Buffer.from(buildCandidatePacketText(candidate, videos, note), 'utf8'),
+    })
+    packetAttached = true
   }
 
   const sharedBy = profile.email || request.auth.token?.email || request.auth.uid
-
-  // Share doc: holds the real video URLs so email links can route through the
-  // /t/{shareId}/{recipientIndex}/{target} tracker (open pixel + click log).
   const shareRef = db.collection('shares').doc()
-  const links = {}
-  for (const v of videos) links[`v${v.num}`] = { url: v.url, label: v.label, num: v.num }
+  const links = Object.fromEntries(videos.map(v => [v.target, {
+    url: v.url,
+    label: `${candidateName(candidate)} Q${v.num} - ${v.label}`,
+    num: v.num,
+  }]))
+
   await shareRef.set({
     candidateId,
-    candidateName: name,
-    jobTitle,
+    candidateName: candidateName(candidate),
+    jobTitle: candidate.jobTitle || 'Open role',
     recipients: toEmails,
     note: note || null,
     by: sharedBy,
     links,
     videoCount: videos.length,
-    resumeAttached,
+    resumeAttached: resume.attached,
+    packetAttached,
     createdAt: FieldValue.serverTimestamp(),
   })
 
   for (let ri = 0; ri < toEmails.length; ri++) {
     const trackUrl = target => `${APP_URL}/t/${shareRef.id}/${ri}/${target}`
-
-    const videoCards = videos.map(v => `
-      <a href="${trackUrl(`v${v.num}`)}" style="display: block; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 16px 18px; margin: 0 0 10px;">
-        <span style="display: inline-block; background: #dc2626; color: #ffffff; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 4px 10px; margin-right: 10px;">&#9654; WATCH</span>
-        <span style="color: #1e3a8a; font-size: 14px; font-weight: 600;">Q${v.num} — ${escapeHtml(v.label)}</span>
-      </a>`).join('')
-
-    const html = `
-    <div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #111827;">
-      <img src="${APP_URL}/logo.png" alt="Insight Edge" style="height: 44px; margin: 8px 0 16px;" />
-      <h2 style="margin: 0 0 4px; color: #111827;">${escapeHtml(name)}</h2>
-      <p style="margin: 0 0 16px; color: #6b7280; font-size: 14px;">${escapeHtml(jobTitle)} · ${escapeHtml(clientName)}${candidate.email ? ` · ${escapeHtml(candidate.email)}` : ''}${candidate.phone ? ` · ${escapeHtml(candidate.phone)}` : ''}</p>
-      ${note ? `<div style="background: #f9fafb; border-left: 3px solid #2563eb; padding: 10px 14px; margin: 0 0 18px; font-size: 14px; color: #374151;">${escapeHtml(note)}</div>` : ''}
-      ${resumeAttached ? '<p style="font-size: 13px; color: #374151; margin: 0 0 18px;">&#128206; Resume attached to this email.</p>' : ''}
-      ${videos.length ? '<p style="font-size: 13px; color: #374151; margin: 0 0 8px; font-weight: 600;">Interview answers — click to watch:</p>' : '<p style="font-size: 13px; color: #6b7280;">No video answers on file for this candidate.</p>'}
-      ${videoCards}
-      <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">Shared via Insight Edge by ${escapeHtml(sharedBy)}. Video links open in the browser — no account needed.</p>
-      <img src="${trackUrl('open')}" width="1" height="1" alt="" style="display: none;" />
-    </div>`
-
     await sendEmail({
       to: toEmails[ri],
       from: SHARE_FROM_EMAIL,
-      subject: `Candidate for review: ${name} — ${jobTitle}`,
-      html,
+      subject: `Screened candidate packet: ${candidateName(candidate)} - ${candidate.jobTitle || 'Open role'}`,
+      html: buildSingleEmailHtml({
+        candidate,
+        videos,
+        note,
+        sharedBy,
+        trackUrl,
+        resumeAttached: resume.attached,
+        packetAttached,
+      }),
       attachments,
     })
   }
@@ -169,7 +427,7 @@ export async function shareCandidateHandler(data, request) {
   const sharedAt = new Date().toISOString()
   await db.collection('candidates').doc(candidateId).update({
     sharedWith: FieldValue.arrayUnion(
-      ...toEmails.map(email => ({ email, at: sharedAt, by: sharedBy }))
+      ...toEmails.map(email => ({ email, at: sharedAt, by: sharedBy, shareId: shareRef.id }))
     ),
     updatedAt: FieldValue.serverTimestamp(),
   })
@@ -180,8 +438,125 @@ export async function shareCandidateHandler(data, request) {
     action: 'candidate.shared',
     targetType: 'candidate',
     targetId: candidateId,
-    metadata: { toEmails, shareId: shareRef.id, videos: videos.length, resumeAttached },
+    metadata: { toEmails, shareId: shareRef.id, videos: videos.length, resumeAttached: resume.attached, packetAttached },
   })
 
-  return { success: true, videos: videos.length, resumeAttached, recipients: toEmails }
+  return { success: true, videos: videos.length, resumeAttached: resume.attached, packetAttached, recipients: toEmails }
+}
+
+export async function shareCandidatesHandler(data, request) {
+  const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
+  const toEmails = validateRecipients(data)
+  const note = String(data?.note || '').trim().slice(0, 1200)
+  const candidateIds = [...new Set((Array.isArray(data?.candidateIds) ? data.candidateIds : [])
+    .map(id => String(id || '').trim())
+    .filter(Boolean))]
+
+  if (!candidateIds.length) throw new HttpsError('invalid-argument', 'Select at least one candidate.')
+  if (candidateIds.length > MAX_BULK_CANDIDATES) {
+    throw new HttpsError('invalid-argument', `Maximum ${MAX_BULK_CANDIDATES} candidates per shortlist email.`)
+  }
+
+  const db = getFirestore()
+  const bucket = getStorage().bucket()
+  const candidates = []
+  for (const candidateId of candidateIds) {
+    const snap = await db.collection('candidates').doc(candidateId).get()
+    if (snap.exists) candidates.push({ id: snap.id, ...snap.data() })
+  }
+  if (!candidates.length) throw new HttpsError('not-found', 'No selected candidates were found.')
+
+  const attachments = []
+  let attachmentBytes = 0
+  let resumeAttachedCount = 0
+  const videosByCandidate = new Map()
+  const links = {}
+
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i]
+    const resume = await attachResumeIfSmall(
+      bucket,
+      candidate,
+      attachments,
+      MAX_BULK_ATTACH_BYTES - attachmentBytes,
+      `${i + 1}_`
+    )
+    if (resume.attached) {
+      resumeAttachedCount += 1
+      attachmentBytes += resume.bytes
+    }
+    const videos = await resolveCandidateVideos(bucket, candidate, `c${i + 1}v`)
+    videosByCandidate.set(candidate.id, videos)
+    for (const v of videos) {
+      links[v.target] = {
+        url: v.url,
+        label: `${candidateName(candidate)} Q${v.num} - ${v.label}`,
+        num: v.num,
+        candidateId: candidate.id,
+      }
+    }
+  }
+
+  const sharedBy = profile.email || request.auth.token?.email || request.auth.uid
+  const shareRef = db.collection('shares').doc()
+  await shareRef.set({
+    candidateIds: candidates.map(c => c.id),
+    candidateName: `${candidates.length} candidate shortlist`,
+    jobTitle: 'Employer shortlist',
+    recipients: toEmails,
+    note: note || null,
+    by: sharedBy,
+    links,
+    videoCount: Object.keys(links).length,
+    resumeAttachedCount,
+    createdAt: FieldValue.serverTimestamp(),
+  })
+
+  for (let ri = 0; ri < toEmails.length; ri++) {
+    const trackUrl = target => `${APP_URL}/t/${shareRef.id}/${ri}/${target}`
+    await sendEmail({
+      to: toEmails[ri],
+      from: SHARE_FROM_EMAIL,
+      subject: `Screened candidate shortlist: ${candidates.length} candidate${candidates.length === 1 ? '' : 's'} ready for review`,
+      html: buildBulkEmailHtml({
+        candidates,
+        videosByCandidate,
+        note,
+        sharedBy,
+        trackUrl,
+        recipientIndex: ri,
+      }),
+      attachments,
+    })
+  }
+
+  const sharedAt = new Date().toISOString()
+  await Promise.all(candidates.map(candidate => db.collection('candidates').doc(candidate.id).update({
+    sharedWith: FieldValue.arrayUnion(
+      ...toEmails.map(email => ({ email, at: sharedAt, by: sharedBy, shareId: shareRef.id, batch: true }))
+    ),
+    updatedAt: FieldValue.serverTimestamp(),
+  })))
+
+  await writeAuditLog({
+    actorUid: request.auth.uid,
+    actorEmail: profile.email || request.auth.token?.email || null,
+    action: 'candidate.shortlist_shared',
+    targetType: 'candidate_batch',
+    targetId: shareRef.id,
+    metadata: {
+      toEmails,
+      candidateIds: candidates.map(c => c.id),
+      videos: Object.keys(links).length,
+      resumeAttachedCount,
+    },
+  })
+
+  return {
+    success: true,
+    candidates: candidates.length,
+    videos: Object.keys(links).length,
+    resumeAttachedCount,
+    recipients: toEmails,
+  }
 }
