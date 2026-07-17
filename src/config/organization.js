@@ -3,7 +3,7 @@ export const PLATFORM_NAME = import.meta.env.VITE_PLATFORM_NAME || 'Insight Recr
 export const DEFAULT_CLIENT_NAME = import.meta.env.VITE_CLIENT_DISPLAY_NAME || PLATFORM_NAME
 export const DEFAULT_CLIENT_INITIALS = import.meta.env.VITE_CLIENT_INITIALS || 'IR'
 export const DEFAULT_JOB_LOCATION = import.meta.env.VITE_RECRUITING_JOB_LOCATION || 'Client site or remote'
-export const DEFAULT_CONTACT_EMAIL = import.meta.env.VITE_RECRUITING_CONTACT_EMAIL || 'albertosilva@silvaconsultinggroup.com'
+export const DEFAULT_CONTACT_EMAIL = import.meta.env.VITE_RECRUITING_CONTACT_EMAIL || 'albertosilva@insightedgehq.com'
 export const COPYRIGHT_ORG = import.meta.env.VITE_COPYRIGHT_ORG || 'Silva Consulting Group'
 
 export function getJobClientName(job = {}) {
