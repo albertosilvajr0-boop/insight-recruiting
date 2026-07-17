@@ -30,6 +30,9 @@ import {  getJobClientName, getJobLocation } from '../config/organization'
 
 const STEPS = ['info', 'resume', 'compliance', 'interview', 'review', 'submitting']
 const DRAFT_KEY_PREFIX = 'apply_draft_v1_'
+const ACCEPTED_ACKNOWLEDGEMENTS = Object.freeze(
+  REQUIRED_ACKNOWLEDGEMENTS.reduce((acc, item) => ({ ...acc, [item.key]: true }), {})
+)
 // Total length of interview we estimate — used for the progress map.
 function summarizeQuestionTime(q) {
   if (q?.timerType === 'hard' && q.timerSeconds) return q.timerSeconds
@@ -67,6 +70,7 @@ export default function Apply() {
   const [job, setJob] = useState(null)
   const [invite, setInvite] = useState(null)
   const [inviteError, setInviteError] = useState(null)
+  const [submitError, setSubmitError] = useState(null)
   // Already-submitted invite session: { statusToken } — offers view-status vs reopen
   const [submittedSession, setSubmittedSession] = useState(null)
   const [reopening, setReopening] = useState(false)
@@ -234,14 +238,19 @@ export default function Apply() {
         // per-question over the server copy.
         if (data.reopened) {
           setReopenedSession(true)
+          if (data.complianceCurrent) {
+            setAcknowledgements(ACCEPTED_ACKNOWLEDGEMENTS)
+          }
           if (data.priorResponses) {
             const prior = data.priorResponses
             setVideoResponses(prev => ({ ...(prior.videoResponses || {}), ...prev }))
             setTextResponses(prev => ({ ...(prior.textResponses || {}), ...prev }))
             setTimingData(prev => ({ ...(prior.timingData || {}), ...prev }))
             setReviewReached(true)
-            setStep('compliance')
+            setStep(data.complianceCurrent ? 'review' : 'compliance')
             setCurrentQuestion(0)
+          } else if (data.complianceCurrent) {
+            setStep('interview')
           }
         }
         // The job doc may not be publicly readable (e.g. paused) — the session
@@ -514,6 +523,7 @@ export default function Apply() {
       textResponses: finalTextResponses,
       questions: questionMap,
       timingData,
+      reuseCurrentCompliance: Boolean(invite?.reopened && invite?.complianceCurrent),
       selectionProcessVersion: SELECTION_PROCESS_VERSION,
       complianceNoticeVersion: COMPLIANCE_NOTICE_VERSION,
       eeoSurveyVersion: EEO_SURVEY_VERSION,
@@ -528,7 +538,9 @@ export default function Apply() {
   }
 
   const handleSubmit = async (finalVideoResponses, finalTextResponses) => {
-    if (!allRequiredAcknowledgementsAccepted(acknowledgements)) {
+    setSubmitError(null)
+    const complianceAlreadyCurrent = inviteMode && invite?.reopened && invite?.complianceCurrent
+    if (!complianceAlreadyCurrent && !allRequiredAcknowledgementsAccepted(acknowledgements)) {
       setStep('compliance')
       setComplianceErrors({ acknowledgements: 'Please review and accept each required acknowledgement to continue.' })
       return
@@ -628,9 +640,12 @@ export default function Apply() {
       navigate(`/thank-you?token=${statusToken}`)
     } catch (err) {
       console.error('Submission failed:', err)
-      const detail = err?.message ? ` (${err.message})` : ''
-      alert(`Submission failed. Please try again.${detail}`)
-      setStep(questions.length === 0 ? 'compliance' : 'interview')
+      const message = String(err?.message || '')
+      const safeDetail = message && !message.toLowerCase().includes('internal')
+        ? ` ${message}`
+        : ''
+      setSubmitError(`We could not submit your interview. Please check your connection and try again.${safeDetail}`)
+      setStep(questions.length === 0 ? (complianceAlreadyCurrent ? 'interview' : 'compliance') : reviewReached ? 'review' : 'interview')
     }
   }
 
@@ -692,7 +707,7 @@ export default function Apply() {
     </div>
   )
 
-  const activeSteps = inviteMode ? ['compliance', 'interview', 'submitting'] : STEPS
+  const activeSteps = inviteMode ? ['compliance', 'interview', 'review', 'submitting'] : STEPS
   const stepIndex = activeSteps.indexOf(step)
   const progress = (stepIndex / (activeSteps.length - 1)) * 100
   const requiredAcknowledgementsAccepted = allRequiredAcknowledgementsAccepted(acknowledgements)
@@ -736,6 +751,7 @@ export default function Apply() {
               <span className={step === 'interview' ? 'text-blue-600 font-medium' : ''}>
                 Interview {step === 'interview' ? `(${currentQuestion + 1}/${questions.length})` : ''}
               </span>
+              <span className={step === 'review' ? 'text-blue-600 font-medium' : ''}>Review</span>
             </div>
             <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
               <div className="h-full bg-blue-600 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
@@ -745,6 +761,17 @@ export default function Apply() {
       )}
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+        {submitError && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800 flex items-start justify-between gap-3">
+            <p>{submitError}</p>
+            <button
+              onClick={() => setSubmitError(null)}
+              className="shrink-0 text-xs font-medium text-red-700 hover:text-red-900"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* Draft restored banner */}
         {draftRestored && step !== 'submitting' && (

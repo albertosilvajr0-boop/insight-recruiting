@@ -37,9 +37,19 @@ export default function JobListings() {
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
+  const [slowLoading, setSlowLoading] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
+    let active = true
+    const slowTimer = setTimeout(() => {
+      if (active) setSlowLoading(true)
+    }, 8000)
+
     async function loadJobs() {
+      setLoading(true)
+      setLoadError(null)
+      setSlowLoading(false)
       try {
         const q = query(
           collection(db, 'jobs'),
@@ -48,18 +58,28 @@ export default function JobListings() {
         )
         const snap = await getDocs(q)
         const loadedJobs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        if (!active) return
         setJobs(loadedJobs)
         injectJobListStructuredData(loadedJobs)
         setLoadError(null)
       } catch (err) {
+        if (!active) return
         console.error('Failed to load jobs:', err)
         setLoadError('We could not load open positions. Please refresh or try again shortly.')
       } finally {
-        setLoading(false)
+        if (active) {
+          clearTimeout(slowTimer)
+          setSlowLoading(false)
+          setLoading(false)
+        }
       }
     }
     loadJobs()
-  }, [])
+    return () => {
+      active = false
+      clearTimeout(slowTimer)
+    }
+  }, [reloadKey])
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-white">
@@ -68,17 +88,34 @@ export default function JobListings() {
           <img src="/brand-mark.png" alt="Insight Edge" className="w-16 h-16 mx-auto mb-4 object-contain" />
           <h1 className="text-3xl font-bold text-gray-900">{DEFAULT_CLIENT_NAME} Careers</h1>
           <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
-            Apply in minutes with a short online interview — on your schedule, from any device.
+            Apply in minutes with a short online interview from any device.
           </p>
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-12">
+          <div className="flex flex-col items-center gap-3 py-12">
             <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            {slowLoading && (
+              <>
+                <p className="text-sm text-gray-500">Still loading open positions. This can happen when the database is slow to respond.</p>
+                <button
+                  onClick={() => setReloadKey(key => key + 1)}
+                  className="text-sm font-medium text-blue-600 hover:underline"
+                >
+                  Try again
+                </button>
+              </>
+            )}
           </div>
         ) : loadError ? (
-          <div className="text-center py-12">
+          <div className="text-center py-12 space-y-3">
             <p className="text-red-600">{loadError}</p>
+            <button
+              onClick={() => setReloadKey(key => key + 1)}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl"
+            >
+              Retry
+            </button>
           </div>
         ) : jobs.length === 0 ? (
           <div className="text-center py-12">

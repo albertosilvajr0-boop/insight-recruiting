@@ -1,5 +1,5 @@
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { DEFAULT_JOB_LOCATION } from '../config/organization'
 
 export default function ThankYou() {
@@ -9,13 +9,6 @@ export default function ThankYou() {
   const [copied, setCopied] = useState(false)
 
   const statusUrl = token ? `${window.location.origin}/status/${token}` : null
-
-  // Eagerly put the status URL on the clipboard so a candidate on a shared
-  // device can at least paste it into their notes app. Silent if blocked.
-  useEffect(() => {
-    if (!statusUrl) return
-    try { navigator.clipboard?.writeText(statusUrl).catch(() => {}) } catch { /* ignore */ }
-  }, [statusUrl])
 
   const copyLink = async () => {
     if (!statusUrl) return
@@ -52,7 +45,7 @@ export default function ThankYou() {
           <p className="font-semibold text-gray-900">What happens next</p>
           <ol className="list-decimal list-inside space-y-0.5">
             <li>Our AI reviews your resume + interview responses (usually within the hour).</li>
-            <li>A recruiter confirms the result and, if it's a match, sends you a link to pick an interview time.</li>
+            <li>A recruiter confirms the result and, if it's a match, reaches out directly with next steps.</li>
             <li>You meet the team for the next interview step at {DEFAULT_JOB_LOCATION}.</li>
           </ol>
         </div>

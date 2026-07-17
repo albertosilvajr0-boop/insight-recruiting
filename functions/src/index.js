@@ -10,8 +10,6 @@ import { sendDailyDigest } from './email/dailyDigest.js'
 import { sendReminders } from './email/sendReminder.js'
 import { sendNewApplicationNotification } from './email/sendNewApplicationNotification.js'
 import { sendApplicationReceipt } from './email/sendApplicationReceipt.js'
-import { getAvailableSlots } from './calendar/getAvailableSlots.js'
-import { bookSlot } from './calendar/bookSlot.js'
 import { generateJobFeed } from './jobs/jobFeed.js'
 import { generateSitemap } from './jobs/sitemap.js'
 import { renderApplyPage } from './jobs/applyPage.js'
@@ -147,15 +145,15 @@ export const interviewReminders = onSchedule(
 // ─── Callable: get available scheduling slots ───────────────────────────────
 export const getSlots = onCall(async (request) => {
   const { token } = request.data
-  if (!token) throw new Error('Missing scheduling token')
-  return getAvailableSlots(token)
+  if (!token) throw new HttpsError('invalid-argument', 'Missing scheduling token.')
+  throw new HttpsError('failed-precondition', 'Self-scheduling is no longer available. The recruiting team will reach out directly with next steps.')
 })
 
 // ─── Callable: book a scheduling slot ──────────────────────────────────────
 export const bookInterview = onCall({ secrets: EMAIL_SECRETS }, async (request) => {
   const { token, slotId } = request.data
-  if (!token || !slotId) throw new Error('Missing token or slotId')
-  return bookSlot(token, slotId)
+  if (!token || !slotId) throw new HttpsError('invalid-argument', 'Missing token or slotId.')
+  throw new HttpsError('failed-precondition', 'Self-scheduling is no longer available. The recruiting team will reach out directly with next steps.')
 })
 
 export const getCandidateStatus = onCall(async (request) => {

@@ -8,6 +8,8 @@ export const PLATFORM_NAME = process.env.PLATFORM_NAME
   || 'Insight Recruiting'
 
 export const DEFAULT_CLIENT_NAME = process.env.CLIENT_DISPLAY_NAME
+  || process.env.EMPLOYER_DISPLAY_NAME
+  || process.env.VITE_EMPLOYER_DISPLAY_NAME
   || process.env.VITE_CLIENT_DISPLAY_NAME
   || PLATFORM_NAME
 

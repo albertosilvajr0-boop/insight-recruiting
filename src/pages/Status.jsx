@@ -11,11 +11,20 @@ import { DEFAULT_CONTACT_EMAIL, getJobClientName } from '../config/organization'
 const TIMELINE = [
   { key: 'submitted', label: 'Application submitted', match: () => true },
   { key: 'review', label: 'Under review by the hiring team', match: (c) => ['applied', 'scored', 'screening'].includes(c.stage) },
-  { key: 'next_step', label: 'Invited to schedule an interview', match: (c) => ['to_schedule', 'scheduled', 'hired'].includes(c.stage) },
+  { key: 'next_step', label: 'Invited to the next interview step', match: (c) => ['to_schedule', 'scheduled', 'hired'].includes(c.stage) },
   { key: 'scheduled', label: 'Interview confirmed', match: (c) => c.stage === 'scheduled' || c.stage === 'hired' },
   { key: 'hired', label: 'Offer and onboarding in motion', match: (c) => c.stage === 'hired' },
   { key: 'closed', label: 'Decision made', match: (c) => c.stage === 'rejected' },
 ]
+
+function statusErrorMessage(err) {
+  const code = String(err?.code || '').toLowerCase()
+  const message = String(err?.message || '').toLowerCase()
+  if (code.includes('not-found') || message.includes('not found') || message.includes('invalid')) {
+    return 'This status link may be invalid or expired.'
+  }
+  return 'We could not load this status link right now.'
+}
 
 function stageHeadline(c) {
   const scheduledAt = c.scheduledAt ? new Date(c.scheduledAt) : null
@@ -26,13 +35,13 @@ function stageHeadline(c) {
     case 'screening':
       return { title: "We're reviewing your application", body: `The hiring team at ${clientName} is looking over your resume and interview responses. You'll hear back within 1 business day.` }
     case 'to_schedule':
-      return { title: "Good news — you're invited to interview!", body: "Check your email for a scheduling link so you can pick a time that works for you." }
+      return { title: "Good news - you're invited to interview!", body: `The recruiting team at ${clientName} will reach out directly with the next interview details.` }
     case 'scheduled':
       return { title: "Your interview is confirmed", body: scheduledAt ? `We'll see you on ${format(scheduledAt, 'EEEE, MMM d')} at ${format(scheduledAt, 'h:mm a')}.` : "Check your confirmation email for the date and time." }
     case 'rejected':
       return { title: "Thanks for applying", body: "After careful review, we're moving forward with other candidates for this role. We appreciate the time you put in and encourage you to apply again in the future." }
     case 'hired':
-      return { title: "Welcome aboard!", body: "Congratulations — your offer is in motion. Check your email for onboarding details." }
+      return { title: "Welcome aboard!", body: "Congratulations - your offer is in motion. Check your email for onboarding details." }
     default:
       return { title: "Application received", body: "We'll update this page as your application moves forward." }
   }
@@ -51,7 +60,7 @@ export default function Status() {
         const result = await getCandidateStatus({ token })
         setCandidate(result.data)
       } catch (err) {
-        setError(err.message || 'Something went wrong. Please try again.')
+        setError(statusErrorMessage(err))
       } finally {
         setLoading(false)
       }
@@ -68,7 +77,12 @@ export default function Status() {
   if (error) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="bg-white rounded-2xl border border-gray-200 p-8 max-w-md text-center space-y-3">
-        <p className="text-red-600 font-medium">{error}</p>
+        <p className="text-gray-900 font-semibold">We could not open your application status</p>
+        <p className="text-sm text-gray-500">{error}</p>
+        <p className="text-sm text-gray-500">
+          Please check the latest link in your email, or contact{' '}
+          <a href={`mailto:${DEFAULT_CONTACT_EMAIL}`} className="text-blue-600 hover:underline">{DEFAULT_CONTACT_EMAIL}</a>.
+        </p>
         <Link to="/jobs" className="inline-block text-sm text-blue-600 hover:underline">View open positions</Link>
       </div>
     </div>

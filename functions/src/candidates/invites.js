@@ -10,6 +10,10 @@ import { writeAuditLog } from '../utils/auditLog.js'
 // No ambiguous characters (0/O, 1/I/L) — these codes get read off a phone.
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
 const CODE_LENGTH = 6
+const SELECTION_PROCESS_VERSION = '2026-05-12.1'
+const COMPLIANCE_NOTICE_VERSION = '2026-05-12.1'
+const EEO_SURVEY_VERSION = '2026-05-12.1'
+const REQUIRED_ACKS = ['processNoticeAccepted', 'aiReviewAccepted', 'accuracyCertified']
 
 function generateAccessCode() {
   let code = ''
@@ -39,6 +43,17 @@ function requireString(value, field, maxLength) {
     throw new HttpsError('invalid-argument', `Invalid or missing ${field}.`)
   }
   return value.trim()
+}
+
+async function hasCurrentSelectionCompliance(db, candidateId) {
+  const snap = await db.collection('candidateCompliance').doc(candidateId).get()
+  if (!snap.exists) return false
+
+  const compliance = snap.data() || {}
+  return compliance.selectionProcessVersion === SELECTION_PROCESS_VERSION
+    && compliance.complianceNoticeVersion === COMPLIANCE_NOTICE_VERSION
+    && compliance.eeoSurveyVersion === EEO_SURVEY_VERSION
+    && REQUIRED_ACKS.every((key) => compliance.acknowledgements?.[key] === true)
 }
 
 // ─── Admin: create an invited candidate ─────────────────────────────────────
@@ -171,6 +186,9 @@ export async function getInviteSessionHandler(data) {
   // the interview loads pre-filled and the candidate only edits what they
   // need to (their device's local draft was cleared when they submitted).
   const reopened = Boolean(candidate.reopenedAt)
+  const complianceCurrent = reopened
+    ? await hasCurrentSelectionCompliance(db, found.id)
+    : false
 
   return {
     alreadySubmitted: false,
@@ -186,6 +204,7 @@ export async function getInviteSessionHandler(data) {
     location: candidate.location,
     resumeOnFile: Boolean(candidate.resumeUrl),
     reopened,
+    complianceCurrent,
     priorResponses: reopened ? {
       videoResponses: candidate.videoResponses || {},
       textResponses: candidate.textResponses || {},
@@ -297,22 +316,38 @@ export async function submitInvitedInterviewHandler(data) {
     }
   }
 
-  const selectionProcessVersion = requireString(data.selectionProcessVersion, 'selectionProcessVersion', 40)
-  const complianceNoticeVersion = requireString(data.complianceNoticeVersion, 'complianceNoticeVersion', 40)
-  const eeoSurveyVersion = requireString(data.eeoSurveyVersion, 'eeoSurveyVersion', 40)
-  const renderedNoticeText = requireString(data.renderedNoticeText, 'renderedNoticeText', 8000)
+  const candidate = found.data
+  const reuseCurrentCompliance = Boolean(data.reuseCurrentCompliance)
+    && await hasCurrentSelectionCompliance(db, found.id)
+  const needsCompliance = !reuseCurrentCompliance
+
+  let selectionProcessVersion = candidate.selectionProcessVersion || SELECTION_PROCESS_VERSION
+  let complianceNoticeVersion = candidate.complianceNoticeVersion || COMPLIANCE_NOTICE_VERSION
+  let eeoSurveyVersion = EEO_SURVEY_VERSION
+  let renderedNoticeText = ''
   // Parent org is optional display data — most clients don't have one configured.
   const parentOrgDisplayName = String(data.parentOrgDisplayName || '').slice(0, 160)
   const userAgent = String(data.userAgent || 'unknown').slice(0, 600)
 
-  const acknowledgements = data.acknowledgements
-  const REQUIRED_ACKS = ['processNoticeAccepted', 'aiReviewAccepted', 'accuracyCertified']
-  if (!acknowledgements || typeof acknowledgements !== 'object'
-    || !REQUIRED_ACKS.every((key) => acknowledgements[key] === true)) {
-    throw new HttpsError('failed-precondition', 'All required acknowledgements must be accepted.')
+  if (needsCompliance) {
+    selectionProcessVersion = requireString(data.selectionProcessVersion, 'selectionProcessVersion', 40)
+    complianceNoticeVersion = requireString(data.complianceNoticeVersion, 'complianceNoticeVersion', 40)
+    eeoSurveyVersion = requireString(data.eeoSurveyVersion, 'eeoSurveyVersion', 40)
+    renderedNoticeText = requireString(data.renderedNoticeText, 'renderedNoticeText', 8000)
+
+    if (selectionProcessVersion !== SELECTION_PROCESS_VERSION
+      || complianceNoticeVersion !== COMPLIANCE_NOTICE_VERSION
+      || eeoSurveyVersion !== EEO_SURVEY_VERSION) {
+      throw new HttpsError('failed-precondition', 'The selection process notice has changed. Please reload and review the latest notice.')
+    }
+
+    const acknowledgements = data.acknowledgements
+    if (!acknowledgements || typeof acknowledgements !== 'object'
+      || !REQUIRED_ACKS.every((key) => acknowledgements[key] === true)) {
+      throw new HttpsError('failed-precondition', 'All required acknowledgements must be accepted.')
+    }
   }
 
-  const candidate = found.data
   const employerDisplayName = candidate.clientName || 'Insight Recruiting'
   const complianceBase = {
     candidateId: found.id,
@@ -325,41 +360,48 @@ export async function submitInvitedInterviewHandler(data) {
 
   // The invited→applied stage transition kicks off the scoring pipeline
   // (see onCandidateUpdated in index.js).
-  batch.update(db.collection('candidates').doc(found.id), {
+  const candidateUpdate = {
     videoResponses,
     textResponses,
     questions,
     timingData,
-    selectionProcessVersion,
-    complianceNoticeVersion,
-    complianceAcknowledgedAt: FieldValue.serverTimestamp(),
     stage: 'applied',
     submittedAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
-  })
+  }
 
-  batch.set(db.collection('candidateCompliance').doc(found.id), {
-    ...complianceBase,
-    selectionProcessVersion,
-    complianceNoticeVersion,
-    eeoSurveyVersion,
-    employerDisplayName,
-    parentOrgDisplayName,
-    renderedTextHash: createHash('sha256').update(renderedNoticeText).digest('hex'),
-    renderedNoticeText,
-    checkedAcknowledgementIds: REQUIRED_ACKS,
-    userAgent,
-    acknowledgements: {
-      processNoticeAccepted: true,
-      aiReviewAccepted: true,
-      accuracyCertified: true,
-      acceptedAt: FieldValue.serverTimestamp(),
-    },
-    createdAt: FieldValue.serverTimestamp(),
-  })
+  if (needsCompliance) {
+    candidateUpdate.selectionProcessVersion = selectionProcessVersion
+    candidateUpdate.complianceNoticeVersion = complianceNoticeVersion
+    candidateUpdate.complianceAcknowledgedAt = FieldValue.serverTimestamp()
+  }
+
+  batch.update(db.collection('candidates').doc(found.id), candidateUpdate)
+
+  if (needsCompliance) {
+    batch.set(db.collection('candidateCompliance').doc(found.id), {
+      ...complianceBase,
+      selectionProcessVersion,
+      complianceNoticeVersion,
+      eeoSurveyVersion,
+      employerDisplayName,
+      parentOrgDisplayName,
+      renderedTextHash: createHash('sha256').update(renderedNoticeText).digest('hex'),
+      renderedNoticeText,
+      checkedAcknowledgementIds: REQUIRED_ACKS,
+      userAgent,
+      acknowledgements: {
+        processNoticeAccepted: true,
+        aiReviewAccepted: true,
+        accuracyCertified: true,
+        acceptedAt: FieldValue.serverTimestamp(),
+      },
+      createdAt: FieldValue.serverTimestamp(),
+    })
+  }
 
   const eeoSurvey = data.eeoSurvey
-  if (eeoSurvey && typeof eeoSurvey === 'object' && eeoSurvey.optedIn === true && eeoSurvey.status === 'provided') {
+  if (needsCompliance && eeoSurvey && typeof eeoSurvey === 'object' && eeoSurvey.optedIn === true && eeoSurvey.status === 'provided') {
     batch.set(db.collection('eeoResponses').doc(found.id), {
       ...complianceBase,
       employerDisplayName,
