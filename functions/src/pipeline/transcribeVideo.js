@@ -29,9 +29,44 @@ const INTERVIEW_QUESTIONS = {
     "What does your follow-up process look like after a prospect shows interest but does not commit?"
   ],
   'service-advisor': [
-    "Tell me about yourself and your customer service experience.",
-    "A customer is upset their request was not completed when promised. How do you handle it?",
-    "How do you recommend additional services without feeling pushy?"
+    "In 60-90 seconds, introduce yourself the way you'd want a service customer to experience you in the drive lane.",
+    "Why did you leave, or why are you looking to leave, your most recent role? What did you learn from that situation?",
+    "A customer is upset their repair was not completed when promised. Walk us through exactly what you would say and do.",
+    "How do you recommend additional services without feeling pushy? Give a real example.",
+    "Explain an unexpected $1,800 repair estimate to a skeptical customer over the phone.",
+    "A technician finds a new issue late in the day, parts may not arrive, and the customer needs the car tonight. What do you do?",
+    "Write a text and a short email to a customer whose vehicle has been ready for 48 hours with no response. Text under 220 characters; email under 90 words.",
+    "Thank you for calling McDonald Automotive service, this is [Your Name]. How can I help you today?",
+    "Parts cost $340 and labor is 2.5 hours at $180 per hour. What is the total estimate before tax or fees?",
+    "From 1 to 10, how lucky do you feel you are, and what do you do at work to create more of your own luck?"
+  ],
+  'service-advisor-full': [
+    "In 60-90 seconds, introduce yourself the way you'd want a service customer to experience you in the drive lane.",
+    "Why did you leave, or why are you looking to leave, your most recent role? What did you learn from that situation?",
+    "A customer is upset their repair was not completed when promised. Walk us through exactly what you would say and do.",
+    "How do you recommend additional services without feeling pushy? Give a real example.",
+    "Explain an unexpected $1,800 repair estimate to a skeptical customer over the phone.",
+    "A technician finds a new issue late in the day, parts may not arrive, and the customer needs the car tonight. What do you do?",
+    "Tell us about feedback from a service manager you had to act on quickly. What changed and what was the result?",
+    "Write a text and a short email to a customer whose vehicle has been ready for 48 hours with no response. Text under 220 characters; email under 90 words.",
+    "Thank you for calling McDonald Automotive service, this is [Your Name]. How can I help you today?",
+    "I want to get you an exact answer rather than a guess. May I place you on a brief hold while I check with the technician?",
+    "Hi John, this is [Your Name] at McDonald Automotive with an update on your vehicle. Please call me back at 303-555-0142, again that is 303-555-0142.",
+    "Parts cost $340 and labor is 2.5 hours at $180 per hour. What is the total estimate before tax or fees?",
+    "Take a number, multiply it by 2, add 10, divide by 2, then subtract the original number. What is the result?",
+    "From 1 to 10, how lucky do you feel you are, and what do you do at work to create more of your own luck?"
+  ],
+  server: [
+    "In 60 seconds, introduce yourself the way you'd want a first-time guest to experience you at the table.",
+    "Why did you leave, or why are you looking to leave, your most recent role? What did you learn from that situation?",
+    "Tell us about a difficult table you turned around. What was wrong, what did you say, and what was the outcome?",
+    "You have four tables at once: food is up for one, one was just seated, one wants the check, and one needs refills. What order do you handle them in, and why?",
+    "How do you recommend dishes or drinks so it feels like hospitality, not pressure? Give a real example.",
+    "Tell us about a time something went wrong at work that was not fully your fault. What did you take ownership of anyway?",
+    "Welcome in! Have you eaten with us before? If you are new to Malaysian food, I would love to point you to a couple of favorites.",
+    "A guest hands you $20 for a $12.50 check. How much change is owed?",
+    "Three pizzas are cut into 8 slices each. Five people eat 4 slices each. How many slices are left?",
+    "From 1 to 10, how lucky do you feel you are, and what do you do at work to create more of your own luck?"
   ]
 }
 

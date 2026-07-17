@@ -138,6 +138,13 @@ export default function AdminQuestions() {
   const seedDefaultQuestions = async () => {
     if (questions.length > 0 && !window.confirm("This will add default questions. Existing questions will not be removed. Continue?")) return
     setSeeding(true)
+    const v2Question = (q) => ({
+      questionSetVersion: "2026-07-v2",
+      standaloneRoleBattery: true,
+      timerType: "none",
+      timerSeconds: 0,
+      ...q,
+    })
     const defaults = [
       // Universal questions
       { text: "Tell me about yourself and why you're interested in this role.", type: "video_response", roleKey: "all", category: "intro", order: 0 },
@@ -168,11 +175,29 @@ export default function AdminQuestions() {
       { text: "A prospect is comparing your offer to a competitor's quote. What do you do?", type: "video_response", roleKey: "sales-rep", category: "situational", order: 22 },
       { text: "You have two prospects waiting at the same time and no other reps available. Walk me through how you handle it.", type: "text_response", roleKey: "sales-rep", category: "competence", order: 23 },
 
-      // Service Advisor questions
-      { text: "A customer is upset their request was not completed when promised. How do you handle it?", type: "video_response", roleKey: "service-advisor", category: "situational", order: 30 },
-      { text: "How do you recommend additional services without feeling pushy?", type: "video_response", roleKey: "service-advisor", category: "situational", order: 31 },
-      { text: "A customer gets an estimate that is higher than expected. How do you walk them through it?", type: "video_response", roleKey: "service-advisor", category: "situational", order: 32 },
-      { text: "A teammate tells you a job will take 2 more hours than quoted. The customer is waiting. What do you do?", type: "text_response", roleKey: "service-advisor", category: "competence", order: 33 },
+      // Service Advisor questions (V2 standalone battery)
+      v2Question({ text: "In 60-90 seconds, introduce yourself the way you'd want a service customer to experience you in the drive lane.", type: "video_response", roleKey: "service-advisor", category: "intro", order: 150 }),
+      v2Question({ text: "Why did you leave, or why are you looking to leave, your most recent role? What did you learn from that situation?", type: "video_response", roleKey: "service-advisor", category: "experience", order: 151 }),
+      v2Question({ text: "A customer is upset their repair was not completed when promised. Walk us through exactly what you would say and do.", type: "video_response", roleKey: "service-advisor", category: "situational", order: 152 }),
+      v2Question({ text: "How do you recommend additional services without feeling pushy? Give a real example.", type: "video_response", roleKey: "service-advisor", category: "situational", order: 153 }),
+      v2Question({ text: "Explain an unexpected $1,800 repair estimate to a skeptical customer over the phone.", type: "video_response", roleKey: "service-advisor", category: "situational", order: 154 }),
+      v2Question({ text: "A technician finds a new issue late in the day, parts may not arrive, and the customer needs the car tonight. What do you do?", type: "video_response", roleKey: "service-advisor", category: "situational", order: 155 }),
+      v2Question({ text: "Write a text and a short email to a customer whose vehicle has been ready for 48 hours with no response. Text under 220 characters; email under 90 words.", type: "text_response", roleKey: "service-advisor", category: "communication", order: 156, timerType: "soft", timerSeconds: 180 }),
+      v2Question({ text: "\"Thank you for calling McDonald Automotive service, this is [Your Name]. How can I help you today?\"", type: "video_reading", roleKey: "service-advisor", category: "word_track", order: 157 }),
+      v2Question({ text: "Parts cost $340 and labor is 2.5 hours at $180 per hour. What is the total estimate before tax or fees?", type: "text_response", roleKey: "service-advisor", category: "competence", order: 158, timerType: "hard", timerSeconds: 60 }),
+      v2Question({ text: "From 1 to 10, how lucky do you feel you are, and what do you do at work to create more of your own luck?", type: "video_response", roleKey: "service-advisor", category: "values", order: 159 }),
+
+      // Server questions (V2 standalone battery)
+      v2Question({ text: "In 60 seconds, introduce yourself the way you'd want a first-time guest to experience you at the table.", type: "video_response", roleKey: "server", category: "intro", order: 800 }),
+      v2Question({ text: "Why did you leave, or why are you looking to leave, your most recent role? What did you learn from that situation?", type: "video_response", roleKey: "server", category: "experience", order: 801 }),
+      v2Question({ text: "Tell us about a difficult table you turned around. What was wrong, what did you say, and what was the outcome?", type: "video_response", roleKey: "server", category: "situational", order: 802 }),
+      v2Question({ text: "You have four tables at once: food is up for one, one was just seated, one wants the check, and one needs refills. What order do you handle them in, and why?", type: "video_response", roleKey: "server", category: "situational", order: 803 }),
+      v2Question({ text: "How do you recommend dishes or drinks so it feels like hospitality, not pressure? Give a real example.", type: "video_response", roleKey: "server", category: "situational", order: 804 }),
+      v2Question({ text: "Tell us about a time something went wrong at work that was not fully your fault. What did you take ownership of anyway?", type: "video_response", roleKey: "server", category: "situational", order: 805 }),
+      v2Question({ text: "\"Welcome in! Have you eaten with us before? If you are new to Malaysian food, I would love to point you to a couple of favorites.\"", type: "video_reading", roleKey: "server", category: "word_track", order: 806 }),
+      v2Question({ text: "A guest hands you $20 for a $12.50 check. How much change is owed?", type: "text_response", roleKey: "server", category: "competence", order: 807, timerType: "hard", timerSeconds: 30 }),
+      v2Question({ text: "Three pizzas are cut into 8 slices each. Five people eat 4 slices each. How many slices are left?", type: "text_response", roleKey: "server", category: "competence", order: 808, timerType: "hard", timerSeconds: 45 }),
+      v2Question({ text: "From 1 to 10, how lucky do you feel you are, and what do you do at work to create more of your own luck?", type: "video_response", roleKey: "server", category: "values", order: 809 }),
 
       // Word tracks (shared — Sales Rep / Service Advisor)
       { text: "Thank you for calling, how can I assist you today?", type: "video_reading", roleKey: "all", category: "word_track", order: 40 },

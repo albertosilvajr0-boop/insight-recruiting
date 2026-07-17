@@ -1,12 +1,12 @@
-// Seeds the 14 interview question batteries and role rubrics into Firestore.
+// Seeds the 15 interview question batteries and role rubrics into Firestore.
 //
 // Usage:
 //   GOOGLE_APPLICATION_CREDENTIALS=./service-account.json node seed_interview_questions.mjs
 //
-// Idempotent: deletes existing interviewQuestions docs for these 14 roleKeys
+// Idempotent: deletes existing interviewQuestions docs for these 15 roleKeys
 // before writing, and overwrites roleRubrics docs (doc id = roleKey). The
-// built-in seeds (roleKeys "all", "bdc-agent", "sales-rep", "service-advisor",
-// orders 0-40) are untouched.
+// built-in seeds outside these roleKeys (roleKeys "all", "bdc-agent",
+// "sales-rep", orders 0-40) are untouched.
 import { readFileSync } from 'fs'
 import { createRequire } from 'module'
 

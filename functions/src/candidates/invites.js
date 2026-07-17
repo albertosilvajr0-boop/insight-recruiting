@@ -250,6 +250,7 @@ export async function getInviteSessionHandler(data) {
       videoResponses: candidate.videoResponses || {},
       textResponses: candidate.textResponses || {},
       timingData: candidate.timingData || {},
+      questions: candidate.questions || {},
     } : null,
   }
 }
