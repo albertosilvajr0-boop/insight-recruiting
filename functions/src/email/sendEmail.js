@@ -6,6 +6,60 @@ const SENDER = process.env.GMAIL_SENDER || 'albertosilva@silvaconsultinggroup.co
 
 let smtpTransport = null
 
+function cleanHeader(value) {
+  return String(value || '').replace(/[\r\n]+/g, ' ').trim()
+}
+
+function formatAddress(name, email) {
+  return `"${cleanHeader(name).replace(/"/g, '\\"')}" <${cleanHeader(email)}>`
+}
+
+function encodeRawMessage(rawMessage) {
+  return Buffer.from(rawMessage)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+}
+
+function buildRawMessage({ fromAddress, to, subject, html, text, replyTo }) {
+  const headers = [
+    `From: ${formatAddress(EMAIL_SENDER_NAME, fromAddress)}`,
+    `To: ${cleanHeader(to)}`,
+    `Subject: ${cleanHeader(subject)}`,
+    ...(replyTo ? [`Reply-To: ${cleanHeader(replyTo)}`] : []),
+    'MIME-Version: 1.0',
+  ]
+
+  if (!text) {
+    return [
+      ...headers,
+      'Content-Type: text/html; charset=utf-8',
+      '',
+      html,
+    ].join('\r\n')
+  }
+
+  const boundary = `alt_${Date.now()}_${Math.random().toString(16).slice(2)}`
+  return [
+    ...headers,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    text,
+    `--${boundary}`,
+    'Content-Type: text/html; charset=utf-8',
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    html,
+    `--${boundary}--`,
+    '',
+  ].join('\r\n')
+}
+
 function getSmtpTransport() {
   if (!smtpTransport) {
     smtpTransport = nodemailer.createTransport({
@@ -21,7 +75,7 @@ function getSmtpTransport() {
   return smtpTransport
 }
 
-export async function sendEmail({ to, subject, html, attachments, from }) {
+export async function sendEmail({ to, subject, html, text, attachments, from, replyTo }) {
   // `from` overrides the visible sender address. Gmail only honors it when
   // the address is a verified "Send mail as" alias on the SENDER account;
   // otherwise Gmail silently rewrites the header back to SENDER.
@@ -33,10 +87,12 @@ export async function sendEmail({ to, subject, html, attachments, from }) {
   // API sends fail for every message.
   if (process.env.GMAIL_APP_PASSWORD) {
     await getSmtpTransport().sendMail({
-      from: `${EMAIL_SENDER_NAME} <${fromAddress}>`,
+      from: formatAddress(EMAIL_SENDER_NAME, fromAddress),
       to,
       subject,
       html,
+      ...(text ? { text } : {}),
+      ...(replyTo ? { replyTo } : {}),
       ...(attachments?.length ? { attachments } : {}),
     })
     console.log(`[email] Sent "${subject}" to ${to} via SMTP`)
@@ -50,21 +106,14 @@ export async function sendEmail({ to, subject, html, attachments, from }) {
 
   const gmail = await getGmailClient()
 
-  const rawMessage = [
-    `From: ${EMAIL_SENDER_NAME} <${fromAddress}>`,
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset=utf-8',
-    '',
-    html
-  ].join('\r\n')
-
-  const encoded = Buffer.from(rawMessage)
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
+  const encoded = encodeRawMessage(buildRawMessage({
+    fromAddress,
+    to,
+    subject,
+    html,
+    text,
+    replyTo,
+  }))
 
   await gmail.users.messages.send({
     userId: 'me',

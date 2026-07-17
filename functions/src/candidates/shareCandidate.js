@@ -110,6 +110,12 @@ function validateRecipients(data) {
   return toEmails
 }
 
+function replyAddressFor(sharedBy) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(sharedBy || ''))
+    ? sharedBy
+    : SHARE_FROM_EMAIL
+}
+
 async function resolveVideoFile(bucket, prefix) {
   const [files] = await bucket.getFiles({ prefix })
   const withBase = files
@@ -170,25 +176,15 @@ async function attachResumeIfSmall(bucket, candidate, attachments, bytesRemainin
 }
 
 function scoreCardsHtml(candidate) {
-  const band = scoreBand(candidate.compositeScore, 10)
-  const manual = candidate.manualScore?.avg
+  const score = candidate.manualScore?.avg
+  const band = scoreBand(score, 5)
   return `
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin: 16px 0; border-collapse: separate; border-spacing: 8px;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin: 16px 0; border-collapse: collapse;">
       <tr>
-        <td style="background: ${band.bg}; border: 1px solid ${band.bg}; border-radius: 12px; padding: 14px; width: 33%;">
-          <p style="margin: 0 0 4px; color: ${band.color}; font-size: 11px; font-weight: 700; text-transform: uppercase;">AI composite</p>
-          <p style="margin: 0; color: #111827; font-size: 24px; font-weight: 800;">${escapeHtml(formatScore(candidate.compositeScore, 10))}</p>
-          <p style="margin: 4px 0 0; color: ${band.color}; font-size: 12px; font-weight: 700;">${band.label}</p>
-        </td>
-        <td style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; width: 33%;">
-          <p style="margin: 0 0 4px; color: #64748b; font-size: 11px; font-weight: 700; text-transform: uppercase;">Resume / interview</p>
-          <p style="margin: 0; color: #111827; font-size: 16px; font-weight: 800;">${escapeHtml(formatScore(candidate.resumeScore, 10))} / ${escapeHtml(formatScore(candidate.interviewScore, 10))}</p>
-          <p style="margin: 4px 0 0; color: #64748b; font-size: 12px;">AI sub-scores</p>
-        </td>
-        <td style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; width: 33%;">
-          <p style="margin: 0 0 4px; color: #64748b; font-size: 11px; font-weight: 700; text-transform: uppercase;">Evaluator score</p>
-          <p style="margin: 0; color: #111827; font-size: 24px; font-weight: 800;">${escapeHtml(formatScore(manual, 5))}</p>
-          <p style="margin: 4px 0 0; color: #64748b; font-size: 12px;">${candidate.manualScore?.count ? `${candidate.manualScore.count} scored items` : 'Not manually scored'}</p>
+        <td style="background: ${band.bg}; border: 1px solid ${band.bg}; border-radius: 12px; padding: 14px;">
+          <p style="margin: 0 0 4px; color: ${band.color}; font-size: 11px; font-weight: 700; text-transform: uppercase;">AI score</p>
+          <p style="margin: 0; color: #111827; font-size: 24px; font-weight: 800;">${escapeHtml(formatScore(score, 5))}</p>
+          <p style="margin: 4px 0 0; color: ${band.color}; font-size: 12px; font-weight: 700;">${candidate.manualScore?.count ? `${candidate.manualScore.count} scored response${candidate.manualScore.count === 1 ? '' : 's'}` : 'Pending score'}</p>
         </td>
       </tr>
     </table>`
@@ -208,8 +204,8 @@ function listHtml(title, items, color) {
 function trackedVideoButton(video, trackUrl) {
   if (!video) return ''
   return `
-    <a href="${trackUrl(video.target)}" style="display: inline-block; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 7px 12px; margin-top: 8px;">
-      <span style="color: #1d4ed8; font-size: 12px; font-weight: 800;">WATCH Q${video.num}</span>
+    <a href="${trackUrl(video.target)}" style="display: inline-block; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 8px 13px; margin-top: 8px;">
+      <span style="color: #1d4ed8; font-size: 12px; font-weight: 800;">WATCH VIDEO RESPONSE Q${video.num}</span>
     </a>`
 }
 
@@ -221,7 +217,7 @@ function responseEvidenceHtml(candidate, videos, trackUrl, limit = 20) {
 
   return `
     <div style="margin-top: 18px;">
-      <p style="margin: 0 0 10px; color: #111827; font-size: 14px; font-weight: 800;">Interview evidence</p>
+      <p style="margin: 0 0 10px; color: #111827; font-size: 14px; font-weight: 800;">Interview evidence${videos.length ? ` - ${videos.length} video response${videos.length === 1 ? '' : 's'} available` : ''}</p>
       ${qKeys.map((qIndex) => {
         const q = questions[qIndex] || {}
         const num = Number(qIndex) + 1
@@ -232,9 +228,10 @@ function responseEvidenceHtml(candidate, videos, trackUrl, limit = 20) {
         const transcript = truncate(candidate.videoTranscripts?.[qIndex]?.transcript, 900)
         return `
           <div style="border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; margin: 0 0 10px;">
-            <p style="margin: 0 0 5px; color: #6b7280; font-size: 11px; font-weight: 800; text-transform: uppercase;">Question ${num}${answerScore ? ` - score ${escapeHtml(answerScore)}/5` : ''}</p>
+            <p style="margin: 0 0 5px; color: #6b7280; font-size: 11px; font-weight: 800; text-transform: uppercase;">Question ${num}${answerScore ? ` - AI score ${escapeHtml(answerScore)}/5` : ''}</p>
             <p style="margin: 0 0 8px; color: #111827; font-size: 13px; font-weight: 700; line-height: 1.45;">${escapeHtml(q.text || `Interview answer ${num}`)}</p>
-            ${note ? `<p style="margin: 0 0 8px; color: #92400e; background: #fffbeb; border-left: 3px solid #f59e0b; padding: 8px 10px; font-size: 13px; line-height: 1.45;"><strong>Evaluator note:</strong> ${escapeHtml(note)}</p>` : ''}
+            ${video ? '<p style="margin: 0 0 8px; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 7px 9px; font-size: 12px; font-weight: 800;">Video response available</p>' : ''}
+            ${note ? `<p style="margin: 0 0 8px; color: #92400e; background: #fffbeb; border-left: 3px solid #f59e0b; padding: 8px 10px; font-size: 13px; line-height: 1.45;"><strong>Scoring note:</strong> ${escapeHtml(note)}</p>` : ''}
             ${written ? `<p style="margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.45;"><strong>Written answer:</strong> ${escapeHtml(written)}</p>` : ''}
             ${!written && transcript ? `<p style="margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.45;"><strong>Transcript excerpt:</strong> ${escapeHtml(transcript)}</p>` : ''}
             ${trackedVideoButton(video, trackUrl)}
@@ -249,9 +246,9 @@ function analysisHtml(candidate) {
   if (!resume && !interview && !candidate.standoutQuotes?.length) return ''
   return `
     <div style="margin-top: 18px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px;">
-      <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 800;">AI review summary</p>
-      ${resume ? `<p style="margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.5;"><strong>Resume:</strong> ${escapeHtml(resume)}</p>` : ''}
-      ${interview ? `<p style="margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.5;"><strong>Interview:</strong> ${escapeHtml(interview)}</p>` : ''}
+      <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 800;">Review summary</p>
+      ${resume ? `<p style="margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.5;"><strong>Resume review:</strong> ${escapeHtml(resume)}</p>` : ''}
+      ${interview ? `<p style="margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.5;"><strong>Interview review:</strong> ${escapeHtml(interview)}</p>` : ''}
       ${(candidate.standoutQuotes || []).slice(0, 3).map(quote => `<p style="margin: 6px 0 0; color: #4b5563; font-size: 13px; font-style: italic;">"${escapeHtml(truncate(quote, 240))}"</p>`).join('')}
     </div>`
 }
@@ -279,12 +276,12 @@ function candidateSectionHtml({ candidate, videos, trackUrl, compact = false }) 
 
 function valuePropHtml() {
   return `
-    <div style="background: #0f172a; border-radius: 16px; padding: 18px; margin: 18px 0; color: #ffffff;">
-      <p style="margin: 0 0 8px; font-size: 14px; font-weight: 800;">What this shows about the hiring workflow</p>
-      <ul style="margin: 0; padding-left: 18px; color: #dbeafe; font-size: 13px; line-height: 1.6;">
-        <li>Every applicant can be captured in the same structured interview flow, not scattered across resumes, voicemails, and manager notes.</li>
-        <li>Hiring managers get original responses, AI scoring, evaluator notes, strengths, and risk flags in one packet.</li>
-        <li>Your team can compare candidates faster while keeping the final hiring decision with human reviewers.</li>
+    <div style="border-top: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; padding: 16px 0; margin: 18px 0;">
+      <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 800;">What this helps your hiring team do</p>
+      <ul style="margin: 0; padding-left: 18px; color: #374151; font-size: 13px; line-height: 1.6;">
+        <li>Review original candidate responses, the AI score, scoring notes, strengths, and risk flags in one place.</li>
+        <li>Compare finalists quickly without losing the evidence behind each recommendation.</li>
+        <li>Use the same structured screen across the rest of your candidate pipeline.</li>
       </ul>
     </div>`
 }
@@ -294,26 +291,23 @@ function buildSingleEmailHtml({ candidate, videos, note, sharedBy, trackUrl, res
   const jobTitle = candidate.jobTitle || 'Open role'
   return `
     <div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 680px; margin: 0 auto; color: #111827;">
-      <img src="${APP_URL}/logo.png" alt="Insight Edge" style="height: 44px; margin: 8px 0 16px;" />
-      <p style="margin: 0 0 6px; color: #2563eb; font-size: 12px; font-weight: 800; text-transform: uppercase;">Screened candidate packet</p>
+      <p style="margin: 0 0 6px; color: #2563eb; font-size: 12px; font-weight: 800; text-transform: uppercase;">Candidate review</p>
       <h1 style="margin: 0 0 6px; color: #111827; font-size: 26px;">${escapeHtml(name)} for ${escapeHtml(jobTitle)}</h1>
-      <p style="margin: 0 0 16px; color: #4b5563; font-size: 14px;">A structured candidate review prepared by Insight Edge so your hiring team can review evidence quickly and consistently.</p>
+      <p style="margin: 0 0 16px; color: #4b5563; font-size: 14px;">I pulled the candidate's AI score, response evidence, video links, and scoring notes into one view so your team can decide quickly whether to move forward.</p>
       ${note ? `<div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px 14px; margin: 0 0 18px; font-size: 14px; color: #1e3a8a; line-height: 1.5;">${escapeHtml(note)}</div>` : ''}
       ${resumeAttached || packetAttached ? `<p style="font-size: 13px; color: #374151; margin: 0 0 12px;">${resumeAttached ? 'Resume attached. ' : ''}${packetAttached ? 'Candidate packet attached as text. ' : ''}Video links open in the browser without an account.</p>` : ''}
       ${candidateSectionHtml({ candidate, videos, trackUrl })}
       ${valuePropHtml()}
-      <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">Shared via Insight Edge by ${escapeHtml(sharedBy)}. Opens and video clicks are tracked so follow-up can be prioritized.</p>
-      <img src="${trackUrl('open')}" width="1" height="1" alt="" style="display: none;" />
+      <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">Sent by ${escapeHtml(sharedBy)}. Reply to this email with questions or candidates you'd like screened next.</p>
     </div>`
 }
 
-function buildBulkEmailHtml({ candidates, videosByCandidate, note, sharedBy, trackUrl, recipientIndex }) {
+function buildBulkEmailHtml({ candidates, videosByCandidate, note, sharedBy, trackUrl }) {
   return `
     <div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 720px; margin: 0 auto; color: #111827;">
-      <img src="${APP_URL}/logo.png" alt="Insight Edge" style="height: 44px; margin: 8px 0 16px;" />
-      <p style="margin: 0 0 6px; color: #2563eb; font-size: 12px; font-weight: 800; text-transform: uppercase;">Employer shortlist</p>
+      <p style="margin: 0 0 6px; color: #2563eb; font-size: 12px; font-weight: 800; text-transform: uppercase;">Candidate shortlist</p>
       <h1 style="margin: 0 0 6px; color: #111827; font-size: 26px;">${candidates.length} screened candidate${candidates.length === 1 ? '' : 's'} ready for review</h1>
-      <p style="margin: 0 0 16px; color: #4b5563; font-size: 14px;">Here is a clean shortlist with scores, evidence, response links, and evaluator notes so your team can move faster without losing review quality.</p>
+      <p style="margin: 0 0 16px; color: #4b5563; font-size: 14px;">I pulled together a clean shortlist with AI scores, response links, video evidence, and scoring notes so your team can compare candidates without losing the evidence behind each recommendation.</p>
       ${note ? `<div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px 14px; margin: 0 0 18px; font-size: 14px; color: #1e3a8a; line-height: 1.5;">${escapeHtml(note)}</div>` : ''}
       ${valuePropHtml()}
       ${candidates.map(candidate => candidateSectionHtml({
@@ -322,17 +316,16 @@ function buildBulkEmailHtml({ candidates, videosByCandidate, note, sharedBy, tra
         trackUrl,
         compact: true,
       })).join('')}
-      <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">Shared via Insight Edge by ${escapeHtml(sharedBy)}. This email was sent to recipient ${recipientIndex + 1} in the share batch.</p>
-      <img src="${trackUrl('open')}" width="1" height="1" alt="" style="display: none;" />
+      <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">Sent by ${escapeHtml(sharedBy)}. Reply to this email with questions or candidates you'd like screened next.</p>
     </div>`
 }
 
 function buildCandidatePacketText(candidate, videos, note = '') {
   const lines = []
   lines.push(`${candidateName(candidate)} - ${candidate.jobTitle || 'Open role'}`)
-  lines.push(`AI composite: ${formatScore(candidate.compositeScore, 10)}`)
-  lines.push(`Resume/interview: ${formatScore(candidate.resumeScore, 10)} / ${formatScore(candidate.interviewScore, 10)}`)
-  if (candidate.manualScore?.avg != null) lines.push(`Evaluator score: ${formatScore(candidate.manualScore.avg, 5)}`)
+  lines.push(`AI score: ${formatScore(candidate.manualScore?.avg, 5)}`)
+  if (candidate.manualScore?.count) lines.push(`Scored responses: ${candidate.manualScore.count}`)
+  if (videos.length) lines.push(`Video responses: ${videos.length}`)
   if (candidate.email) lines.push(`Email: ${candidate.email}`)
   if (candidate.phone) lines.push(`Phone: ${candidate.phone}`)
   if (note) lines.push(`\nShare note: ${note}`)
@@ -340,21 +333,68 @@ function buildCandidatePacketText(candidate, videos, note = '') {
   if (strengths.length) lines.push(`\nStrengths:\n${strengths.map(s => `- ${s}`).join('\n')}`)
   const concerns = candidateConcerns(candidate)
   if (concerns.length) lines.push(`\nReview flags:\n${concerns.map(s => `- ${s}`).join('\n')}`)
-  if (candidate.resumeAnalysis) lines.push(`\nAI resume analysis:\n${candidate.resumeAnalysis}`)
-  if (candidate.interviewAnalysis) lines.push(`\nAI interview analysis:\n${candidate.interviewAnalysis}`)
+  if (candidate.resumeAnalysis) lines.push(`\nResume review:\n${candidate.resumeAnalysis}`)
+  if (candidate.interviewAnalysis) lines.push(`\nInterview review:\n${candidate.interviewAnalysis}`)
 
   const questions = candidate.questions || {}
   for (const qIndex of Object.keys(questions).sort((a, b) => Number(a) - Number(b))) {
     const q = questions[qIndex]
     const num = Number(qIndex) + 1
     lines.push(`\nQ${num}: ${q.text || ''}`)
-    if (candidate.manualAnswerScores?.[qIndex]) lines.push(`Score: ${candidate.manualAnswerScores[qIndex]}/5`)
-    if (candidate.manualAnswerNotes?.[qIndex]) lines.push(`Notes: ${candidate.manualAnswerNotes[qIndex]}`)
+    if (candidate.manualAnswerScores?.[qIndex]) lines.push(`AI score: ${candidate.manualAnswerScores[qIndex]}/5`)
+    if (candidate.manualAnswerNotes?.[qIndex]) lines.push(`Scoring note: ${candidate.manualAnswerNotes[qIndex]}`)
     if (candidate.textResponses?.[qIndex]) lines.push(`Written answer: ${candidate.textResponses[qIndex]}`)
     if (candidate.videoTranscripts?.[qIndex]?.transcript) lines.push(`Transcript: ${candidate.videoTranscripts[qIndex].transcript}`)
     const video = videos.find(v => String(v.qIndex) === String(qIndex))
-    if (video) lines.push(`Video: ${video.url}`)
+    if (video) lines.push(`Video response: ${video.url}`)
   }
+  return lines.join('\n')
+}
+
+function videosWithTrackedUrls(videos, trackUrl) {
+  return videos.map(video => ({
+    ...video,
+    url: trackUrl(video.target),
+  }))
+}
+
+function buildSingleEmailText({ candidate, videos, note, sharedBy, trackUrl, resumeAttached, packetAttached }) {
+  const name = candidateName(candidate)
+  const jobTitle = candidate.jobTitle || 'open role'
+  const videoPhrase = videos.length
+    ? `, including ${videos.length} video response${videos.length === 1 ? '' : 's'}`
+    : ''
+  const lines = [
+    'Hi,',
+    '',
+    `I pulled together ${name}'s candidate review for the ${jobTitle}. It includes the AI score, response evidence${videoPhrase}, and scoring notes so your team can decide whether to move forward.`,
+    '',
+    buildCandidatePacketText(candidate, videosWithTrackedUrls(videos, trackUrl), note),
+  ]
+
+  if (resumeAttached) lines.push('', 'Resume is attached.')
+  if (packetAttached) lines.push('', 'Candidate packet is attached as text.')
+  lines.push('', "Reply here with questions or candidates you'd like screened next.", `Sent by ${sharedBy}`)
+
+  return lines.join('\n')
+}
+
+function buildBulkEmailText({ candidates, videosByCandidate, note, sharedBy, trackUrl }) {
+  const videoCount = candidates.reduce((sum, candidate) => sum + (videosByCandidate.get(candidate.id)?.length || 0), 0)
+  const lines = [
+    'Hi,',
+    '',
+    `I pulled together ${candidates.length} screened candidate${candidates.length === 1 ? '' : 's'} with AI scores, response links, scoring notes${videoCount ? `, and ${videoCount} video response${videoCount === 1 ? '' : 's'}` : ''} so your team can compare candidates quickly.`,
+  ]
+
+  if (note) lines.push('', `Share note: ${note}`)
+
+  for (const candidate of candidates) {
+    const videos = videosWithTrackedUrls(videosByCandidate.get(candidate.id) || [], trackUrl)
+    lines.push('', '---', '', buildCandidatePacketText(candidate, videos))
+  }
+
+  lines.push('', "Reply here with questions or candidates you'd like screened next.", `Sent by ${sharedBy}`)
   return lines.join('\n')
 }
 
@@ -410,7 +450,17 @@ export async function shareCandidateHandler(data, request) {
     await sendEmail({
       to: toEmails[ri],
       from: SHARE_FROM_EMAIL,
-      subject: `Screened candidate packet: ${candidateName(candidate)} - ${candidate.jobTitle || 'Open role'}`,
+      replyTo: replyAddressFor(sharedBy),
+      subject: `${candidateName(candidate)} - candidate review for ${candidate.jobTitle || 'open role'}`,
+      text: buildSingleEmailText({
+        candidate,
+        videos,
+        note,
+        sharedBy,
+        trackUrl,
+        resumeAttached: resume.attached,
+        packetAttached,
+      }),
       html: buildSingleEmailHtml({
         candidate,
         videos,
@@ -517,14 +567,21 @@ export async function shareCandidatesHandler(data, request) {
     await sendEmail({
       to: toEmails[ri],
       from: SHARE_FROM_EMAIL,
-      subject: `Screened candidate shortlist: ${candidates.length} candidate${candidates.length === 1 ? '' : 's'} ready for review`,
+      replyTo: replyAddressFor(sharedBy),
+      subject: `Candidate shortlist for review (${candidates.length})`,
+      text: buildBulkEmailText({
+        candidates,
+        videosByCandidate,
+        note,
+        sharedBy,
+        trackUrl,
+      }),
       html: buildBulkEmailHtml({
         candidates,
         videosByCandidate,
         note,
         sharedBy,
         trackUrl,
-        recipientIndex: ri,
       }),
       attachments,
     })
