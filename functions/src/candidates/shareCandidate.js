@@ -381,56 +381,58 @@ function candidatePrimaryStrength(candidate) {
   return 'Structured responses and score are ready for manager review.'
 }
 
-function candidatePrimaryConcern(candidate) {
-  const concerns = candidateConcerns(candidate)
-  if (concerns.length) return truncate(concerns[0], 170)
-  return 'Confirm compensation, schedule, and manager fit before advancing.'
-}
-
 function candidateContactLine(candidate) {
   return [candidate.email, candidate.phone].filter(Boolean).join(' - ')
 }
 
-function bestCandidateVideos(candidate, videos, limit = 2) {
-  return [...videos]
-    .sort((a, b) => {
-      const scoreA = answerScoreValue(candidate, a.qIndex) ?? -1
-      const scoreB = answerScoreValue(candidate, b.qIndex) ?? -1
-      if (scoreA !== scoreB) return scoreB - scoreA
-      const noteA = candidate.manualAnswerNotes?.[a.qIndex] ? 1 : 0
-      const noteB = candidate.manualAnswerNotes?.[b.qIndex] ? 1 : 0
-      if (noteA !== noteB) return noteB - noteA
-      return Number(a.qIndex) - Number(b.qIndex)
-    })
-    .slice(0, limit)
-}
-
-function topScoringNotes(candidate, limit = 2) {
+function questionEvidenceItems(candidate, videos) {
   const questions = candidate.questions || {}
-  return Object.keys(candidate.manualAnswerNotes || {})
+  const qKeys = new Set([
+    ...Object.keys(questions),
+    ...Object.keys(candidate.manualAnswerScores || {}),
+    ...Object.keys(candidate.manualAnswerNotes || {}),
+    ...Object.keys(candidate.textResponses || {}),
+    ...Object.keys(candidate.videoTranscripts || {}),
+    ...videos.map(video => String(video.qIndex)),
+  ])
+  const videosByIndex = new Map(videos.map(video => [String(video.qIndex), video]))
+
+  return [...qKeys]
     .sort((a, b) => Number(a) - Number(b))
     .map(qIndex => {
-      const note = truncate(candidate.manualAnswerNotes?.[qIndex], 260)
-      if (!note) return null
       const num = Number(qIndex) + 1
+      const video = videosByIndex.get(String(qIndex))
       const score = answerScoreValue(candidate, qIndex)
+      const note = truncate(candidate.manualAnswerNotes?.[qIndex], 520)
+      const written = truncate(candidate.textResponses?.[qIndex], 420)
+      const transcript = truncate(candidate.videoTranscripts?.[qIndex]?.transcript, 420)
       return {
+        qIndex,
         num,
         score,
-        question: truncate(questions[qIndex]?.text || `Interview answer ${num}`, 110),
+        question: truncate(questions[qIndex]?.text || video?.label || `Interview answer ${num}`, 180),
         note,
+        written,
+        transcript,
+        video,
       }
     })
     .filter(Boolean)
-    .slice(0, limit)
 }
 
-function summaryVideoCellHtml(candidate, videos, trackUrl) {
-  if (!videos.length) return '<span style="color: #6b7280; font-size: 12px;">No video response</span>'
-  const bestVideo = bestCandidateVideos(candidate, videos, 1)[0]
+function evidenceSummaryLabel(candidate, videos) {
+  const scored = candidate.manualScore?.count || Object.keys(candidate.manualAnswerScores || {}).length
+  const parts = []
+  if (scored) parts.push(`${scored} scored response${scored === 1 ? '' : 's'}`)
+  if (videos.length) parts.push(`${videos.length} video response${videos.length === 1 ? '' : 's'}`)
+  return parts.join(' - ') || 'Evidence pending'
+}
+
+function summaryEvidenceCellHtml(candidate, videos, trackUrl) {
+  const firstVideo = videos[0]
   return `
-    <a href="${trackUrl(bestVideo.target)}" style="display: inline-block; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 6px 10px; color: #1d4ed8; font-size: 12px; font-weight: 800;">Watch Q${bestVideo.num}</a>
-    <p style="margin: 5px 0 0; color: #6b7280; font-size: 11px;">${videos.length} video response${videos.length === 1 ? '' : 's'}</p>`
+    <p style="margin: 0 0 6px; color: #374151; font-size: 12px; line-height: 1.45;">${escapeHtml(evidenceSummaryLabel(candidate, videos))}</p>
+    ${firstVideo ? `<a href="${trackUrl(firstVideo.target)}" style="display: inline-block; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 6px 10px; color: #1d4ed8; font-size: 12px; font-weight: 800;">Watch Q${firstVideo.num}</a>` : ''}`
 }
 
 function shortlistSummaryTableHtml({ candidates, videosByCandidate, trackUrl }) {
@@ -443,8 +445,7 @@ function shortlistSummaryTableHtml({ candidates, videosByCandidate, trackUrl }) 
             <th align="left" style="padding: 10px; color: #6b7280; font-size: 11px; text-transform: uppercase;">Candidate</th>
             <th align="left" style="padding: 10px; color: #6b7280; font-size: 11px; text-transform: uppercase;">AI score</th>
             <th align="left" style="padding: 10px; color: #6b7280; font-size: 11px; text-transform: uppercase;">Why review</th>
-            <th align="left" style="padding: 10px; color: #6b7280; font-size: 11px; text-transform: uppercase;">Video</th>
-            <th align="left" style="padding: 10px; color: #6b7280; font-size: 11px; text-transform: uppercase;">Verify</th>
+            <th align="left" style="padding: 10px; color: #6b7280; font-size: 11px; text-transform: uppercase;">Evidence</th>
           </tr>
         </thead>
         <tbody>
@@ -458,8 +459,7 @@ function shortlistSummaryTableHtml({ candidates, videosByCandidate, trackUrl }) 
                 </td>
                 <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb; color: #111827; font-size: 13px; font-weight: 800;">${escapeHtml(formatScore(scoreValue(candidate), 5))}</td>
                 <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb; color: #374151; font-size: 12px; line-height: 1.45;">${escapeHtml(candidatePrimaryStrength(candidate))}</td>
-                <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb;">${summaryVideoCellHtml(candidate, videos, trackUrl)}</td>
-                <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb; color: #92400e; font-size: 12px; line-height: 1.45;">${escapeHtml(candidatePrimaryConcern(candidate))}</td>
+                <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb;">${summaryEvidenceCellHtml(candidate, videos, trackUrl)}</td>
               </tr>`
           }).join('')}
         </tbody>
@@ -467,40 +467,50 @@ function shortlistSummaryTableHtml({ candidates, videosByCandidate, trackUrl }) 
     </div>`
 }
 
-function videoLinksHtml(candidate, videos, trackUrl) {
-  const bestVideos = bestCandidateVideos(candidate, videos, 2)
-  if (!bestVideos.length) return ''
+function questionEvidenceHtml(candidate, videos, trackUrl) {
+  const items = questionEvidenceItems(candidate, videos)
+  if (!items.length) return ''
   return `
-    <div style="margin-top: 12px;">
-      <p style="margin: 0 0 8px; color: #111827; font-size: 13px; font-weight: 800;">Watch first</p>
-      ${bestVideos.map(video => `
-        <div style="margin: 0 0 8px;">
-          <a href="${trackUrl(video.target)}" style="display: inline-block; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 7px 12px; color: #1d4ed8; font-size: 12px; font-weight: 800;">Watch Q${video.num}</a>
-          <span style="color: #4b5563; font-size: 12px; line-height: 1.45;"> ${escapeHtml(truncate(video.label, 120))}</span>
+    <div style="margin-top: 14px;">
+      <p style="margin: 0 0 9px; color: #111827; font-size: 14px; font-weight: 800;">Question evidence</p>
+      ${items.map(item => `
+        <div style="border: 1px solid #e5e7eb; border-radius: 10px; padding: 11px 12px; margin: 0 0 9px; background: #ffffff;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+            <tr>
+              <td valign="top">
+                <p style="margin: 0 0 4px; color: #6b7280; font-size: 11px; font-weight: 800; text-transform: uppercase;">Q${item.num}${item.score != null ? ` - AI score ${escapeHtml(item.score)}/5` : ' - AI score pending'}</p>
+                <p style="margin: 0 0 7px; color: #111827; font-size: 13px; font-weight: 700; line-height: 1.4;">${escapeHtml(item.question)}</p>
+              </td>
+              <td valign="top" align="right" style="padding-left: 10px;">
+                ${item.video ? `<a href="${trackUrl(item.video.target)}" style="display: inline-block; text-decoration: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 6px 10px; color: #1d4ed8; font-size: 11px; font-weight: 800; white-space: nowrap;">Watch Q${item.num}</a>` : ''}
+              </td>
+            </tr>
+          </table>
+          ${item.note ? `<p style="margin: 0 0 7px; color: #78350f; background: #fffbeb; border-left: 3px solid #f59e0b; padding: 7px 9px; font-size: 12px; line-height: 1.45;"><strong>Score explanation:</strong> ${escapeHtml(item.note)}</p>` : ''}
+          ${item.written ? `<p style="margin: 0 0 5px; color: #374151; font-size: 12px; line-height: 1.45;"><strong>Written response:</strong> ${escapeHtml(item.written)}</p>` : ''}
+          ${!item.written && item.transcript ? `<p style="margin: 0 0 5px; color: #374151; font-size: 12px; line-height: 1.45;"><strong>Transcript excerpt:</strong> ${escapeHtml(item.transcript)}</p>` : ''}
         </div>`).join('')}
     </div>`
 }
 
-function scoringNotesHtml(candidate) {
-  const notes = topScoringNotes(candidate, 2)
-  if (!notes.length) return ''
-  return `
-    <div style="margin-top: 12px; background: #fffbeb; border-left: 3px solid #f59e0b; padding: 10px 12px;">
-      <p style="margin: 0 0 7px; color: #92400e; font-size: 13px; font-weight: 800;">Scoring notes</p>
-      ${notes.map(note => `
-        <p style="margin: 0 0 7px; color: #78350f; font-size: 12px; line-height: 1.45;">
-          <strong>Q${note.num}${note.score != null ? ` - ${note.score}/5` : ''}:</strong> ${escapeHtml(note.note)}
-        </p>`).join('')}
-    </div>`
+function questionEvidenceText(candidate, videos) {
+  const lines = []
+  for (const item of questionEvidenceItems(candidate, videos)) {
+    lines.push(`Q${item.num}: ${item.question}`)
+    lines.push(`AI score: ${item.score != null ? `${item.score}/5` : 'Pending'}`)
+    if (item.note) lines.push(`Score explanation: ${item.note}`)
+    if (item.written) lines.push(`Written response: ${item.written}`)
+    if (!item.written && item.transcript) lines.push(`Transcript excerpt: ${item.transcript}`)
+    if (item.video?.url) lines.push(`Video response: ${item.video.url}`)
+    lines.push('')
+  }
+  return lines
 }
 
 function candidateV2CardHtml({ candidate, videos, trackUrl, rank }) {
   const score = scoreValue(candidate)
   const band = scoreBand(score, 5)
   const contactLine = candidateContactLine(candidate)
-  const videoText = videos.length
-    ? `${videos.length} video response${videos.length === 1 ? '' : 's'} available`
-    : 'No video responses available'
   return `
     <section style="border: 1px solid #d1d5db; border-radius: 14px; padding: 18px; margin: 0 0 16px; background: #ffffff;">
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
@@ -520,23 +530,12 @@ function candidateV2CardHtml({ candidate, videos, trackUrl, rank }) {
           </td>
         </tr>
       </table>
-      <p style="margin: 12px 0 0; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 8px 10px; font-size: 12px; font-weight: 800;">Video evidence: ${escapeHtml(videoText)}</p>
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; margin-top: 12px;">
-        <tr>
-          <td valign="top" style="padding: 10px; border: 1px solid #d1fae5; background: #f0fdf4; border-radius: 10px;">
-            <p style="margin: 0 0 4px; color: #047857; font-size: 11px; font-weight: 800; text-transform: uppercase;">Best fit signal</p>
-            <p style="margin: 0; color: #064e3b; font-size: 13px; line-height: 1.45;">${escapeHtml(candidatePrimaryStrength(candidate))}</p>
-          </td>
-        </tr>
-        <tr>
-          <td valign="top" style="padding: 10px; border: 1px solid #fde68a; background: #fffbeb; border-radius: 10px;">
-            <p style="margin: 0 0 4px; color: #92400e; font-size: 11px; font-weight: 800; text-transform: uppercase;">Verify before advancing</p>
-            <p style="margin: 0; color: #78350f; font-size: 13px; line-height: 1.45;">${escapeHtml(candidatePrimaryConcern(candidate))}</p>
-          </td>
-        </tr>
-      </table>
-      ${scoringNotesHtml(candidate)}
-      ${videoLinksHtml(candidate, videos, trackUrl)}
+      <p style="margin: 12px 0 0; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 8px 10px; font-size: 12px; font-weight: 800;">Evidence included: ${escapeHtml(evidenceSummaryLabel(candidate, videos))}</p>
+      <div style="margin-top: 12px; padding: 10px; border: 1px solid #d1fae5; background: #f0fdf4; border-radius: 10px;">
+        <p style="margin: 0 0 4px; color: #047857; font-size: 11px; font-weight: 800; text-transform: uppercase;">Best fit signal</p>
+        <p style="margin: 0; color: #064e3b; font-size: 13px; line-height: 1.45;">${escapeHtml(candidatePrimaryStrength(candidate))}</p>
+      </div>
+      ${questionEvidenceHtml(candidate, videos, trackUrl)}
     </section>`
 }
 
@@ -545,7 +544,7 @@ function shortlistPipelineFooterHtml() {
     <div style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-top: 20px;">
       <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 800;">Next step</p>
       <p style="margin: 0 0 8px; color: #374151; font-size: 13px; line-height: 1.55;">Reply with who you want to advance, or send the next batch and I can apply this same structured screen across every applicant in your pipeline.</p>
-      <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.45;">Each review keeps the AI score, scoring notes, video evidence, and verification points in one manager-ready summary.</p>
+      <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.45;">Each review keeps the AI score, score explanations, video evidence, and response context in one manager-ready summary.</p>
     </div>`
 }
 
@@ -560,7 +559,7 @@ function buildBulkEmailV2Html({ candidates, videosByCandidate, note, sharedBy, t
     <div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 760px; margin: 0 auto; color: #111827;">
       <p style="margin: 0 0 6px; color: #2563eb; font-size: 12px; font-weight: 800; text-transform: uppercase;">Candidate shortlist</p>
       <h1 style="margin: 0 0 8px; color: #111827; font-size: 26px;">${candidates.length} screened candidate${candidates.length === 1 ? '' : 's'} for ${escapeHtml(shortlistRolePhrase(candidates))}</h1>
-      <p style="margin: 0 0 16px; color: #374151; font-size: 14px; line-height: 1.55;">I screened this shortlist so your team can review the strongest evidence first. ${escapeHtml(leadSentence)} The summary below shows who is worth reviewing, what to watch, and what to verify before moving forward.</p>
+      <p style="margin: 0 0 16px; color: #374151; font-size: 14px; line-height: 1.55;">I screened this shortlist so your team can review the strongest evidence first. ${escapeHtml(leadSentence)} The summary below shows who is worth reviewing, where the video evidence is, and which scored responses support each recommendation.</p>
       ${note ? `<div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px 14px; margin: 0 0 18px; font-size: 14px; color: #1e3a8a; line-height: 1.5;">${escapeHtml(note)}</div>` : ''}
       ${shortlistSummaryTableHtml({ candidates: ranked, videosByCandidate, trackUrl })}
       ${ranked.map((candidate, index) => candidateV2CardHtml({
@@ -584,7 +583,7 @@ function buildBulkEmailV2Text({ candidates, videosByCandidate, note, sharedBy, t
     'Hi,',
     '',
     `I screened ${candidates.length} candidate${candidates.length === 1 ? '' : 's'} for ${shortlistRolePhrase(candidates)}. ${leadSentence}`,
-    'The summary below shows who is worth reviewing, what to watch, and what to verify before moving forward.',
+    'The summary below shows who is worth reviewing, where the video evidence is, and which scored responses support each recommendation.',
   ]
 
   if (note) lines.push('', `Share note: ${note}`)
@@ -592,25 +591,18 @@ function buildBulkEmailV2Text({ candidates, videosByCandidate, note, sharedBy, t
   lines.push('', 'Shortlist at a glance:')
   ranked.forEach((candidate, index) => {
     const videos = videosWithTrackedUrls(videosByCandidate.get(candidate.id) || [], trackUrl)
-    const bestVideo = bestCandidateVideos(candidate, videos, 1)[0]
     lines.push('', `${index + 1}. ${candidateName(candidate)} - ${formatScore(scoreValue(candidate), 5)}`)
     lines.push(`   Why review: ${candidatePrimaryStrength(candidate)}`)
-    lines.push(`   Verify: ${candidatePrimaryConcern(candidate)}`)
-    if (videos.length) {
-      lines.push(`   Video evidence: ${videos.length} video response${videos.length === 1 ? '' : 's'}${bestVideo ? `; watch Q${bestVideo.num}: ${bestVideo.url}` : ''}`)
-    }
+    lines.push(`   Evidence: ${evidenceSummaryLabel(candidate, videos)}`)
   })
 
-  const candidateNotes = ranked
-    .map(candidate => ({ candidate, notes: topScoringNotes(candidate, 2) }))
-    .filter(item => item.notes.length)
-
-  if (candidateNotes.length) lines.push('', 'Candidate notes:')
-  candidateNotes.forEach(({ candidate, notes }) => {
-    lines.push('', `${candidateName(candidate)} scoring notes:`)
-    notes.forEach(noteItem => {
-      lines.push(`- Q${noteItem.num}${noteItem.score != null ? ` (${noteItem.score}/5)` : ''}: ${noteItem.note}`)
-    })
+  lines.push('', 'Candidate evidence:')
+  ranked.forEach(candidate => {
+    const videos = videosWithTrackedUrls(videosByCandidate.get(candidate.id) || [], trackUrl)
+    const evidenceLines = questionEvidenceText(candidate, videos)
+    if (!evidenceLines.length) return
+    lines.push('', `${candidateName(candidate)}:`)
+    lines.push(...evidenceLines)
   })
 
   lines.push(
