@@ -36,6 +36,138 @@ function ageInStageHours(c) {
   return differenceInHours(new Date(), t)
 }
 
+function timestampDate(value) {
+  if (!value) return null
+  if (value.toDate) return value.toDate()
+  if (value.seconds) return new Date(value.seconds * 1000)
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function hoursSince(value) {
+  const date = timestampDate(value)
+  return date ? differenceInHours(new Date(), date) : 0
+}
+
+function formatAge(hours) {
+  if (hours >= 48) return `${Math.floor(hours / 24)}d`
+  return `${Math.max(0, hours)}h`
+}
+
+function candidateName(c) {
+  return `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Candidate"
+}
+
+function hasVideoResponses(c) {
+  return Object.values(c.videoResponses || {}).some(path => path && !String(path).startsWith("skipped"))
+}
+
+function hasSharedWithEmployer(c) {
+  return Array.isArray(c.sharedWith) && c.sharedWith.length > 0
+}
+
+function buildWorkQueue(candidates) {
+  const items = []
+  const add = (candidate, item) => {
+    items.push({
+      candidate,
+      id: `${candidate.id}:${item.type}`,
+      stage: stageOf(candidate),
+      age: ageInStageHours(candidate),
+      ...item,
+    })
+  }
+
+  for (const c of candidates) {
+    const stage = stageOf(c)
+    const age = ageInStageHours(c)
+    const inviteAge = hoursSince(c.invitedAt || c.createdAt)
+    const final = ["hired", "rejected"].includes(stage)
+
+    if (stage === "applied" && c.manualScore?.avg == null) {
+      add(c, {
+        type: "score",
+        priority: "High",
+        rank: 10,
+        title: "Score applicant",
+        detail: "Interview is submitted and needs your 5-point AI score.",
+        action: "Open profile",
+      })
+    }
+
+    if (stage === "invited" && c.reopenedAt) {
+      add(c, {
+        type: "reopened",
+        priority: "High",
+        rank: 15,
+        title: "Reopened interview pending",
+        detail: `${candidateName(c)} can edit answers with the same code. Confirm they know it is reopened.`,
+        action: "Open profile",
+      })
+    }
+
+    if (stage === "invited" && !c.firstSignInAt && inviteAge >= 24) {
+      add(c, {
+        type: "unopened",
+        priority: inviteAge >= 72 ? "High" : "Medium",
+        rank: inviteAge >= 72 ? 20 : 35,
+        title: "Invite not opened",
+        detail: `${formatAge(inviteAge)} since invite. Send a reminder or copy their code.`,
+        action: "Open profile",
+      })
+    }
+
+    if (stage === "invited" && c.firstSignInAt && !c.reopenedAt && inviteAge >= 24) {
+      add(c, {
+        type: "started",
+        priority: "Medium",
+        rank: 40,
+        title: "Started but not submitted",
+        detail: `${candidateName(c)} opened the interview but has not finished yet.`,
+        action: "Open profile",
+      })
+    }
+
+    const sla = STAGE_SLA_HOURS[stage] || 0
+    if (sla > 0 && age >= sla) {
+      add(c, {
+        type: "stale",
+        priority: "High",
+        rank: 25,
+        title: "Stage is stale",
+        detail: `${formatAge(age)} in ${STAGE_LABELS[stage] || stage}. Decide the next move.`,
+        action: "Open profile",
+      })
+    }
+
+    if (!final && c.manualScore?.avg >= 4 && !hasSharedWithEmployer(c)) {
+      add(c, {
+        type: "share",
+        priority: "Medium",
+        rank: 45,
+        title: "High score not shared",
+        detail: `${c.manualScore.avg.toFixed(1)}/5 with ${hasVideoResponses(c) ? "video evidence" : "response evidence"} ready for employer review.`,
+        action: "Share",
+      })
+    }
+
+    if (!final && c.needsReview) {
+      add(c, {
+        type: "flagged",
+        priority: "Medium",
+        rank: 50,
+        title: "Flagged for review",
+        detail: "Needs a second look before a decision is recorded.",
+        action: "Open profile",
+      })
+    }
+  }
+
+  return items
+    .sort((a, b) => a.rank - b.rank || b.age - a.age || candidateName(a.candidate).localeCompare(candidateName(b.candidate)))
+    .slice(0, 12)
+}
+
 export default function AdminDashboard() {
   const [candidates, setCandidates] = useState([])
   const [, setLoading] = useState(true)
@@ -113,6 +245,17 @@ export default function AdminDashboard() {
   const selectedCandidates = useMemo(() => (
     candidates.filter(candidate => selectedIds.has(candidate.id))
   ), [candidates, selectedIds])
+
+  const workQueue = useMemo(() => buildWorkQueue(candidates), [candidates])
+  const highPriorityQueueCount = workQueue.filter(item => item.priority === "High").length
+
+  const handleQueueAction = (item) => {
+    if (item.type === "share") {
+      setShareTarget(item.candidate)
+      return
+    }
+    navigate(`/admin/candidates/${item.candidate.id}`)
+  }
 
   const resetRejectDecision = () => {
     const firstReason = getDecisionReasons(DECISION_OUTCOMES.REJECTED)[0]
@@ -435,6 +578,51 @@ export default function AdminDashboard() {
             <p className={`text-2xl font-semibold ${agingCount > 0 ? "text-red-600" : "text-gray-400"}`}>{agingCount}</p>
           </button>
         </div>
+
+        {/* Work queue */}
+        <section className="bg-white border border-gray-200 rounded-xl mb-4 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Today&apos;s work queue</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Candidates who need scoring, reminders, review, or employer follow-up.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-2.5 py-1 rounded-full">{workQueue.length} open</span>
+              {highPriorityQueueCount > 0 && (
+                <span className="text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">{highPriorityQueueCount} high</span>
+              )}
+            </div>
+          </div>
+          {workQueue.length === 0 ? (
+            <div className="px-4 py-6 text-sm text-gray-400">No urgent admin work right now.</div>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {workQueue.map(item => (
+                <div key={item.id} className="px-4 py-3 flex items-center justify-between gap-4 hover:bg-gray-50">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                        item.priority === "High" ? "bg-red-50 text-red-700 border border-red-100" : "bg-amber-50 text-amber-700 border border-amber-100"
+                      }`}>
+                        {item.priority}
+                      </span>
+                      <p className="text-sm font-semibold text-gray-900">{item.title}</p>
+                      <span className="text-xs text-gray-400">{STAGE_LABELS[item.stage] || item.stage}</span>
+                    </div>
+                    <p className="text-sm text-gray-700 mt-1 truncate">{candidateName(item.candidate)} - {item.candidate.jobTitle || "Open role"}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{item.detail}</p>
+                  </div>
+                  <button
+                    onClick={() => handleQueueAction(item)}
+                    className="shrink-0 text-xs font-medium bg-white border border-gray-200 text-gray-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 px-3 py-1.5 rounded-lg"
+                  >
+                    {item.action}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         {/* Filter bar */}
         <div className="bg-white border border-gray-200 rounded-xl p-3 mb-4 flex items-center gap-2 flex-wrap">

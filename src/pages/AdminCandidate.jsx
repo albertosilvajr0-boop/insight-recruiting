@@ -19,11 +19,11 @@ import {
 } from '../selection/decisionReasons'
 
 const STAGE_LABELS = {
-  applied: 'Applied', scored: 'Scored', to_schedule: 'To Schedule',
+  invited: 'Invited', applied: 'Applied', scored: 'Scored', to_schedule: 'To Schedule',
   scheduled: 'Scheduled', hired: 'Hired', rejected: 'Rejected'
 }
 const STAGE_COLORS = {
-  applied: 'bg-blue-100 text-blue-800', scored: 'bg-amber-100 text-amber-800',
+  invited: 'bg-purple-100 text-purple-800', applied: 'bg-blue-100 text-blue-800', scored: 'bg-amber-100 text-amber-800',
   to_schedule: 'bg-purple-100 text-purple-800', scheduled: 'bg-green-100 text-green-800',
   hired: 'bg-emerald-100 text-emerald-800', rejected: 'bg-gray-100 text-gray-600'
 }
@@ -37,6 +37,122 @@ const RESUME_CRITERIA = [
   { key: 'presentation', label: 'Resume is well-organized and professional' },
   { key: 'skills_match', label: 'Skills align with job requirements' },
 ]
+
+function timestampDate(value) {
+  if (!value) return null
+  if (value.toDate) return value.toDate()
+  if (value.seconds) return new Date(value.seconds * 1000)
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function formatSupportDate(value) {
+  const date = timestampDate(value)
+  return date ? format(date, 'MMM d, h:mm a') : null
+}
+
+function videoResponseCount(candidate) {
+  return Object.values(candidate.videoResponses || {})
+    .filter(path => path && !String(path).startsWith('skipped'))
+    .length
+}
+
+function textResponseCount(candidate) {
+  return Object.values(candidate.textResponses || {})
+    .filter(value => String(value || '').trim())
+    .length
+}
+
+function hasSharedWithEmployer(candidate, shares) {
+  return (Array.isArray(candidate.sharedWith) && candidate.sharedWith.length > 0)
+    || (Array.isArray(shares) && shares.length > 0)
+}
+
+function buildSupportChecklist({ candidate, shares, effectiveScore }) {
+  const invitedFlow = Boolean(candidate.accessCode)
+  const submitted = candidate.stage !== 'invited'
+  const videoCount = videoResponseCount(candidate)
+  const textCount = textResponseCount(candidate)
+  const shared = hasSharedWithEmployer(candidate, shares)
+  const finalDecision = ['hired', 'rejected'].includes(candidate.stage)
+  const scoreReady = effectiveScore != null
+
+  return [
+    {
+      label: 'Application record',
+      done: true,
+      status: formatSupportDate(candidate.createdAt) || 'Created',
+    },
+    {
+      label: 'Invite/access',
+      done: !invitedFlow || Boolean(candidate.inviteEmailSentAt || candidate.firstSignInAt),
+      status: invitedFlow
+        ? `Code ${candidate.accessCode}${candidate.inviteEmailSentAt ? ' sent' : ' ready'}`
+        : 'Public application',
+    },
+    {
+      label: 'Candidate opened',
+      done: !invitedFlow || Boolean(candidate.firstSignInAt),
+      status: invitedFlow
+        ? (formatSupportDate(candidate.firstSignInAt) || 'Not opened yet')
+        : 'No invite code needed',
+    },
+    {
+      label: 'Resume',
+      done: Boolean(candidate.resumeUrl),
+      warn: Boolean(candidate.resumeSkipped && !candidate.resumeUrl),
+      status: candidate.resumeUrl ? 'On file' : candidate.resumeSkipped ? 'Skipped by candidate' : 'Missing',
+    },
+    {
+      label: 'Interview submitted',
+      done: submitted,
+      status: submitted ? (formatSupportDate(candidate.submittedAt) || STAGE_LABELS[candidate.stage] || candidate.stage) : 'Waiting on candidate',
+    },
+    {
+      label: 'Response evidence',
+      done: videoCount > 0 || textCount > 0,
+      status: `${videoCount} video / ${textCount} written`,
+    },
+    {
+      label: 'AI score',
+      done: scoreReady,
+      status: scoreReady ? `${Number(effectiveScore).toFixed(1)}/5` : 'Needs scoring',
+    },
+    {
+      label: 'Employer share',
+      done: shared,
+      warn: scoreReady && Number(effectiveScore) >= 4 && !shared,
+      status: shared ? 'Shared' : scoreReady && Number(effectiveScore) >= 4 ? 'Ready to share' : 'Not shared yet',
+    },
+    {
+      label: 'Decision/support',
+      done: finalDecision || Boolean(candidate.latestDecision),
+      status: finalDecision
+        ? STAGE_LABELS[candidate.stage]
+        : candidate.latestDecision?.reasonLabel || 'Next step not recorded',
+    },
+  ]
+}
+
+function nextSupportAction(candidate, checklist, effectiveScore) {
+  if (candidate.stage === 'invited' && candidate.reopenedAt) {
+    return 'Confirm the candidate knows the interview is reopened and can resubmit with the same code.'
+  }
+  if (candidate.stage === 'invited' && candidate.accessCode && !candidate.firstSignInAt) {
+    return 'Send a reminder with the interview code and confirm they can access the link.'
+  }
+  if (candidate.stage === 'invited') {
+    return 'Candidate has access. Watch for the completed interview or follow up if they stall.'
+  }
+  if (effectiveScore == null) return 'Score the resume and interview responses before sharing or deciding.'
+  if (Number(effectiveScore) >= 4 && !checklist.find(item => item.label === 'Employer share')?.done) {
+    return 'Share this candidate with the employer or copy an employer-ready email draft.'
+  }
+  if (!candidate.latestDecision && !['hired', 'rejected'].includes(candidate.stage)) {
+    return 'Record the next stage or decision rationale so the pipeline stays clean.'
+  }
+  return 'No immediate support blocker. Keep the candidate moving through the current stage.'
+}
 
 function ScoreButton({ value, selected, onClick }) {
   return (
@@ -465,6 +581,10 @@ export default function AdminCandidate() {
   if (!candidate) return null
 
   const cumulative = calcCumulativeScore()
+  const effectiveScore = cumulative ? parseFloat(cumulative.avg) : candidate.manualScore?.avg ?? null
+  const supportChecklist = buildSupportChecklist({ candidate, shares, effectiveScore })
+  const supportOpenCount = supportChecklist.filter(item => !item.done).length
+  const nextAction = nextSupportAction(candidate, supportChecklist, effectiveScore)
   const scoreColor = (avg) => {
     if (avg == null) return 'text-gray-400'
     if (avg >= 4) return 'text-green-600'
@@ -633,6 +753,46 @@ export default function AdminCandidate() {
                 <p className="text-sm text-gray-400 mt-2">AI scoring pending</p>
               )}
             </div>
+          </div>
+        </div>
+
+        {/* Candidate support checklist */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Candidate support checklist</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Use this to see what the applicant needs from you before employer follow-up.</p>
+            </div>
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+              supportOpenCount ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-green-50 text-green-700 border border-green-100'
+            }`}>
+              {supportOpenCount ? `${supportOpenCount} open` : 'All clear'}
+            </span>
+          </div>
+          <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+            <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">Next best action</p>
+            <p className="text-sm text-blue-900 mt-1">{nextAction}</p>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {supportChecklist.map(item => {
+              const stateLabel = item.done ? 'Done' : item.warn ? 'Needs attention' : 'Open'
+              const stateClass = item.done
+                ? 'bg-green-50 text-green-700 border-green-100'
+                : item.warn
+                  ? 'bg-amber-50 text-amber-700 border-amber-100'
+                  : 'bg-gray-50 text-gray-500 border-gray-100'
+              return (
+                <div key={item.label} className="border border-gray-100 rounded-xl p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-gray-600">{item.label}</p>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${stateClass}`}>
+                      {stateLabel}
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium text-gray-900 mt-2 truncate">{item.status}</p>
+                </div>
+              )
+            })}
           </div>
         </div>
 
