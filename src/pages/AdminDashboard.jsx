@@ -14,6 +14,7 @@ import {
 } from "../selection/decisionReasons"
 import { PLATFORM_NAME } from "../config/organization"
 import ShareCandidateModal from "../components/ShareCandidateModal"
+import BulkShareCandidatesModal from "../components/BulkShareCandidatesModal"
 
 const STAGES = ["invited","applied","scored","to_schedule","scheduled","hired","rejected"]
 const STAGE_LABELS = { invited:"Invited", applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", hired:"Hired", rejected:"Rejected" }
@@ -53,6 +54,7 @@ export default function AdminDashboard() {
   const [rejectDecision, setRejectDecision] = useState({ reasonCode: getDecisionReasons(DECISION_OUTCOMES.REJECTED)[0].code, note: "" })
   const [downloadingId, setDownloadingId] = useState(null)
   const [shareTarget, setShareTarget] = useState(null)
+  const [bulkShareOpen, setBulkShareOpen] = useState(false)
   const navigate = useNavigate()
 
   const handleCardDownload = async (e, c) => {
@@ -107,6 +109,10 @@ export default function AdminDashboard() {
     candidates.forEach(c => { if (c.jobTitle) set.add(c.jobTitle) })
     return Array.from(set).sort()
   }, [candidates])
+
+  const selectedCandidates = useMemo(() => (
+    candidates.filter(candidate => selectedIds.has(candidate.id))
+  ), [candidates, selectedIds])
 
   const resetRejectDecision = () => {
     const firstReason = getDecisionReasons(DECISION_OUTCOMES.REJECTED)[0]
@@ -350,7 +356,7 @@ export default function AdminDashboard() {
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); setShareTarget(c) }}
-                            title="Email this profile (resume + videos) to someone"
+                            title="Email an employer-ready candidate packet"
                             className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-blue-50 hover:text-blue-600 text-xs"
                           >&#9993;</button>
                           <button onClick={(e) => toggleFlag(e, c)} title={c.needsReview ? "Unflag" : "Flag for review"} className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-amber-50 hover:text-amber-600 text-xs">⚑</button>
@@ -460,6 +466,7 @@ export default function AdminDashboard() {
             <p className="text-sm font-medium">{selectedIds.size} selected</p>
             <div className="flex items-center gap-2">
               <button onClick={() => setBulkConfirm({ action: "advance" })} className="text-xs font-medium bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg">Advance stage</button>
+              <button onClick={() => setBulkShareOpen(true)} className="text-xs font-medium bg-white text-blue-700 hover:bg-blue-50 px-3 py-1.5 rounded-lg">Share shortlist</button>
               <button onClick={() => runBulk("flag")} className="text-xs font-medium bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg">Flag for review</button>
               <button onClick={() => runBulk("unflag")} className="text-xs font-medium bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg">Unflag</button>
               <button onClick={() => { resetRejectDecision(); setBulkConfirm({ action: "reject" }) }} className="text-xs font-medium bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded-lg">Reject all</button>
@@ -562,6 +569,14 @@ export default function AdminDashboard() {
       {/* Reject rationale modal */}
       {shareTarget && (
         <ShareCandidateModal candidate={shareTarget} onClose={() => setShareTarget(null)} />
+      )}
+
+      {bulkShareOpen && (
+        <BulkShareCandidatesModal
+          candidates={selectedCandidates}
+          onClose={() => setBulkShareOpen(false)}
+          onSent={clearSelection}
+        />
       )}
 
       {rejectConfirm && (

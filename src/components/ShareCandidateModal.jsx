@@ -10,21 +10,25 @@ async function resolveVideoUrl(path) {
   return file ? getDownloadURL(file) : null
 }
 
-// Shares a candidate's profile: email (resume attached, every video answer as
-// a watch-card — server-side shareCandidate) or a copy-paste text message.
+function formatScore(value, max) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)}/${max}` : 'Pending'
+}
+
+function uniqueList(...groups) {
+  return [...new Set(groups.flat().filter(Boolean).map(item => String(item).trim()).filter(Boolean))]
+}
+
 export default function ShareCandidateModal({ candidate, onClose }) {
-  const [mode, setMode] = useState('email') // email | text
+  const [mode, setMode] = useState('email')
   const [email, setEmail] = useState('')
   const [note, setNote] = useState('')
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
-
-  // Copy-as-text state: links resolved client-side (admin has storage read)
-  const [links, setLinks] = useState(null) // { resume, videos: [{num,url}] }
+  const [links, setLinks] = useState(null)
   const [linksLoading, setLinksLoading] = useState(false)
   const [includeResume, setIncludeResume] = useState(true)
-  const [videoCount, setVideoCount] = useState('1') // '0' | '1' | '3' | 'all'
+  const [videoCount, setVideoCount] = useState('1')
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -53,13 +57,21 @@ export default function ShareCandidateModal({ candidate, onClose }) {
 
   const shareText = (() => {
     if (!links) return ''
-    const L = []
-    L.push(`${candidate.firstName} ${candidate.lastName} — ${candidate.jobTitle || 'candidate'}`)
-    if (note.trim()) L.push(note.trim())
-    if (includeResume && links.resume) L.push(`Resume: ${links.resume}`)
+    const lines = []
+    lines.push(`${candidate.firstName} ${candidate.lastName} - ${candidate.jobTitle || 'candidate'}`)
+    lines.push(`AI score: ${formatScore(candidate.compositeScore, 10)} (resume ${formatScore(candidate.resumeScore, 10)}, interview ${formatScore(candidate.interviewScore, 10)})`)
+    if (candidate.manualScore?.avg != null) lines.push(`Evaluator score: ${formatScore(candidate.manualScore.avg, 5)}`)
+    const strengths = uniqueList(candidate.strengths, candidate.resumeStrengths, candidate.interviewStrengths).slice(0, 4)
+    if (strengths.length) lines.push(`Strengths:\n${strengths.map(s => `- ${s}`).join('\n')}`)
+    if (note.trim()) lines.push(note.trim())
+    if (includeResume && links.resume) lines.push(`Resume: ${links.resume}`)
     const n = videoCount === 'all' ? links.videos.length : Number(videoCount)
-    links.videos.slice(0, n).forEach(v => L.push(`Interview Q${v.num}: ${v.url}`))
-    return L.join('\n\n')
+    links.videos.slice(0, n).forEach(v => {
+      const qIndex = String(v.num - 1)
+      const noteText = candidate.manualAnswerNotes?.[qIndex]
+      lines.push(`Interview Q${v.num}:${noteText ? `\nNotes: ${noteText}` : ''}\nVideo: ${v.url}`)
+    })
+    return lines.join('\n\n')
   })()
 
   const handleCopy = () => {
@@ -83,6 +95,10 @@ export default function ShareCandidateModal({ candidate, onClose }) {
         candidateId: candidate.id,
         toEmails: emailList,
         note: note.trim(),
+        manualResumeScores: candidate.manualResumeScores || {},
+        manualAnswerScores: candidate.manualAnswerScores || {},
+        manualAnswerNotes: candidate.manualAnswerNotes || {},
+        manualScore: candidate.manualScore || null,
       })
       setResult(data)
     } catch (err) {
@@ -95,16 +111,16 @@ export default function ShareCandidateModal({ candidate, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-lg p-6 space-y-4" onClick={e => e.stopPropagation()}>
         {result ? (
           <>
             <div className="text-center space-y-2">
               <div className="text-green-500 text-3xl">&#10003;</div>
-              <h3 className="text-lg font-semibold text-gray-900">Profile sent</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Candidate packet sent</h3>
               <p className="text-sm text-gray-500">
-                {candidate.firstName} {candidate.lastName}'s profile went to <span className="font-medium">{(result.recipients || emailList).join(', ')}</span>
-                {' '}with {result.resumeAttached ? 'the resume attached and ' : ''}{result.videos} video answer{result.videos === 1 ? '' : 's'} linked.
-                Opens and video clicks will show under Share activity on the candidate page.
+                {candidate.firstName} {candidate.lastName}'s packet went to <span className="font-medium">{(result.recipients || emailList).join(', ')}</span>
+                {' '}with {result.resumeAttached ? 'the resume attached, ' : ''}{result.packetAttached ? 'the score packet attached, and ' : ''}{result.videos} video answer{result.videos === 1 ? '' : 's'} linked.
+                Opens and video clicks will show under Share activity.
               </p>
             </div>
             <button onClick={onClose} className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 rounded-xl">Done</button>
@@ -115,8 +131,8 @@ export default function ShareCandidateModal({ candidate, onClose }) {
               <h3 className="text-lg font-semibold text-gray-900">Share {candidate.firstName} {candidate.lastName}</h3>
               <p className="text-xs text-gray-500 mt-1">
                 {mode === 'email'
-                  ? 'Sends an email with the resume attached and every interview answer as a one-click watch button. No login needed to view.'
-                  : 'Builds a short message with resume and video links you can paste into a text, WhatsApp, or anywhere else. Links open in the browser — no login needed.'}
+                  ? 'Sends a client-ready candidate packet with AI score, evaluator notes, resume, response evidence, and one-click video links.'
+                  : 'Builds a short message with score highlights, notes, resume, and video links you can paste anywhere.'}
               </p>
             </div>
 
@@ -135,7 +151,7 @@ export default function ShareCandidateModal({ candidate, onClose }) {
                 value={note}
                 onChange={e => setNote(e.target.value)}
                 rows={2}
-                placeholder="e.g. Strong on the phone scripts — worth a look before Friday."
+                placeholder="e.g. Strong phone presence and coachability; this is the type of structured packet I can produce across your whole applicant pipeline."
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -152,14 +168,14 @@ export default function ShareCandidateModal({ candidate, onClose }) {
                     placeholder="hiring.manager@dealership.com, gm@dealership.com"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <p className="text-xs text-gray-400 mt-1">Separate multiple addresses with commas (up to 10). Each person gets their own email.</p>
+                  <p className="text-xs text-gray-400 mt-1">Separate multiple addresses with commas (up to 10). Each person gets their own tracked email.</p>
                 </div>
                 {error && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>}
                 <div className="flex gap-3">
                   <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium py-2.5 rounded-xl">Cancel</button>
                   <button onClick={handleSend} disabled={!validEmail || sending}
                     className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-xl">
-                    {sending ? 'Sending…' : 'Send profile'}
+                    {sending ? 'Sending...' : 'Send packet'}
                   </button>
                 </div>
               </>
@@ -185,13 +201,13 @@ export default function ShareCandidateModal({ candidate, onClose }) {
                 {linksLoading || !links ? (
                   <div className="flex items-center justify-center gap-2 py-6 text-sm text-gray-400">
                     <span className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                    Building links…
+                    Building links...
                   </div>
                 ) : (
                   <textarea
                     readOnly
                     value={shareText}
-                    rows={7}
+                    rows={8}
                     onFocus={e => e.target.select()}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-xs font-mono text-gray-700 bg-gray-50 resize-none focus:outline-none"
                   />
