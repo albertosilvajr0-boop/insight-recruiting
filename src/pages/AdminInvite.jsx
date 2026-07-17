@@ -1,11 +1,45 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore'
+import { collection, query, getDocs, orderBy } from 'firebase/firestore'
 import { ref, uploadBytesResumable } from 'firebase/storage'
 import { httpsCallable } from 'firebase/functions'
 import { db, storage, functions } from '../firebase'
 
 const EMPTY_FORM = { firstName: '', lastName: '', email: '', phone: '', jobId: '' }
+
+const STAGE_LABELS = {
+  invited: 'Invited',
+  applied: 'Applied',
+  scored: 'Scored',
+  to_schedule: 'To Schedule',
+  scheduled: 'Scheduled',
+  hired: 'Hired',
+  rejected: 'Rejected',
+  screening: 'Applied',
+  interview_2: 'Applied',
+  scheduling: 'To Schedule',
+}
+
+const STAGE_BADGE_COLORS = {
+  invited: 'bg-purple-100 text-purple-700',
+  applied: 'bg-amber-100 text-amber-700',
+  scored: 'bg-blue-100 text-blue-700',
+  to_schedule: 'bg-indigo-100 text-indigo-700',
+  scheduling: 'bg-indigo-100 text-indigo-700',
+  scheduled: 'bg-green-100 text-green-700',
+  hired: 'bg-emerald-100 text-emerald-700',
+  rejected: 'bg-red-100 text-red-700',
+}
+
+function candidateSortTime(candidate) {
+  return Math.max(
+    candidate.invitedAt?.seconds || 0,
+    candidate.createdAt?.seconds || 0,
+    candidate.updatedAt?.seconds || 0,
+    candidate.lastSignInAt?.seconds || 0,
+    candidate.firstSignInAt?.seconds || 0
+  )
+}
 
 function inferResumeContentType(fileName) {
   const lower = String(fileName || '').toLowerCase()
@@ -22,8 +56,8 @@ export default function AdminInvite() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null) // { accessCode, inviteLink, emailSent, email, name }
-  const [invites, setInvites] = useState([])
-  const [loadingInvites, setLoadingInvites] = useState(true)
+  const [people, setPeople] = useState([])
+  const [loadingPeople, setLoadingPeople] = useState(true)
   const [copied, setCopied] = useState(null)
   const navigate = useNavigate()
 
@@ -35,22 +69,22 @@ export default function AdminInvite() {
       } catch (err) {
         console.error('Failed to load jobs:', err)
       }
-      await refreshInvites()
+      await refreshPeople()
     }
     load()
   }, [])
 
-  async function refreshInvites() {
-    setLoadingInvites(true)
+  async function refreshPeople() {
+    setLoadingPeople(true)
     try {
-      const snap = await getDocs(query(collection(db, 'candidates'), where('stage', '==', 'invited')))
+      const snap = await getDocs(collection(db, 'candidates'))
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      list.sort((a, b) => (b.invitedAt?.seconds || 0) - (a.invitedAt?.seconds || 0))
-      setInvites(list)
+      list.sort((a, b) => candidateSortTime(b) - candidateSortTime(a))
+      setPeople(list)
     } catch (err) {
-      console.error('Failed to load invites:', err)
+      console.error('Failed to load candidates:', err)
     } finally {
-      setLoadingInvites(false)
+      setLoadingPeople(false)
     }
   }
 
@@ -101,7 +135,7 @@ export default function AdminInvite() {
       })
       setForm(EMPTY_FORM)
       setResumeFile(null)
-      await refreshInvites()
+      await refreshPeople()
     } catch (err) {
       console.error('Invite failed:', err)
       setError(err?.message || 'Failed to create the invite. Please try again.')
@@ -213,43 +247,59 @@ export default function AdminInvite() {
           </button>
         </div>
 
-        {/* Pending invites */}
+        {/* People list */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-700">Waiting on {invites.length} invited candidate{invites.length === 1 ? '' : 's'}</h3>
-            <button onClick={refreshInvites} className="text-xs text-blue-600 hover:underline">Refresh</button>
+            <h3 className="text-sm font-semibold text-gray-700">People ({people.length})</h3>
+            <button onClick={refreshPeople} className="text-xs text-blue-600 hover:underline">Refresh</button>
           </div>
-          {loadingInvites ? (
+          {loadingPeople ? (
             <div className="flex justify-center py-8"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
-          ) : invites.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-8">No open invites. Candidates appear here until they submit their interview.</p>
+          ) : people.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">No candidates found yet.</p>
           ) : (
-            invites.map(c => (
+            people.map(c => {
+              const stageLabel = STAGE_LABELS[c.stage] || c.stage || 'Unknown'
+              const stageBadgeColor = STAGE_BADGE_COLORS[c.stage] || 'bg-gray-100 text-gray-600'
+              const candidateJobTitle = c.jobTitle || jobTitle(c.jobId) || 'No job selected'
+
+              return (
               <div key={c.id} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">{c.firstName} {c.lastName}</p>
-                  <p className="text-xs text-gray-500 truncate">{c.jobTitle || jobTitle(c.jobId)} · {c.email}</p>
+                  <p className="text-xs text-gray-500 truncate">{candidateJobTitle} · {c.email || 'No email'}</p>
                   {c.phone && (
                     <p className="text-xs text-gray-500">
                       <a href={`tel:${c.phone}`} className="hover:text-blue-600">{c.phone}</a>
                     </p>
                   )}
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${stageBadgeColor}`}>{stageLabel}</span>
                     {c.inviteEmailSentAt && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Email sent</span>}
-                    {c.firstSignInAt
+                    {c.accessCode && (c.firstSignInAt
                       ? <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">Signed in</span>
-                      : <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Not opened yet</span>}
+                      : <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Not opened yet</span>)}
                     {c.resumeUrl && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Resume on file</span>}
                   </div>
                 </div>
                 <div className="shrink-0 text-right space-y-1">
-                  <p className="font-mono font-semibold text-gray-700 tracking-widest">{c.accessCode}</p>
-                  <button onClick={() => copy(c.accessCode, c.id)} className="text-xs text-blue-600 hover:underline">
-                    {copied === c.id ? 'Copied!' : 'Copy code'}
+                  {c.accessCode ? (
+                    <>
+                      <p className="font-mono font-semibold text-gray-700 tracking-widest">{c.accessCode}</p>
+                      <button onClick={() => copy(c.accessCode, c.id)} className="text-xs text-blue-600 hover:underline">
+                        {copied === c.id ? 'Copied!' : 'Copy code'}
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-xs text-gray-400">No code</span>
+                  )}
+                  <button onClick={() => navigate(`/admin/candidates/${c.id}`)} className="block text-xs text-gray-500 hover:text-blue-600 hover:underline">
+                    Open profile
                   </button>
                 </div>
               </div>
-            ))
+              )
+            })
           )}
         </div>
       </div>
