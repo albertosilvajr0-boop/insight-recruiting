@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { onAuthStateChanged } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
-import { auth, db } from '../firebase'
+import { httpsCallable } from 'firebase/functions'
+import { auth, db, functions } from '../firebase'
 import { canAccessRoute } from '../security/roles'
+
+const ADMIN_PRESENCE_INTERVAL_MS = 45_000
 
 export default function ProtectedRoute({ children, requiredRole, requiredPermission }) {
   const [status, setStatus] = useState('loading')
+  const location = useLocation()
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -31,6 +35,34 @@ export default function ProtectedRoute({ children, requiredRole, requiredPermiss
     })
     return unsub
   }, [requiredRole, requiredPermission])
+
+  useEffect(() => {
+    if (status !== 'authed') return undefined
+
+    let stopped = false
+    const touchAdminPresence = httpsCallable(functions, 'touchAdminPresence')
+    const sendHeartbeat = () => {
+      if (stopped) return
+      touchAdminPresence({ path: location.pathname }).catch(() => {
+        // Presence is best-effort; it should never block admin navigation.
+      })
+    }
+
+    sendHeartbeat()
+    const interval = window.setInterval(sendHeartbeat, ADMIN_PRESENCE_INTERVAL_MS)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') sendHeartbeat()
+    }
+
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', sendHeartbeat)
+    return () => {
+      stopped = true
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', sendHeartbeat)
+    }
+  }, [status, location.pathname])
 
   if (status === 'loading') {
     return (

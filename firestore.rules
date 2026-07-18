@@ -201,6 +201,11 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /candidatePresence/{candidateId} {
+      allow get, list: if hasPermission('view_candidates') || hasPermission('view_analytics');
+      allow create, update, delete: if false;
+    }
+
     match /eeoResponses/{candidateId} {
       allow create: if validEeoResponseCreate(candidateId);
       allow get, list: if hasPermission('view_analytics');

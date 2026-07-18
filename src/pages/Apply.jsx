@@ -31,6 +31,7 @@ import { questionsFromStoredMap, selectQuestionsForRole } from '../library/quest
 
 const STEPS = ['info', 'resume', 'compliance', 'interview', 'review', 'submitting']
 const DRAFT_KEY_PREFIX = 'apply_draft_v1_'
+const INVITE_PRESENCE_INTERVAL_MS = 30_000
 const ACCEPTED_ACKNOWLEDGEMENTS = Object.freeze(
   REQUIRED_ACKNOWLEDGEMENTS.reduce((acc, item) => ({ ...acc, [item.key]: true }), {})
 )
@@ -284,6 +285,39 @@ export default function Apply() {
     if (inviteMode) loadInvite()
     else loadJob()
   }, [jobId, code, inviteMode, navigate])
+
+  useEffect(() => {
+    if (!inviteMode || !code || !invite?.candidateId || submittedSession) return undefined
+
+    let stopped = false
+    const touchInvitePresence = httpsCallable(functions, 'touchInvitePresence')
+    const sendHeartbeat = () => {
+      if (stopped) return
+      touchInvitePresence({
+        code,
+        step,
+        questionIndex: step === 'interview' ? currentQuestion : null,
+        questionCount: questions.length,
+      }).catch(() => {
+        // Presence is best-effort; never interrupt an applicant mid-interview.
+      })
+    }
+
+    sendHeartbeat()
+    const interval = window.setInterval(sendHeartbeat, INVITE_PRESENCE_INTERVAL_MS)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') sendHeartbeat()
+    }
+
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', sendHeartbeat)
+    return () => {
+      stopped = true
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', sendHeartbeat)
+    }
+  }, [inviteMode, code, invite?.candidateId, submittedSession, step, currentQuestion, questions.length])
 
   // Start silent timer whenever question changes
   useEffect(() => {

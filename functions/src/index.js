@@ -13,7 +13,7 @@ import { sendApplicationReceipt } from './email/sendApplicationReceipt.js'
 import { generateJobFeed } from './jobs/jobFeed.js'
 import { generateSitemap } from './jobs/sitemap.js'
 import { renderApplyPage } from './jobs/applyPage.js'
-import { createUserHandler, updateUserHandler, deleteUserHandler, ensureCurrentUserProfileHandler } from './users/manageUsers.js'
+import { createUserHandler, updateUserHandler, deleteUserHandler, ensureCurrentUserProfileHandler, touchAdminPresenceHandler } from './users/manageUsers.js'
 import { sendPhoneVerificationHandler, verifyPhoneCodeHandler } from './verification/phoneVerification.js'
 import { getCandidateStatusHandler } from './candidates/getCandidateStatus.js'
 import { auditCandidateUpdate } from './candidates/auditCandidateChanges.js'
@@ -23,6 +23,7 @@ import {
   createCandidateInviteHandler,
   attachInviteResumeHandler,
   getInviteSessionHandler,
+  touchInvitePresenceHandler,
   submitInvitedInterviewHandler,
   reopenInviteHandler,
   reopenOwnInterviewHandler,
@@ -181,6 +182,10 @@ export const getInviteSession = onCall(async (request) => {
   return getInviteSessionHandler(request.data)
 })
 
+export const touchInvitePresence = onCall(async (request) => {
+  return touchInvitePresenceHandler(request.data)
+})
+
 export const submitInvitedInterview = onCall(async (request) => {
   return submitInvitedInterviewHandler(request.data)
 })
@@ -244,6 +249,10 @@ export const createUser = onCall(async (request) => {
 
 export const ensureCurrentUserProfile = onCall(async (request) => {
   return ensureCurrentUserProfileHandler(request.data, request)
+})
+
+export const touchAdminPresence = onCall(async (request) => {
+  return touchAdminPresenceHandler(request.data, request)
 })
 
 export const updateUser = onCall(async (request) => {

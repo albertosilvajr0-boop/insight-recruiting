@@ -255,6 +255,45 @@ export async function getInviteSessionHandler(data) {
   }
 }
 
+// Public: lightweight heartbeat while an invited/reopened candidate has the
+// interview page open. Analytics treats recent heartbeats as "live now."
+export async function touchInvitePresenceHandler(data) {
+  const db = getFirestore()
+  const found = await findCandidateByCode(db, data?.code)
+  if (!found) throw new HttpsError('not-found', 'That code was not recognized.')
+
+  const candidate = found.data
+  if (candidate.stage !== 'invited') {
+    return { success: true, live: false }
+  }
+
+  const step = String(data?.step || 'interview')
+    .replace(/[^a-z0-9_-]/gi, '')
+    .slice(0, 30) || 'interview'
+  const questionIndex = data?.questionIndex === null || data?.questionIndex === undefined
+    ? null
+    : Number(data.questionIndex)
+  const questionCount = data?.questionCount === null || data?.questionCount === undefined
+    ? null
+    : Number(data.questionCount)
+  const update = {
+    candidateId: found.id,
+    liveCandidateAt: FieldValue.serverTimestamp(),
+    liveCandidateStep: step,
+    liveCandidateReopened: Boolean(candidate.reopenedAt),
+  }
+
+  if (Number.isInteger(questionIndex) && questionIndex >= 0 && questionIndex < 200) {
+    update.liveCandidateQuestionIndex = questionIndex
+  }
+  if (Number.isInteger(questionCount) && questionCount >= 0 && questionCount < 200) {
+    update.liveCandidateQuestionCount = questionCount
+  }
+
+  await db.collection('candidatePresence').doc(found.id).set(update, { merge: true })
+  return { success: true, live: true }
+}
+
 // ─── Public: candidate reopens their OWN submitted interview ────────────────
 // After feedback, candidates can choose to improve video answers themselves:
 // sign in with the same code, redo video answers, then resubmit.
