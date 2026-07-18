@@ -2,7 +2,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { collection, query, orderBy, onSnapshot } from "firebase/firestore"
 import { db } from "../firebase"
-import { format, subDays, isAfter, startOfDay } from "date-fns"
+import { format, formatDistanceToNow, subDays, isAfter, startOfDay } from "date-fns"
 import {
   buildOutcomeSegmentRows,
   buildPerformanceRecords,
@@ -18,16 +18,47 @@ const STAGE_LABELS = {
 }
 
 const MONITORING_MIN_GROUP_SIZE = 5
+const LIVE_NOW_WINDOW_MS = 2 * 60 * 1000
+const LIVE_REFRESH_MS = 30 * 1000
+
+function toDate(ts) {
+  return ts?.toDate ? ts.toDate() : null
+}
+
+function isLiveNow(ts, now) {
+  const date = toDate(ts)
+  return Boolean(date && now.getTime() - date.getTime() <= LIVE_NOW_WINDOW_MS)
+}
+
+function candidatePresenceLabel(candidate) {
+  const presence = candidate.presence || candidate
+  const step = presence.liveCandidateStep || "interview"
+  if (step === "interview") {
+    const index = Number(presence.liveCandidateQuestionIndex)
+    const total = Number(presence.liveCandidateQuestionCount)
+    if (Number.isInteger(index) && index >= 0) {
+      return `Question ${index + 1}${Number.isInteger(total) && total > 0 ? `/${total}` : ""}`
+    }
+    return "Interview"
+  }
+  if (step === "compliance") return "Compliance"
+  if (step === "review") return "Reviewing answers"
+  if (step === "resume") return "Resume"
+  if (step === "info") return "Contact info"
+  return "Application"
+}
 
 export default function AdminAnalytics() {
   const [users, setUsers] = useState([])
   const [candidates, setCandidates] = useState([])
+  const [candidatePresenceRecords, setCandidatePresenceRecords] = useState([])
   const [complianceRecords, setComplianceRecords] = useState([])
   const [eeoRecords, setEeoRecords] = useState([])
   const [onboardingRecords, setOnboardingRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterType, setFilterType] = useState("all") // "all" | "admins" | "candidates"
   const [dateRange, setDateRange] = useState("30") // days
+  const [now, setNow] = useState(() => new Date())
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -41,6 +72,11 @@ export default function AdminAnalytics() {
         setCandidates(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
         setLoading(false)
       }
+    )
+    const unsubCandidatePresence = onSnapshot(
+      collection(db, "candidatePresence"),
+      (snap) => setCandidatePresenceRecords(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setCandidatePresenceRecords([])
     )
     const unsubCompliance = onSnapshot(
       query(collection(db, "candidateCompliance"), orderBy("createdAt", "desc")),
@@ -57,7 +93,12 @@ export default function AdminAnalytics() {
       (snap) => setOnboardingRecords(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       () => setOnboardingRecords([])
     )
-    return () => { unsubUsers(); unsubCandidates(); unsubCompliance(); unsubEeo(); unsubOnboarding() }
+    return () => { unsubUsers(); unsubCandidates(); unsubCandidatePresence(); unsubCompliance(); unsubEeo(); unsubOnboarding() }
+  }, [])
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(new Date()), LIVE_REFRESH_MS)
+    return () => window.clearInterval(interval)
   }, [])
 
   const cutoff = startOfDay(subDays(new Date(), Number(dateRange)))
@@ -98,6 +139,7 @@ export default function AdminAnalytics() {
     ? performanceRecords.reduce((sum, record) => sum + record.outcome.averageRating, 0) / performanceRecords.length
     : null
   const topPerformerCount = performanceRecords.filter((record) => record.outcome.averageRating >= 4).length
+  const presenceByCandidateId = new Map(candidatePresenceRecords.map((record) => [record.candidateId || record.id, record]))
 
   // ─── KPI Calculations ─────────────────────────────────────────────
   const totalApplications = rangedCandidates.length
@@ -184,7 +226,17 @@ export default function AdminAnalytics() {
 
   // Admin login activity
   const activeAdmins = users.filter((u) => inRange(u.lastLoginAt))
+  const liveAdmins = users
+    .filter((u) => !u.disabled && isLiveNow(u.liveAdminAt, now))
+    .sort((a, b) => (toDate(b.liveAdminAt)?.getTime() || 0) - (toDate(a.liveAdminAt)?.getTime() || 0))
+  const liveCandidates = candidates
+    .map((candidate) => ({ ...candidate, presence: presenceByCandidateId.get(candidate.id) }))
+    .filter((c) => isLiveNow(c.presence?.liveCandidateAt, now))
+    .sort((a, b) => (toDate(b.presence?.liveCandidateAt)?.getTime() || 0) - (toDate(a.presence?.liveCandidateAt)?.getTime() || 0))
   const adminsSorted = [...users].sort((a, b) => {
+    const aLive = isLiveNow(a.liveAdminAt, now) ? 1 : 0
+    const bLive = isLiveNow(b.liveAdminAt, now) ? 1 : 0
+    if (aLive !== bLive) return bLive - aLive
     const aTime = a.lastLoginAt?.toDate?.() || new Date(0)
     const bTime = b.lastLoginAt?.toDate?.() || new Date(0)
     return bTime - aTime
@@ -193,6 +245,7 @@ export default function AdminAnalytics() {
   // ─── Filter logic ─────────────────────────────────────────────────
   const showAdmins = filterType === "all" || filterType === "admins"
   const showCandidates = filterType === "all" || filterType === "candidates"
+  const visibleLiveCount = (showCandidates ? liveCandidates.length : 0) + (showAdmins ? liveAdmins.length : 0)
 
   const roleBadge = (role) => {
     const styles = { superadmin: "bg-purple-100 text-purple-800", manager: "bg-blue-100 text-blue-800" }
@@ -244,8 +297,9 @@ export default function AdminAnalytics() {
           <>
             {/* ─── KPI Cards ─────────────────────────────────────────── */}
             {showCandidates && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <KpiCard label="Total Applications" value={totalApplications} />
+                <KpiCard label="Candidates Live Now" value={liveCandidates.length} color="green" />
                 <KpiCard label="Scheduled Interviews" value={totalScheduled} color="green" />
                 <KpiCard label="Conversion Rate" value={`${conversionRate}%`} color="blue" />
                 <KpiCard label="Avg Composite Score" value={avgComposite} color="purple" />
@@ -253,8 +307,9 @@ export default function AdminAnalytics() {
             )}
 
             {showAdmins && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <KpiCard label="Total Admin Users" value={users.length} />
+                <KpiCard label="Admins Live Now" value={liveAdmins.length} color="green" />
                 <KpiCard label={`Active (last ${dateRange}d)`} value={activeAdmins.length} color="green" />
                 <KpiCard label="Total Logins" value={users.reduce((s, u) => s + (u.loginCount || 0), 0)} color="blue" />
                 <KpiCard label="Superadmins" value={users.filter((u) => u.role === "superadmin").length} color="purple" />
@@ -262,6 +317,92 @@ export default function AdminAnalytics() {
             )}
 
             {/* ─── Conversion Funnel ────────────────────────────────── */}
+            {(showCandidates || showAdmins) && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-70" />
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+                      </span>
+                      <h3 className="text-sm font-semibold text-gray-900">Live now</h3>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Shows candidate and admin pages with activity in the last 2 minutes.</p>
+                  </div>
+                  <span className="text-xs font-medium text-gray-600 px-2.5 py-1 rounded-full bg-gray-100 w-fit">
+                    {visibleLiveCount} live
+                  </span>
+                </div>
+
+                {visibleLiveCount === 0 ? (
+                  <p className="text-xs text-gray-400 py-5 text-center">No live activity right now.</p>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {showCandidates && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-600 mb-2">Candidates</p>
+                        {liveCandidates.length === 0 ? (
+                          <p className="text-xs text-gray-400 border border-gray-100 rounded-lg px-3 py-3">No candidates live.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {liveCandidates.map((candidate) => (
+                              <button
+                                key={candidate.id}
+                                onClick={() => navigate(`/admin/candidates/${candidate.id}`)}
+                                className="w-full text-left border border-green-100 bg-green-50 hover:bg-green-100 rounded-lg px-3 py-2.5 transition-colors"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-semibold text-gray-900">{candidate.firstName} {candidate.lastName}</p>
+                                    <p className="text-xs text-gray-600">{candidate.jobTitle || "Candidate"} - {candidatePresenceLabel(candidate)}</p>
+                                  </div>
+                                  <LivePill />
+                                </div>
+                                {toDate(candidate.presence?.liveCandidateAt) && (
+                                  <p className="text-[11px] text-gray-500 mt-1">
+                                    Last heartbeat {formatDistanceToNow(toDate(candidate.presence?.liveCandidateAt), { addSuffix: true })}
+                                  </p>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {showAdmins && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-600 mb-2">Admins</p>
+                        {liveAdmins.length === 0 ? (
+                          <p className="text-xs text-gray-400 border border-gray-100 rounded-lg px-3 py-3">No admins live.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {liveAdmins.map((admin) => (
+                              <div key={admin.id} className="border border-blue-100 bg-blue-50 rounded-lg px-3 py-2.5">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-semibold text-gray-900">{admin.displayName || admin.email || "Admin"}</p>
+                                    <p className="text-xs text-gray-600">{admin.liveAdminPath || "/admin"}</p>
+                                  </div>
+                                  <LivePill />
+                                </div>
+                                {toDate(admin.liveAdminAt) && (
+                                  <p className="text-[11px] text-gray-500 mt-1">
+                                    Last heartbeat {formatDistanceToNow(toDate(admin.liveAdminAt), { addSuffix: true })}
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {showCandidates && funnelTop > 0 && (
               <div className="bg-white rounded-xl border border-gray-200 p-5">
                 <div className="flex items-center justify-between mb-4">
@@ -494,6 +635,7 @@ export default function AdminAnalytics() {
                       adminsSorted.map((u) => {
                         const lastLogin = u.lastLoginAt?.toDate?.()
                         const isRecent = lastLogin && isAfter(lastLogin, subDays(new Date(), 7))
+                        const live = isLiveNow(u.liveAdminAt, now)
                         return (
                           <tr key={u.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                             <td className="px-5 py-3">
@@ -517,6 +659,8 @@ export default function AdminAnalytics() {
                             <td className="px-5 py-3">
                               {u.disabled ? (
                                 <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700">Disabled</span>
+                              ) : live ? (
+                                <LivePill />
                               ) : isRecent ? (
                                 <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">Active</span>
                               ) : (
@@ -562,12 +706,21 @@ export default function AdminAnalytics() {
                           scored: "bg-blue-100 text-blue-700", applied: "bg-amber-100 text-amber-700",
                         }
                         const stage = STAGE_LABELS[c.stage] || c.stage
+                        const presence = presenceByCandidateId.get(c.id)
+                        const live = isLiveNow(presence?.liveCandidateAt, now)
+                        const candidateWithPresence = { ...c, presence }
                         return (
                           <tr key={c.id} onClick={() => navigate(`/admin/candidates/${c.id}`)}
                             className="border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer">
                             <td className="px-5 py-3">
-                              <p className="text-sm font-medium text-gray-900">{c.firstName} {c.lastName}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-medium text-gray-900">{c.firstName} {c.lastName}</p>
+                                {live && <LivePill />}
+                              </div>
                               <p className="text-xs text-gray-500">{c.email}</p>
+                              {live && (
+                                <p className="text-[11px] text-green-700 mt-0.5">{candidatePresenceLabel(candidateWithPresence)}</p>
+                              )}
                             </td>
                             <td className="px-5 py-3 text-sm text-gray-700">{c.jobTitle || "—"}</td>
                             <td className="px-5 py-3">
@@ -619,6 +772,15 @@ function KpiCard({ label, value, color }) {
       <p className="text-xs text-gray-500 mb-1">{label}</p>
       <p className={`text-2xl font-semibold ${colors[color] || "text-gray-900"}`}>{value}</p>
     </div>
+  )
+}
+
+function LivePill() {
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700 whitespace-nowrap">
+      <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+      Live now
+    </span>
   )
 }
 

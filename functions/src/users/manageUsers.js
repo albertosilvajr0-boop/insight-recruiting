@@ -105,6 +105,29 @@ export async function ensureCurrentUserProfileHandler(_data, context) {
   }
 }
 
+export async function touchAdminPresenceHandler(data, context) {
+  if (!context.auth) {
+    throw new HttpsError('unauthenticated', 'Authentication required.')
+  }
+
+  const db = getFirestore()
+  const uid = context.auth.uid
+  const userRef = db.collection('users').doc(uid)
+  const userSnap = await userRef.get()
+  const user = userSnap.exists ? userSnap.data() : null
+
+  if (!user || user.disabled === true || ![ROLES.SUPERADMIN, ROLES.MANAGER].includes(user.role)) {
+    throw new HttpsError('permission-denied', 'This account is not allowed to access this action.')
+  }
+
+  await userRef.set({
+    liveAdminAt: FieldValue.serverTimestamp(),
+    liveAdminPath: String(data?.path || '').slice(0, 120),
+  }, { merge: true })
+
+  return { success: true }
+}
+
 /**
  * Creates a new Firebase Auth user and stores their profile in Firestore.
  */
