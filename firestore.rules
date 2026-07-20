@@ -239,11 +239,11 @@ service cloud.firestore {
     }
 
     match /shares/{shareId} {
-      allow get, list: if hasPermission('view_candidates');
+      allow get, list: if hasPermission('view_candidates') || hasPermission('view_analytics');
       allow create, update, delete: if false;
 
       match /clicks/{clickId} {
-        allow get, list: if hasPermission('view_candidates');
+        allow get, list: if hasPermission('view_candidates') || hasPermission('view_analytics');
         allow create, update, delete: if false;
       }
     }

@@ -66,12 +66,77 @@ function hasSharedWithEmployer(c) {
   return Array.isArray(c.sharedWith) && c.sharedWith.length > 0
 }
 
+const WORK_QUEUE_GROUPS = {
+  score: {
+    title: "Score applicants",
+    detail: "Submitted interviews waiting for a 5-point review.",
+  },
+  reopened: {
+    title: "Reopened interviews",
+    detail: "Candidates who can redo video responses.",
+  },
+  unopened: {
+    title: "Invite reminders",
+    detail: "Invited candidates who have not opened their interview.",
+  },
+  started: {
+    title: "Started but not submitted",
+    detail: "Candidates who opened the interview and have not finished.",
+  },
+  stale: {
+    title: "Stale pipeline stages",
+    detail: "Candidates sitting past the stage follow-up window.",
+  },
+  share: {
+    title: "Employer follow-up",
+    detail: "High-scoring candidates ready to share with employers.",
+  },
+  flagged: {
+    title: "Flagged reviews",
+    detail: "Candidates marked for a second look.",
+  },
+}
+
+function queueTaskKey(candidate, item) {
+  if (item.type === "stale") return `stale_${stageOf(candidate)}`
+  return item.type
+}
+
+function isQueueTaskCleared(candidate, key) {
+  return Boolean(candidate.workQueueDone?.[key] || candidate.workQueueDismissed?.[key])
+}
+
+function groupWorkQueue(items) {
+  const groups = new Map()
+  items.forEach(item => {
+    const key = item.type
+    const meta = WORK_QUEUE_GROUPS[key] || { title: item.title, detail: "Open work queue items." }
+    const existing = groups.get(key) || {
+      key,
+      title: meta.title,
+      detail: meta.detail,
+      rank: item.rank,
+      priority: item.priority,
+      items: [],
+    }
+    existing.rank = Math.min(existing.rank, item.rank)
+    existing.priority = existing.priority === "High" || item.priority === "High" ? "High" : item.priority
+    existing.items.push(item)
+    groups.set(key, existing)
+  })
+  return Array.from(groups.values())
+    .sort((a, b) => a.rank - b.rank || a.title.localeCompare(b.title))
+}
+
 function buildWorkQueue(candidates) {
   const items = []
   const add = (candidate, item) => {
+    const taskKey = queueTaskKey(candidate, item)
+    if (isQueueTaskCleared(candidate, taskKey)) return
     items.push({
       candidate,
-      id: `${candidate.id}:${item.type}`,
+      id: `${candidate.id}:${taskKey}`,
+      taskKey,
       stage: stageOf(candidate),
       age: ageInStageHours(candidate),
       ...item,
@@ -165,7 +230,6 @@ function buildWorkQueue(candidates) {
 
   return items
     .sort((a, b) => a.rank - b.rank || b.age - a.age || candidateName(a.candidate).localeCompare(candidateName(b.candidate)))
-    .slice(0, 12)
 }
 
 export default function AdminDashboard() {
@@ -187,6 +251,8 @@ export default function AdminDashboard() {
   const [downloadingId, setDownloadingId] = useState(null)
   const [shareTarget, setShareTarget] = useState(null)
   const [bulkShareOpen, setBulkShareOpen] = useState(false)
+  const [expandedQueueGroups, setExpandedQueueGroups] = useState({})
+  const [queueUpdating, setQueueUpdating] = useState(null)
   const navigate = useNavigate()
 
   const handleCardDownload = async (e, c) => {
@@ -247,6 +313,7 @@ export default function AdminDashboard() {
   ), [candidates, selectedIds])
 
   const workQueue = useMemo(() => buildWorkQueue(candidates), [candidates])
+  const workQueueGroups = useMemo(() => groupWorkQueue(workQueue), [workQueue])
   const highPriorityQueueCount = workQueue.filter(item => item.priority === "High").length
 
   const handleQueueAction = (item) => {
@@ -255,6 +322,29 @@ export default function AdminDashboard() {
       return
     }
     navigate(`/admin/candidates/${item.candidate.id}`)
+  }
+
+  const toggleQueueGroup = (key) => {
+    setExpandedQueueGroups(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const updateQueueItem = async (e, item, disposition) => {
+    e.stopPropagation()
+    if (queueUpdating) return
+    const field = disposition === "done" ? "workQueueDone" : "workQueueDismissed"
+    const payload = {
+      [`${field}.${item.taskKey}`]: serverTimestamp(),
+      ...adminAuditFields(),
+    }
+    if (disposition === "done" && item.type === "flagged") payload.needsReview = false
+    setQueueUpdating(item.id)
+    try {
+      await updateDoc(doc(db, "candidates", item.candidate.id), payload)
+    } catch (err) {
+      alert(`Could not update work queue item: ${err.message}`)
+    } finally {
+      setQueueUpdating(null)
+    }
   }
 
   const resetRejectDecision = () => {
@@ -604,29 +694,92 @@ export default function AdminDashboard() {
             <div className="px-4 py-6 text-sm text-gray-400">No urgent admin work right now.</div>
           ) : (
             <div className="divide-y divide-gray-100">
-              {workQueue.map(item => (
-                <div key={item.id} className="px-4 py-3 flex items-center justify-between gap-4 hover:bg-gray-50">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                        item.priority === "High" ? "bg-red-50 text-red-700 border border-red-100" : "bg-amber-50 text-amber-700 border border-amber-100"
-                      }`}>
-                        {item.priority}
-                      </span>
-                      <p className="text-sm font-semibold text-gray-900">{item.title}</p>
-                      <span className="text-xs text-gray-400">{STAGE_LABELS[item.stage] || item.stage}</span>
-                    </div>
-                    <p className="text-sm text-gray-700 mt-1 truncate">{candidateName(item.candidate)} - {item.candidate.jobTitle || "Open role"}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{item.detail}</p>
+              {workQueueGroups.map(group => {
+                const expanded = expandedQueueGroups[group.key] === true
+                const highCount = group.items.filter(item => item.priority === "High").length
+                return (
+                  <div key={group.key}>
+                    <button
+                      type="button"
+                      onClick={() => toggleQueueGroup(group.key)}
+                      className="w-full px-4 py-3 flex items-center justify-between gap-4 hover:bg-gray-50 text-left"
+                    >
+                      <div className="min-w-0 flex-1 flex items-start gap-3">
+                        <span className="w-6 h-6 mt-0.5 shrink-0 rounded-full border border-gray-200 text-gray-500 flex items-center justify-center text-sm font-semibold">
+                          {expanded ? "-" : "+"}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-semibold text-gray-900">{group.title}</p>
+                            <span className="text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">
+                              {group.items.length} item{group.items.length === 1 ? "" : "s"}
+                            </span>
+                            {highCount > 0 && (
+                              <span className="text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">
+                                {highCount} high
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">{group.detail}</p>
+                        </div>
+                      </div>
+                    </button>
+                    {expanded && (
+                      <div className="bg-gray-50/60 border-t border-gray-100 divide-y divide-gray-100">
+                        {group.items.map(item => {
+                          const updating = queueUpdating === item.id
+                          return (
+                            <div key={item.id} className="px-4 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white hover:bg-blue-50/40">
+                              <div className="min-w-0 flex-1 md:pl-9">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                                    item.priority === "High" ? "bg-red-50 text-red-700 border border-red-100" : "bg-amber-50 text-amber-700 border border-amber-100"
+                                  }`}>
+                                    {item.priority}
+                                  </span>
+                                  <p className="text-sm font-semibold text-gray-900">{item.title}</p>
+                                  <span className="text-xs text-gray-400">{STAGE_LABELS[item.stage] || item.stage}</span>
+                                </div>
+                                <p className="text-sm text-gray-700 mt-1 truncate">{candidateName(item.candidate)} - {item.candidate.jobTitle || "Open role"}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">{item.detail}</p>
+                              </div>
+                              <div className="w-full md:w-auto shrink-0 flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={(e) => updateQueueItem(e, item, "done")}
+                                  disabled={updating}
+                                  title="Mark done"
+                                  aria-label={`Mark ${item.title} done`}
+                                  className="w-8 h-8 rounded-lg border border-green-100 bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-50 font-semibold"
+                                >
+                                  &#10003;
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => updateQueueItem(e, item, "dismissed")}
+                                  disabled={updating}
+                                  title="Delete from work queue"
+                                  aria-label={`Delete ${item.title} from work queue`}
+                                  className="w-8 h-8 rounded-lg border border-red-100 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 font-semibold"
+                                >
+                                  &#10005;
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQueueAction(item)}
+                                  className="ml-1 text-xs font-medium bg-white border border-gray-200 text-gray-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 px-3 py-1.5 rounded-lg"
+                                >
+                                  {item.action}
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
-                  <button
-                    onClick={() => handleQueueAction(item)}
-                    className="shrink-0 text-xs font-medium bg-white border border-gray-200 text-gray-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 px-3 py-1.5 rounded-lg"
-                  >
-                    {item.action}
-                  </button>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </section>
