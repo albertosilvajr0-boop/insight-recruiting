@@ -17,7 +17,7 @@ import { createUserHandler, updateUserHandler, deleteUserHandler, ensureCurrentU
 import { sendPhoneVerificationHandler, verifyPhoneCodeHandler } from './verification/phoneVerification.js'
 import { getCandidateStatusHandler } from './candidates/getCandidateStatus.js'
 import { auditCandidateUpdate } from './candidates/auditCandidateChanges.js'
-import { shareCandidateHandler, shareCandidatesHandler } from './candidates/shareCandidate.js'
+import { shareCandidateHandler, shareCandidatesHandler, followUpShareHandler } from './candidates/shareCandidate.js'
 import { trackShareClick } from './candidates/shareTracking.js'
 import {
   createCandidateInviteHandler,
@@ -168,6 +168,10 @@ export const shareCandidate = onCall({ secrets: EMAIL_SECRETS, timeoutSeconds: 3
 
 export const shareCandidates = onCall({ secrets: EMAIL_SECRETS, timeoutSeconds: 300 }, async (request) => {
   return shareCandidatesHandler(request.data, request)
+})
+
+export const followUpShare = onCall({ secrets: EMAIL_SECRETS, timeoutSeconds: 180 }, async (request) => {
+  return followUpShareHandler(request.data, request)
 })
 
 export const createCandidateInvite = onCall({ secrets: EMAIL_SECRETS }, async (request) => {
