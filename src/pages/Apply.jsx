@@ -766,6 +766,7 @@ export default function Apply() {
   const employerDisplayWithParent = PARENT_ORG_DISPLAY_NAME
     ? `${jobClientName}, part of ${PARENT_ORG_DISPLAY_NAME}`
     : jobClientName
+  const estimatedInterviewMinutes = Math.max(5, Math.round(questions.reduce((s, q) => s + summarizeQuestionTime(q), 0) / 60))
   const accommodationContact = [
     ACCOMMODATION_EMAIL && (
       <a key="email" className="font-medium underline" href={`mailto:${ACCOMMODATION_EMAIL}`}>{ACCOMMODATION_EMAIL}</a>
@@ -940,9 +941,9 @@ export default function Apply() {
               </div>
             )}
             <div>
-              <h1 className="text-xl font-semibold text-gray-900">Review the selection process</h1>
+              <h1 className="text-xl font-semibold text-gray-900">A few quick notes before you begin</h1>
               <p className="text-sm text-gray-500 mt-1">
-                Please review these notices before starting your interview for {job?.title} with {employerDisplayWithParent}.
+                This interview for {job?.title} with {employerDisplayWithParent} usually takes about {estimatedInterviewMinutes} minutes. Your progress saves as you go.
               </p>
             </div>
 
@@ -972,7 +973,7 @@ export default function Apply() {
             </div>
 
             <fieldset className="space-y-3" aria-describedby="selection-process-details accommodation-notice">
-              <legend className="text-sm font-semibold text-gray-900">Required acknowledgements</legend>
+              <legend className="text-sm font-semibold text-gray-900">Please acknowledge these before continuing</legend>
               {REQUIRED_ACKNOWLEDGEMENTS.map((item) => (
                 <label key={item.key} htmlFor={item.key} className="flex items-start gap-3 border border-gray-200 rounded-xl p-3 cursor-pointer hover:bg-gray-50">
                   <input
@@ -1036,7 +1037,7 @@ export default function Apply() {
                 disabled={!requiredAcknowledgementsAccepted}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 rounded-xl transition-colors"
               >
-                {questions.length === 0 ? 'Submit Application' : 'Start Interview'}
+                {questions.length === 0 ? 'Submit Application' : 'Start interview when ready'}
               </button>
             </div>
           </div>
@@ -1048,7 +1049,7 @@ export default function Apply() {
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
             <p className="font-semibold">Here's what's coming</p>
             <p className="text-xs text-blue-700 mt-0.5">
-              A series of video and written questions — about {Math.max(5, Math.round(questions.reduce((s, q) => s + summarizeQuestionTime(q), 0) / 60))} minutes
+              A series of video and written questions, about {estimatedInterviewMinutes} minutes
               total. A few are timed; you'll see a countdown when they start.
             </p>
           </div>
@@ -1067,13 +1068,13 @@ export default function Apply() {
           return (
             <div className="bg-white border border-gray-200 rounded-xl p-3">
               <div className="flex items-center justify-between mb-1.5">
-                <p className="text-xs font-medium text-gray-700">Saving your recordings</p>
+                <p className="text-xs font-medium text-gray-700">Saving your answers</p>
                 <p className="text-xs text-gray-500">{done}/{entries.length} uploaded</p>
               </div>
               <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                 <div className="h-full bg-blue-500 rounded-full transition-all duration-200" style={{ width: `${avg}%` }} />
               </div>
-              {active && <p className="text-[11px] text-gray-400 mt-1">Keep this tab open while we upload your answer.</p>}
+              {active && <p className="text-[11px] text-gray-500 mt-1">Your answer is uploading. Keep this tab open; it is normal for video to take a moment.</p>}
             </div>
           )
         })()}
@@ -1131,7 +1132,7 @@ export default function Apply() {
                     ? 'Please read the following script on camera clearly and confidently.'
                     : currentQ.type === 'text_response'
                     ? 'Please type your answer below.'
-                    : 'Record a video response — take your time, up to 3 minutes.'}
+                    : 'Record a video response. Take your time; you have up to 3 minutes.'}
                 </p>
               </div>
               {/* Hard timer badge */}
@@ -1193,7 +1194,7 @@ export default function Apply() {
               <>
                 {videoResponses[currentQuestion] && (
                   <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2 text-sm text-green-700 flex items-center gap-2">
-                    <span>&#10003;</span> Answer recorded — you can re-record below
+                    <span>&#10003;</span> Answer saved. You can re-record below if you want.
                   </div>
                 )}
                 <VideoRecorder
@@ -1357,8 +1358,8 @@ export default function Apply() {
         {step === 'submitting' && (
           <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center space-y-4">
             <div className="w-10 h-10 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-gray-600 font-medium">Submitting your application...</p>
-            <p className="text-sm text-gray-400">This only takes a moment</p>
+            <p className="text-gray-600 font-medium">Finalizing your application...</p>
+            <p className="text-sm text-gray-400">Your answers are saved. Please keep this tab open for a moment.</p>
           </div>
         )}
       </div>

@@ -4,7 +4,7 @@ import './index.css'
 import App from './App'
 
 // The Firebase-provided domains keep serving after the custom-domain switch;
-// bounce visitors (and previously sent invite/schedule links) to the canonical
+// bounce visitors (and previously sent invite/review links) to the canonical
 // domain so candidates see one address and search engines index one site.
 const CANONICAL_HOST = 'insightedgehq.com'
 const { hostname, pathname, search, hash } = window.location

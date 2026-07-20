@@ -6,6 +6,7 @@ import { PERMISSIONS } from '../security/roles.js'
 import { sendEmail } from '../email/sendEmail.js'
 import { APP_URL, getCandidateClientName } from '../config/organization.js'
 import { writeAuditLog } from '../utils/auditLog.js'
+import { createReviewToken, writeEmployerCampaign } from '../employers/employerCrm.js'
 
 const MAX_RESUME_ATTACH_BYTES = 20 * 1024 * 1024
 const MAX_BULK_ATTACH_BYTES = 18 * 1024 * 1024
@@ -209,6 +210,16 @@ function trackedVideoButton(video, trackUrl) {
     </a>`
 }
 
+function reviewPageButtonHtml(trackUrl) {
+  return `
+    <div style="margin: 16px 0 18px;">
+      <a href="${trackUrl('review')}" style="display: inline-block; text-decoration: none; background: #111827; border-radius: 12px; padding: 12px 16px;">
+        <span style="color: #ffffff; font-size: 13px; font-weight: 800;">OPEN SECURE REVIEW PAGE</span>
+      </a>
+      <p style="margin: 7px 0 0; color: #6b7280; font-size: 12px;">Review every candidate, watch video responses, and send a simple interest signal from one page.</p>
+    </div>`
+}
+
 function responseEvidenceHtml(candidate, videos, trackUrl, limit = 20) {
   const questions = candidate.questions || {}
   const qKeys = Object.keys(questions).sort((a, b) => Number(a) - Number(b)).slice(0, limit)
@@ -295,6 +306,7 @@ function buildSingleEmailHtml({ candidate, videos, note, sharedBy, trackUrl, res
       <h1 style="margin: 0 0 6px; color: #111827; font-size: 26px;">${escapeHtml(name)} for ${escapeHtml(jobTitle)}</h1>
       <p style="margin: 0 0 16px; color: #4b5563; font-size: 14px;">I pulled the candidate's AI score, response evidence, video links, and scoring notes into one view so your team can decide quickly whether to move forward.</p>
       ${note ? `<div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px 14px; margin: 0 0 18px; font-size: 14px; color: #1e3a8a; line-height: 1.5;">${escapeHtml(note)}</div>` : ''}
+      ${reviewPageButtonHtml(trackUrl)}
       ${resumeAttached || packetAttached ? `<p style="font-size: 13px; color: #374151; margin: 0 0 12px;">${resumeAttached ? 'Resume attached. ' : ''}${packetAttached ? 'Candidate packet attached as text. ' : ''}Video links open in the browser without an account.</p>` : ''}
       ${candidateSectionHtml({ candidate, videos, trackUrl })}
       ${valuePropHtml()}
@@ -309,6 +321,7 @@ function buildBulkEmailHtml({ candidates, videosByCandidate, note, sharedBy, tra
       <h1 style="margin: 0 0 6px; color: #111827; font-size: 26px;">${candidates.length} screened candidate${candidates.length === 1 ? '' : 's'} ready for review</h1>
       <p style="margin: 0 0 16px; color: #4b5563; font-size: 14px;">I pulled together a clean shortlist with AI scores, response links, video evidence, and scoring notes so your team can compare candidates without losing the evidence behind each recommendation.</p>
       ${note ? `<div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px 14px; margin: 0 0 18px; font-size: 14px; color: #1e3a8a; line-height: 1.5;">${escapeHtml(note)}</div>` : ''}
+      ${reviewPageButtonHtml(trackUrl)}
       ${valuePropHtml()}
       ${candidates.map(candidate => candidateSectionHtml({
         candidate,
@@ -606,6 +619,7 @@ function buildBulkEmailV2Html({ candidates, videosByCandidate, note, sharedBy, t
       <h1 style="margin: 0 0 8px; color: #111827; font-size: 26px;">${candidates.length} screened candidate${candidates.length === 1 ? '' : 's'} for ${escapeHtml(shortlistRolePhrase(candidates))}</h1>
       <p style="margin: 0 0 16px; color: #374151; font-size: 14px; line-height: 1.55;">I screened this shortlist so your team can review the strongest evidence first. ${escapeHtml(leadSentence)} The summary below shows who is worth reviewing, where the video evidence is, and which scored responses support each recommendation.</p>
       ${note ? `<div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px 14px; margin: 0 0 18px; font-size: 14px; color: #1e3a8a; line-height: 1.5;">${escapeHtml(note)}</div>` : ''}
+      ${reviewPageButtonHtml(trackUrl)}
       ${shortlistSummaryTableHtml({ candidates: ranked, videosByCandidate, trackUrl })}
       ${ranked.map((candidate, index) => candidateV2CardHtml({
         candidate,
@@ -632,6 +646,7 @@ function buildBulkEmailV2Text({ candidates, videosByCandidate, note, sharedBy, t
   ]
 
   if (note) lines.push('', `Share note: ${note}`)
+  lines.push('', `Secure review page: ${trackUrl('review')}`)
 
   lines.push('', 'Shortlist at a glance:')
   ranked.forEach((candidate, index) => {
@@ -706,6 +721,7 @@ function buildSingleEmailText({ candidate, videos, note, sharedBy, trackUrl, res
     'Hi,',
     '',
     `I pulled together ${name}'s candidate review for the ${jobTitle}. It includes the AI score, response evidence${videoPhrase}, and scoring notes so your team can decide whether to move forward.`,
+    `Secure review page: ${trackUrl('review')}`,
     '',
     buildCandidatePacketText(candidate, videosWithTrackedUrls(videos, trackUrl), note),
   ]
@@ -723,6 +739,7 @@ function buildBulkEmailText({ candidates, videosByCandidate, note, sharedBy, tra
     'Hi,',
     '',
     `I pulled together ${candidates.length} screened candidate${candidates.length === 1 ? '' : 's'} with AI scores, response links, scoring notes${videoCount ? `, and ${videoCount} video response${videoCount === 1 ? '' : 's'}` : ''} so your team can compare candidates quickly.`,
+    `Secure review page: ${trackUrl('review')}`,
   ]
 
   if (note) lines.push('', `Share note: ${note}`)
@@ -740,6 +757,7 @@ export async function shareCandidateHandler(data, request) {
   const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
   const candidateId = String(data?.candidateId || '').trim()
   const note = String(data?.note || '').trim().slice(0, 1000)
+  const employerName = String(data?.employerName || '').trim().slice(0, 160)
   if (!candidateId) throw new HttpsError('invalid-argument', 'Missing candidateId.')
   const toEmails = validateRecipients(data)
 
@@ -763,24 +781,48 @@ export async function shareCandidateHandler(data, request) {
 
   const sharedBy = profile.email || request.auth.token?.email || request.auth.uid
   const shareRef = db.collection('shares').doc()
+  const reviewToken = createReviewToken()
+  const reviewUrl = `${APP_URL}/review/${shareRef.id}/${reviewToken}`
   const links = Object.fromEntries(videos.map(v => [v.target, {
     url: v.url,
     label: `${candidateName(candidate)} Q${v.num} - ${v.label}`,
     num: v.num,
   }]))
+  links.review = { url: reviewUrl, label: 'Secure candidate review page', type: 'review' }
+  const subject = `${candidateName(candidate)} - candidate review for ${candidate.jobTitle || 'open role'}`
 
   await shareRef.set({
     candidateId,
     candidateName: candidateName(candidate),
     jobTitle: candidate.jobTitle || 'Open role',
     recipients: toEmails,
+    employerName: employerName || null,
     note: note || null,
     by: sharedBy,
     links,
     videoCount: videos.length,
     resumeAttached: resume.attached,
     packetAttached,
+    subject,
+    reviewUrl,
     createdAt: FieldValue.serverTimestamp(),
+  })
+
+  const videosByCandidate = new Map([[candidate.id, videos]])
+  await writeEmployerCampaign({
+    db,
+    shareRef,
+    shareId: shareRef.id,
+    recipients: toEmails,
+    employerName,
+    candidates: [candidate],
+    videosByCandidate,
+    note,
+    sharedBy,
+    emailVersion: 'single',
+    subject,
+    reviewToken,
+    reviewUrl,
   })
 
   for (let ri = 0; ri < toEmails.length; ri++) {
@@ -789,7 +831,7 @@ export async function shareCandidateHandler(data, request) {
       to: toEmails[ri],
       from: SHARE_FROM_EMAIL,
       replyTo: replyAddressFor(sharedBy),
-      subject: `${candidateName(candidate)} - candidate review for ${candidate.jobTitle || 'open role'}`,
+      subject,
       text: buildSingleEmailText({
         candidate,
         videos,
@@ -836,6 +878,7 @@ export async function shareCandidatesHandler(data, request) {
   const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
   const toEmails = validateRecipients(data)
   const note = String(data?.note || '').trim().slice(0, 1200)
+  const employerName = String(data?.employerName || '').trim().slice(0, 160)
   const emailVersion = data?.emailVersion === 'v2' ? 'v2' : 'v1'
   const candidateIds = [...new Set((Array.isArray(data?.candidateIds) ? data.candidateIds : [])
     .map(id => String(id || '').trim())
@@ -888,18 +931,41 @@ export async function shareCandidatesHandler(data, request) {
 
   const sharedBy = profile.email || request.auth.token?.email || request.auth.uid
   const shareRef = db.collection('shares').doc()
+  const reviewToken = createReviewToken()
+  const reviewUrl = `${APP_URL}/review/${shareRef.id}/${reviewToken}`
+  links.review = { url: reviewUrl, label: 'Secure shortlist review page', type: 'review' }
+  const subject = emailVersion === 'v2' ? shortlistSubject(candidates) : `Candidate shortlist for review (${candidates.length})`
   await shareRef.set({
     candidateIds: candidates.map(c => c.id),
     candidateName: `${candidates.length} candidate shortlist`,
     jobTitle: 'Employer shortlist',
     recipients: toEmails,
+    employerName: employerName || null,
     note: note || null,
     by: sharedBy,
     links,
     videoCount: Object.keys(links).length,
     resumeAttachedCount,
     emailVersion,
+    subject,
+    reviewUrl,
     createdAt: FieldValue.serverTimestamp(),
+  })
+
+  await writeEmployerCampaign({
+    db,
+    shareRef,
+    shareId: shareRef.id,
+    recipients: toEmails,
+    employerName,
+    candidates,
+    videosByCandidate,
+    note,
+    sharedBy,
+    emailVersion,
+    subject,
+    reviewToken,
+    reviewUrl,
   })
 
   for (let ri = 0; ri < toEmails.length; ri++) {
@@ -909,7 +975,7 @@ export async function shareCandidatesHandler(data, request) {
       to: toEmails[ri],
       from: SHARE_FROM_EMAIL,
       replyTo: replyAddressFor(sharedBy),
-      subject: v2 ? shortlistSubject(candidates) : `Candidate shortlist for review (${candidates.length})`,
+      subject,
       text: v2 ? buildBulkEmailV2Text({
         candidates,
         videosByCandidate,

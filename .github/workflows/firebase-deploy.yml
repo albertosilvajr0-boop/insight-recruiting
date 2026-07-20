@@ -86,16 +86,13 @@ jobs:
           ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           EOF
 
-      # Single deploy call for all active targets. `interviewReminders` is a
-      # legacy Scheduler-managed function from the old self-scheduling flow; the
-      # PR #97 main deploy failed while Firebase tried to update its Cloud
-      # Scheduler job. Firebase CLI cannot combine --only with --except, so keep
-      # an explicit allow-list of deployable functions and leave that stale
-      # scheduler function untouched.
+      # Single deploy call for all active targets. Legacy self-scheduling
+      # functions are intentionally not listed so deploys do not touch stale
+      # Cloud Scheduler or availability resources.
       - name: Deploy to Firebase (hosting, firestore, storage, functions)
         run: |
           npx firebase-tools deploy \
-            --only "hosting,firestore,storage,functions:onCandidateCreated,functions:onCandidateUpdated,functions:dailyDigest,functions:getSlots,functions:bookInterview,functions:getCandidateStatus,functions:shareCandidate,functions:shareCandidates,functions:followUpShare,functions:createCandidateInvite,functions:attachInviteResume,functions:getInviteSession,functions:touchInvitePresence,functions:submitInvitedInterview,functions:reopenInvite,functions:reopenOwnInterview,functions:jobFeed,functions:sitemap,functions:applyPage,functions:trackShare,functions:createUser,functions:ensureCurrentUserProfile,functions:touchAdminPresence,functions:updateUser,functions:deleteUser,functions:scoreCandidate,functions:sendPhoneVerification,functions:verifyPhoneCode" \
+            --only "hosting,firestore,storage,functions:onCandidateCreated,functions:onCandidateUpdated,functions:dailyDigest,functions:getCandidateStatus,functions:shareCandidate,functions:shareCandidates,functions:followUpShare,functions:getEmployerReview,functions:recordEmployerReviewAction,functions:createCandidateInvite,functions:attachInviteResume,functions:getInviteSession,functions:touchInvitePresence,functions:submitInvitedInterview,functions:reopenInvite,functions:reopenOwnInterview,functions:jobFeed,functions:sitemap,functions:applyPage,functions:trackShare,functions:createUser,functions:ensureCurrentUserProfile,functions:touchAdminPresence,functions:updateUser,functions:deleteUser,functions:scoreCandidate,functions:sendPhoneVerification,functions:verifyPhoneCode" \
             --force \
             --project insight-recruiting-d37dc \
             --non-interactive

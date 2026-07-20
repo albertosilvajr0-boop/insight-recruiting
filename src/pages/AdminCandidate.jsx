@@ -19,15 +19,15 @@ import {
 } from '../selection/decisionReasons'
 
 const STAGE_LABELS = {
-  invited: 'Invited', applied: 'Applied', scored: 'Scored', to_schedule: 'To Schedule',
-  scheduled: 'Scheduled', hired: 'Hired', rejected: 'Rejected'
+  invited: 'Invited', applied: 'Applied', scored: 'Scored', to_schedule: 'Employer Review',
+  scheduled: 'Legacy Scheduled', hired: 'Hired', rejected: 'Rejected'
 }
 const STAGE_COLORS = {
   invited: 'bg-purple-100 text-purple-800', applied: 'bg-blue-100 text-blue-800', scored: 'bg-amber-100 text-amber-800',
   to_schedule: 'bg-purple-100 text-purple-800', scheduled: 'bg-green-100 text-green-800',
   hired: 'bg-emerald-100 text-emerald-800', rejected: 'bg-gray-100 text-gray-600'
 }
-const STAGE_FLOW = ['applied', 'scored', 'to_schedule', 'scheduled', 'hired']
+const STAGE_FLOW = ['applied', 'scored', 'to_schedule', 'hired']
 
 const RESUME_CRITERIA = [
   { key: 'relevant_experience', label: 'Relevant experience for this role' },
@@ -195,7 +195,7 @@ function DecisionModal({ modal, form, onChange, onCancel, onSubmit, loading }) {
             onChange={(e) => onChange({ ...form, note: e.target.value })}
             rows={4}
             maxLength={600}
-            placeholder="Optional: cite job-related evidence from the resume, interview, scorecard, availability, or business need."
+            placeholder="Optional: cite job-related evidence from the resume, interview, scorecard, timing, or business need."
             className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
           />
           <span className="text-[11px] text-gray-400">{form.note.length}/600</span>
