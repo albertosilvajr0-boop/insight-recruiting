@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { collection, query, orderBy, onSnapshot, getDocs, limit } from "firebase/firestore"
+import { collection, query, orderBy, onSnapshot, getDocs } from "firebase/firestore"
 import { httpsCallable } from "firebase/functions"
 import { db, functions } from "../firebase"
 import { format, formatDistanceToNow, subDays, isAfter, startOfDay } from "date-fns"
@@ -21,7 +21,8 @@ const STAGE_LABELS = {
 const MONITORING_MIN_GROUP_SIZE = 5
 const LIVE_NOW_WINDOW_MS = 2 * 60 * 1000
 const LIVE_REFRESH_MS = 30 * 1000
-const TRACKED_SHARE_LIMIT = 250
+const EMAIL_TRACKING_INITIAL_ROWS = 12
+const EMAIL_TRACKING_LOAD_MORE_ROWS = 20
 
 function toDate(ts) {
   return ts?.toDate ? ts.toDate() : null
@@ -78,6 +79,10 @@ function percent(part, total) {
   return `${Math.round((part / total) * 100)}%`
 }
 
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim())
+}
+
 function shareLabel(share) {
   const count = candidateShareCount(share)
   if (count > 1) return `${count} candidate shortlist`
@@ -119,7 +124,12 @@ export default function AdminAnalytics() {
   const [dateRange, setDateRange] = useState("30") // days
   const [now, setNow] = useState(() => new Date())
   const [emailTrackingFilter, setEmailTrackingFilter] = useState("all")
+  const [emailTrackingVisibleCount, setEmailTrackingVisibleCount] = useState(EMAIL_TRACKING_INITIAL_ROWS)
+  const [followUpConfirmTarget, setFollowUpConfirmTarget] = useState(null)
   const [followUpSendingId, setFollowUpSendingId] = useState(null)
+  const [followUpPreviewEmail, setFollowUpPreviewEmail] = useState("")
+  const [followUpPreviewSending, setFollowUpPreviewSending] = useState(false)
+  const [followUpPreviewNotice, setFollowUpPreviewNotice] = useState(null)
   const [followUpNotice, setFollowUpNotice] = useState(null)
   const navigate = useNavigate()
 
@@ -143,7 +153,7 @@ export default function AdminAnalytics() {
     let shareFetchVersion = 0
     let active = true
     const unsubShares = onSnapshot(
-      query(collection(db, "shares"), orderBy("createdAt", "desc"), limit(TRACKED_SHARE_LIMIT)),
+      query(collection(db, "shares"), orderBy("createdAt", "desc")),
       (snap) => {
         const nextShares = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
         const fetchVersion = ++shareFetchVersion
@@ -189,6 +199,10 @@ export default function AdminAnalytics() {
     const interval = window.setInterval(() => setNow(new Date()), LIVE_REFRESH_MS)
     return () => window.clearInterval(interval)
   }, [])
+
+  useEffect(() => {
+    setEmailTrackingVisibleCount(EMAIL_TRACKING_INITIAL_ROWS)
+  }, [dateRange, emailTrackingFilter])
 
   const cutoff = startOfDay(subDays(new Date(), Number(dateRange)))
   const inRange = (ts) => ts?.toDate && isAfter(ts.toDate(), cutoff)
@@ -248,6 +262,9 @@ export default function AdminAnalytics() {
   const visibleEmailTrackingRows = emailTrackingFilter === "all"
     ? emailTrackingRows
     : emailTrackingRows.filter(row => row.share.id === emailTrackingFilter)
+  const displayedEmailTrackingRows = visibleEmailTrackingRows.slice(0, emailTrackingVisibleCount)
+  const hiddenEmailTrackingRows = Math.max(0, visibleEmailTrackingRows.length - displayedEmailTrackingRows.length)
+  const nextEmailTrackingRows = Math.min(EMAIL_TRACKING_LOAD_MORE_ROWS, hiddenEmailTrackingRows)
   const emailTrackingTotals = visibleEmailTrackingRows.reduce((acc, row) => {
     acc.shares += 1
     acc.recipients += row.recipients
@@ -375,6 +392,9 @@ export default function AdminAnalytics() {
         type: "success",
         message: `Follow-up sent to ${(data.recipients || []).join(", ") || "the original recipients"}.`,
       })
+      setFollowUpConfirmTarget(null)
+      setFollowUpPreviewEmail("")
+      setFollowUpPreviewNotice(null)
     } catch (err) {
       setFollowUpNotice({
         type: "error",
@@ -384,6 +404,49 @@ export default function AdminAnalytics() {
       setFollowUpSendingId(null)
     }
   }
+
+  const openFollowUpConfirm = (share) => {
+    setFollowUpConfirmTarget(share)
+    setFollowUpPreviewEmail("")
+    setFollowUpPreviewNotice(null)
+  }
+
+  const closeFollowUpConfirm = () => {
+    if (followUpSendingId || followUpPreviewSending) return
+    setFollowUpConfirmTarget(null)
+    setFollowUpPreviewEmail("")
+    setFollowUpPreviewNotice(null)
+  }
+
+  const sendFollowUpPreview = async () => {
+    if (!followUpConfirmTarget?.id || followUpPreviewSending || !isValidEmail(followUpPreviewEmail)) return
+    setFollowUpPreviewSending(true)
+    setFollowUpPreviewNotice(null)
+    try {
+      const followUpShare = httpsCallable(functions, "followUpShare")
+      const { data } = await followUpShare({
+        shareId: followUpConfirmTarget.id,
+        previewToEmail: followUpPreviewEmail.trim(),
+      })
+      setFollowUpPreviewNotice({
+        type: "success",
+        message: `Preview sent to ${(data.recipients || []).join(", ") || followUpPreviewEmail.trim()}.`,
+      })
+    } catch (err) {
+      setFollowUpPreviewNotice({
+        type: "error",
+        message: err?.message || "Preview email failed. Please try again.",
+      })
+    } finally {
+      setFollowUpPreviewSending(false)
+    }
+  }
+
+  const followUpConfirmRecipients = Array.isArray(followUpConfirmTarget?.recipients)
+    ? followUpConfirmTarget.recipients
+    : []
+  const followUpConfirmSending = Boolean(followUpConfirmTarget && followUpSendingId === followUpConfirmTarget.id)
+  const previewEmailReady = isValidEmail(followUpPreviewEmail)
 
   const roleBadge = (role) => {
     const styles = { superadmin: "bg-purple-100 text-purple-800", manager: "bg-blue-100 text-blue-800" }
@@ -601,7 +664,7 @@ export default function AdminAnalytics() {
                           </tr>
                         </thead>
                         <tbody>
-                          {visibleEmailTrackingRows.slice(0, 12).map((row) => {
+                          {displayedEmailTrackingRows.map((row) => {
                             const sentAt = toDate(row.share.createdAt)
                             const lastFollowUpAt = toDate(row.share.lastFollowUpAt)
                             const recipients = row.share.recipients || []
@@ -640,7 +703,7 @@ export default function AdminAnalytics() {
                                 <td className="px-4 py-3 text-right align-top">
                                   <button
                                     type="button"
-                                    onClick={() => sendFollowUp(row.share)}
+                                    onClick={() => openFollowUpConfirm(row.share)}
                                     disabled={sending || followUpSendingId !== null || row.recipients === 0}
                                     className="whitespace-nowrap text-xs font-medium text-blue-700 border border-blue-100 bg-blue-50 hover:bg-blue-100 disabled:opacity-60 disabled:cursor-wait px-3 py-1.5 rounded-lg"
                                   >
@@ -658,8 +721,25 @@ export default function AdminAnalytics() {
                         </tbody>
                       </table>
                     </div>
-                    {visibleEmailTrackingRows.length > 12 && (
-                      <p className="text-xs text-gray-400 text-right">Showing the 12 most recent tracked shares.</p>
+                    {hiddenEmailTrackingRows > 0 ? (
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <p className="text-xs text-gray-400">
+                          Showing {displayedEmailTrackingRows.length} of {visibleEmailTrackingRows.length} tracked share{visibleEmailTrackingRows.length === 1 ? "" : "s"}.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setEmailTrackingVisibleCount(count => Math.min(count + EMAIL_TRACKING_LOAD_MORE_ROWS, visibleEmailTrackingRows.length))}
+                          className="text-xs font-medium text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-1.5 rounded-lg w-fit"
+                        >
+                          Load next {nextEmailTrackingRows}
+                        </button>
+                      </div>
+                    ) : (
+                      visibleEmailTrackingRows.length > EMAIL_TRACKING_INITIAL_ROWS && (
+                        <p className="text-xs text-gray-400 text-right">
+                          Showing all {visibleEmailTrackingRows.length} tracked share{visibleEmailTrackingRows.length === 1 ? "" : "s"}.
+                        </p>
+                      )
                     )}
                   </div>
                 )}
@@ -1021,6 +1101,72 @@ export default function AdminAnalytics() {
           </>
         )}
       </div>
+
+      {followUpConfirmTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={closeFollowUpConfirm}>
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-lg p-6 space-y-5" onClick={e => e.stopPropagation()}>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Send follow-up?</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Are you sure? This will send a simple follow-up email to the original recipient{followUpConfirmRecipients.length === 1 ? "" : "s"} for {shareLabel(followUpConfirmTarget)}.
+              </p>
+            </div>
+
+            <div className="border border-gray-100 bg-gray-50 rounded-xl p-3">
+              <p className="text-xs font-semibold text-gray-600 mb-1">Recipients</p>
+              <p className="text-sm text-gray-800 break-words">{followUpConfirmRecipients.join(", ") || "No recipients on this share"}</p>
+            </div>
+
+            <div className="border border-blue-100 bg-blue-50 rounded-xl p-3">
+              <p className="text-xs font-semibold text-blue-800 mb-1">Preview first</p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="email"
+                  value={followUpPreviewEmail}
+                  onChange={(e) => {
+                    setFollowUpPreviewEmail(e.target.value)
+                    setFollowUpPreviewNotice(null)
+                  }}
+                  placeholder="Preview email address"
+                  className="flex-1 text-sm border border-blue-100 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={sendFollowUpPreview}
+                  disabled={!previewEmailReady || followUpPreviewSending || followUpConfirmSending}
+                  className="text-sm font-medium text-blue-700 border border-blue-200 bg-white hover:bg-blue-100 disabled:opacity-60 disabled:cursor-not-allowed px-3 py-2 rounded-lg"
+                >
+                  {followUpPreviewSending ? "Sending preview..." : "Send preview"}
+                </button>
+              </div>
+              {followUpPreviewNotice && (
+                <p className={`text-xs mt-2 ${followUpPreviewNotice.type === "success" ? "text-green-700" : "text-red-700"}`}>
+                  {followUpPreviewNotice.message}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col sm:flex-row justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeFollowUpConfirm}
+                disabled={followUpConfirmSending || followUpPreviewSending}
+                className="text-sm font-medium text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-60 px-4 py-2 rounded-lg"
+              >
+                No
+              </button>
+              <button
+                type="button"
+                onClick={() => sendFollowUp(followUpConfirmTarget)}
+                disabled={followUpConfirmSending || followUpPreviewSending || followUpConfirmRecipients.length === 0}
+                className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-wait px-4 py-2 rounded-lg"
+              >
+                {followUpConfirmSending ? "Sending..." : "Yes, send follow-up"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
