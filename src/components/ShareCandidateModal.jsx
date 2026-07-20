@@ -213,7 +213,7 @@ export default function ShareCandidateModal({ candidate, onClose }) {
               <p className="text-sm text-gray-500">
                 {candidate.firstName} {candidate.lastName}'s packet went to <span className="font-medium">{(result.recipients || emailList).join(', ')}</span>
                 {' '}with {result.resumeAttached ? 'the resume attached, ' : ''}{result.packetAttached ? 'the score packet attached, and ' : ''}{result.videos} video answer{result.videos === 1 ? '' : 's'} linked.
-                Opens and video clicks will show under Share activity.
+                Video clicks will show under Share activity.
               </p>
             </div>
             <button onClick={onClose} className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 rounded-xl">Done</button>

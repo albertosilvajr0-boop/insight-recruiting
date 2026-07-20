@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { collection, query, orderBy, onSnapshot, getDocs, limit } from "firebase/firestore"
-import { db } from "../firebase"
+import { httpsCallable } from "firebase/functions"
+import { db, functions } from "../firebase"
 import { format, formatDistanceToNow, subDays, isAfter, startOfDay } from "date-fns"
 import {
   buildOutcomeSegmentRows,
@@ -58,7 +59,7 @@ function candidateShareCount(share) {
   return share.candidateId ? 1 : 0
 }
 
-function isOpenEvent(event) {
+function isTrackingPixelEvent(event) {
   return event.target === "open"
 }
 
@@ -89,6 +90,21 @@ function shareVersionLabel(share) {
   return "Candidate profile"
 }
 
+function emailTrackingOptionLabel(share) {
+  const sentAt = toDate(share.createdAt)
+  const date = sentAt ? format(sentAt, "MMM d, h:mm a") : "Pending send"
+  const recipients = Array.isArray(share.recipients) ? share.recipients : []
+  const firstRecipient = recipients[0] || "No recipient"
+  const extra = recipients.length > 1 ? ` +${recipients.length - 1}` : ""
+  return `${date} - ${shareLabel(share)} - ${firstRecipient}${extra}`
+}
+
+function followUpCount(share) {
+  const count = Number(share.followUpCount || 0)
+  if (Number.isFinite(count) && count > 0) return count
+  return Array.isArray(share.followUps) ? share.followUps.length : 0
+}
+
 export default function AdminAnalytics() {
   const [users, setUsers] = useState([])
   const [candidates, setCandidates] = useState([])
@@ -102,6 +118,9 @@ export default function AdminAnalytics() {
   const [filterType, setFilterType] = useState("all") // "all" | "admins" | "candidates"
   const [dateRange, setDateRange] = useState("30") // days
   const [now, setNow] = useState(() => new Date())
+  const [emailTrackingFilter, setEmailTrackingFilter] = useState("all")
+  const [followUpSendingId, setFollowUpSendingId] = useState(null)
+  const [followUpNotice, setFollowUpNotice] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -213,31 +232,31 @@ export default function AdminAnalytics() {
   const rangedShares = shareRecords.filter((share) => inRange(share.createdAt))
   const emailTrackingRows = rangedShares.map((share) => {
     const clicks = shareClicksByShareId[share.id] || []
-    const openEvents = clicks.filter(isOpenEvent)
-    const linkEvents = clicks.filter(event => !isOpenEvent(event))
+    const linkEvents = clicks.filter(event => !isTrackingPixelEvent(event))
     const videoEvents = linkEvents.filter(isVideoEvent)
     const recipients = recipientCount(share)
     return {
       share,
       recipients,
       candidateCount: candidateShareCount(share),
-      openEvents: openEvents.length,
       linkEvents: linkEvents.length,
       videoEvents: videoEvents.length,
-      uniqueOpens: uniqueRecipientCount(openEvents),
       uniqueClicks: uniqueRecipientCount(linkEvents),
+      followUps: followUpCount(share),
     }
   })
-  const emailTrackingTotals = emailTrackingRows.reduce((acc, row) => {
+  const visibleEmailTrackingRows = emailTrackingFilter === "all"
+    ? emailTrackingRows
+    : emailTrackingRows.filter(row => row.share.id === emailTrackingFilter)
+  const emailTrackingTotals = visibleEmailTrackingRows.reduce((acc, row) => {
     acc.shares += 1
     acc.recipients += row.recipients
-    acc.openedRecipients += row.uniqueOpens
     acc.clickedRecipients += row.uniqueClicks
-    acc.openEvents += row.openEvents
     acc.linkEvents += row.linkEvents
     acc.videoEvents += row.videoEvents
+    acc.followUps += row.followUps
     return acc
-  }, { shares: 0, recipients: 0, openedRecipients: 0, clickedRecipients: 0, openEvents: 0, linkEvents: 0, videoEvents: 0 })
+  }, { shares: 0, recipients: 0, clickedRecipients: 0, linkEvents: 0, videoEvents: 0, followUps: 0 })
 
   // ─── KPI Calculations ─────────────────────────────────────────────
   const totalApplications = rangedCandidates.length
@@ -344,6 +363,27 @@ export default function AdminAnalytics() {
   const showAdmins = filterType === "all" || filterType === "admins"
   const showCandidates = filterType === "all" || filterType === "candidates"
   const visibleLiveCount = (showCandidates ? liveCandidates.length : 0) + (showAdmins ? liveAdmins.length : 0)
+
+  const sendFollowUp = async (share) => {
+    if (!share?.id || followUpSendingId) return
+    setFollowUpSendingId(share.id)
+    setFollowUpNotice(null)
+    try {
+      const followUpShare = httpsCallable(functions, "followUpShare")
+      const { data } = await followUpShare({ shareId: share.id })
+      setFollowUpNotice({
+        type: "success",
+        message: `Follow-up sent to ${(data.recipients || []).join(", ") || "the original recipients"}.`,
+      })
+    } catch (err) {
+      setFollowUpNotice({
+        type: "error",
+        message: err?.message || "Follow-up email failed. Please try again.",
+      })
+    } finally {
+      setFollowUpSendingId(null)
+    }
+  }
 
   const roleBadge = (role) => {
     const styles = { superadmin: "bg-purple-100 text-purple-800", manager: "bg-blue-100 text-blue-800" }
@@ -507,43 +547,66 @@ export default function AdminAnalytics() {
                   <div>
                     <h3 className="text-sm font-semibold text-gray-900">Employer email tracking</h3>
                     <p className="text-xs text-gray-500 mt-1">
-                      Tracks app-sent share emails, opens, video clicks, and other link clicks. Opens depend on the employer's email client loading images, so clicks are the stronger buying signal.
+                      Tracks app-sent share emails, video clicks, and other link clicks. Follow-up emails are sent as simple reply-friendly messages without tracking pixels.
                     </p>
                   </div>
-                  <span className="text-[11px] text-gray-500 px-2 py-1 rounded-full bg-gray-100 h-fit">
-                    Last {dateRange} days
-                  </span>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <select
+                      value={emailTrackingFilter}
+                      onChange={(e) => setEmailTrackingFilter(e.target.value)}
+                      className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-full"
+                    >
+                      <option value="all">All tracked emails</option>
+                      {emailTrackingRows.map((row) => (
+                        <option key={row.share.id} value={row.share.id}>{emailTrackingOptionLabel(row.share)}</option>
+                      ))}
+                    </select>
+                    <span className="text-[11px] text-gray-500 px-2 py-1 rounded-full bg-gray-100 h-fit w-fit">
+                      Last {dateRange} days
+                    </span>
+                  </div>
                 </div>
 
                 {emailTrackingRows.length === 0 ? (
                   <p className="text-xs text-gray-400 py-8 text-center">No tracked employer share emails in this period.</p>
                 ) : (
                   <div className="space-y-5">
+                    {followUpNotice && (
+                      <div className={`text-xs rounded-lg px-3 py-2 border ${
+                        followUpNotice.type === "success"
+                          ? "bg-green-50 border-green-100 text-green-700"
+                          : "bg-red-50 border-red-100 text-red-700"
+                      }`}>
+                        {followUpNotice.message}
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                       <Metric label="Share emails" value={emailTrackingTotals.shares} />
                       <Metric label="Recipients" value={emailTrackingTotals.recipients} />
-                      <Metric label="Open rate" value={percent(emailTrackingTotals.openedRecipients, emailTrackingTotals.recipients)} />
                       <Metric label="Click rate" value={percent(emailTrackingTotals.clickedRecipients, emailTrackingTotals.recipients)} />
                       <Metric label="Video clicks" value={emailTrackingTotals.videoEvents} />
+                      <Metric label="Follow-ups" value={emailTrackingTotals.followUps} />
                     </div>
 
-                    <div className="border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="border border-gray-200 rounded-xl overflow-x-auto">
                       <table className="w-full">
                         <thead>
                           <tr className="bg-gray-50 border-b border-gray-100">
                             <th className="text-left text-[11px] font-semibold text-gray-500 px-4 py-2">Sent</th>
                             <th className="text-left text-[11px] font-semibold text-gray-500 px-3 py-2">Packet</th>
                             <th className="text-left text-[11px] font-semibold text-gray-500 px-3 py-2">Recipients</th>
-                            <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Opens</th>
                             <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Clicks</th>
-                            <th className="text-right text-[11px] font-semibold text-gray-500 px-4 py-2">Videos</th>
+                            <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Videos</th>
+                            <th className="text-right text-[11px] font-semibold text-gray-500 px-4 py-2">Follow-up</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {emailTrackingRows.slice(0, 12).map((row) => {
+                          {visibleEmailTrackingRows.slice(0, 12).map((row) => {
                             const sentAt = toDate(row.share.createdAt)
+                            const lastFollowUpAt = toDate(row.share.lastFollowUpAt)
                             const recipients = row.share.recipients || []
                             const extraRecipients = Math.max(0, recipients.length - 2)
+                            const sending = followUpSendingId === row.share.id
                             return (
                               <tr key={row.share.id} className="border-b border-gray-100 last:border-0">
                                 <td className="px-4 py-3 align-top">
@@ -568,15 +631,26 @@ export default function AdminAnalytics() {
                                   {extraRecipients > 0 && <p className="text-[11px] text-gray-400">+{extraRecipients} more</p>}
                                 </td>
                                 <td className="px-3 py-3 text-right align-top">
-                                  <p className="text-xs font-semibold text-blue-700">{row.uniqueOpens}/{row.recipients}</p>
-                                  <p className="text-[11px] text-gray-400">{row.openEvents} event{row.openEvents === 1 ? "" : "s"}</p>
-                                </td>
-                                <td className="px-3 py-3 text-right align-top">
                                   <p className="text-xs font-semibold text-green-700">{row.uniqueClicks}/{row.recipients}</p>
                                   <p className="text-[11px] text-gray-400">{row.linkEvents} click{row.linkEvents === 1 ? "" : "s"}</p>
                                 </td>
-                                <td className="px-4 py-3 text-right align-top">
+                                <td className="px-3 py-3 text-right align-top">
                                   <p className="text-xs font-semibold text-purple-700">{row.videoEvents}</p>
+                                </td>
+                                <td className="px-4 py-3 text-right align-top">
+                                  <button
+                                    type="button"
+                                    onClick={() => sendFollowUp(row.share)}
+                                    disabled={sending || followUpSendingId !== null || row.recipients === 0}
+                                    className="whitespace-nowrap text-xs font-medium text-blue-700 border border-blue-100 bg-blue-50 hover:bg-blue-100 disabled:opacity-60 disabled:cursor-wait px-3 py-1.5 rounded-lg"
+                                  >
+                                    {sending ? "Sending..." : "Send follow up"}
+                                  </button>
+                                  {lastFollowUpAt ? (
+                                    <p className="text-[11px] text-gray-400 mt-1">Last {format(lastFollowUpAt, "MMM d, h:mm a")}</p>
+                                  ) : row.followUps > 0 ? (
+                                    <p className="text-[11px] text-gray-400 mt-1">{row.followUps} sent</p>
+                                  ) : null}
                                 </td>
                               </tr>
                             )
@@ -584,7 +658,7 @@ export default function AdminAnalytics() {
                         </tbody>
                       </table>
                     </div>
-                    {emailTrackingRows.length > 12 && (
+                    {visibleEmailTrackingRows.length > 12 && (
                       <p className="text-xs text-gray-400 text-right">Showing the 12 most recent tracked shares.</p>
                     )}
                   </div>

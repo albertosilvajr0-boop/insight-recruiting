@@ -367,6 +367,51 @@ function shortlistRolePhrase(candidates) {
   return candidates.length === 1 ? 'your open role' : 'your open roles'
 }
 
+function sharePacketLabel(share) {
+  if (Array.isArray(share.candidateIds) && share.candidateIds.length > 1) {
+    return `${share.candidateIds.length} candidate shortlist`
+  }
+  return share.candidateName || 'candidate packet'
+}
+
+function followUpSubject(share) {
+  return `Quick follow-up on ${sharePacketLabel(share)}`
+}
+
+function buildFollowUpText({ share, sharedBy }) {
+  const packet = sharePacketLabel(share)
+  const videoPhrase = share.videoCount
+    ? ` It included ${share.videoCount} video response${share.videoCount === 1 ? '' : 's'} and the scorecard context.`
+    : ''
+  return [
+    'Hi,',
+    '',
+    `I wanted to make sure the ${packet} I sent over made it to you.${videoPhrase}`,
+    '',
+    'Did anyone stand out as worth speaking with?',
+    '',
+    'If yes, reply with the name or names and I can help coordinate the next step. If you would like more signal before deciding, I can also run the same structured video interview and AI scorecard across additional applicants in your pipeline.',
+    '',
+    'Thanks,',
+    sharedBy,
+  ].join('\n')
+}
+
+function buildFollowUpHtml({ share, sharedBy }) {
+  const packet = sharePacketLabel(share)
+  const videoPhrase = share.videoCount
+    ? ` It included ${share.videoCount} video response${share.videoCount === 1 ? '' : 's'} and the scorecard context.`
+    : ''
+  return `
+    <div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 620px; margin: 0 auto; color: #111827; font-size: 15px; line-height: 1.55;">
+      <p style="margin: 0 0 14px;">Hi,</p>
+      <p style="margin: 0 0 14px;">I wanted to make sure the ${escapeHtml(packet)} I sent over made it to you.${escapeHtml(videoPhrase)}</p>
+      <p style="margin: 0 0 14px;">Did anyone stand out as worth speaking with?</p>
+      <p style="margin: 0 0 14px;">If yes, reply with the name or names and I can help coordinate the next step. If you would like more signal before deciding, I can also run the same structured video interview and AI scorecard across additional applicants in your pipeline.</p>
+      <p style="margin: 18px 0 0;">Thanks,<br>${escapeHtml(sharedBy)}</p>
+    </div>`
+}
+
 function joinNames(names) {
   if (!names.length) return 'the strongest candidate'
   if (names.length === 1) return names[0]
@@ -926,4 +971,56 @@ export async function shareCandidatesHandler(data, request) {
     recipients: toEmails,
     emailVersion,
   }
+}
+
+export async function followUpShareHandler(data, request) {
+  const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
+  const shareId = String(data?.shareId || '').trim()
+  if (!shareId) throw new HttpsError('invalid-argument', 'Missing shareId.')
+
+  const db = getFirestore()
+  const shareRef = db.collection('shares').doc(shareId)
+  const snap = await shareRef.get()
+  if (!snap.exists) throw new HttpsError('not-found', 'Share record not found.')
+
+  const share = { id: snap.id, ...snap.data() }
+  const toEmails = validateRecipients({ toEmails: share.recipients || [] })
+  const sharedBy = profile.email || request.auth.token?.email || request.auth.uid
+  const subject = followUpSubject(share)
+  const text = buildFollowUpText({ share, sharedBy })
+  const html = buildFollowUpHtml({ share, sharedBy })
+
+  for (const to of toEmails) {
+    await sendEmail({
+      to,
+      from: SHARE_FROM_EMAIL,
+      replyTo: replyAddressFor(sharedBy),
+      subject,
+      text,
+      html,
+    })
+  }
+
+  const sentAt = new Date().toISOString()
+  await shareRef.update({
+    followUpCount: FieldValue.increment(1),
+    lastFollowUpAt: FieldValue.serverTimestamp(),
+    lastFollowUpBy: sharedBy,
+    followUps: FieldValue.arrayUnion({ at: sentAt, by: sharedBy, recipients: toEmails }),
+  })
+
+  await writeAuditLog({
+    actorUid: request.auth.uid,
+    actorEmail: profile.email || request.auth.token?.email || null,
+    action: 'candidate.share_follow_up_sent',
+    targetType: 'share',
+    targetId: shareId,
+    metadata: {
+      toEmails,
+      candidateIds: share.candidateIds || (share.candidateId ? [share.candidateId] : []),
+      emailVersion: share.emailVersion || null,
+    },
+  })
+
+  return { success: true, recipients: toEmails, sentAt }
 }
