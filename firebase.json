@@ -6,6 +6,7 @@
       { "source": "/sitemap.xml", "function": { "functionId": "sitemap", "region": "us-central1" } },
       { "source": "/apply/**", "function": { "functionId": "applyPage", "region": "us-central1" } },
       { "source": "/t/**", "function": { "functionId": "trackShare", "region": "us-central1" } },
+      { "source": "/r/**", "function": { "functionId": "trackShare", "region": "us-central1" } },
       { "source": "**", "destination": "/index.html" }
     ],
     "headers": [

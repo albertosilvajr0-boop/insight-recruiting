@@ -13,6 +13,24 @@ const PIXEL = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBR
 
 export async function trackShareClick(req, res) {
   const segments = req.path.split('/').filter(Boolean)
+
+  // Short link: /r/{slug} → 301 to the full /t/ tracking URL (which logs
+  // the click and redirects onward as usual). Mapping is immutable, so a
+  // cacheable 301 is safe.
+  if (segments[0] === 'r') {
+    const slug = String(segments[1] || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 12)
+    let redirectTo = APP_URL
+    try {
+      if (slug) {
+        const snap = await getFirestore().collection('shortLinks').doc(slug).get()
+        if (snap.exists && snap.data().url) redirectTo = snap.data().url
+      }
+    } catch (err) {
+      console.error('[trackShare] Short link lookup failed:', err)
+    }
+    return res.redirect(301, redirectTo)
+  }
+
   if (segments[0] === 't') segments.shift()
   const [shareId, recipientIndex, target] = segments
   const isPixel = target === 'open'

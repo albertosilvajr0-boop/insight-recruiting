@@ -203,7 +203,7 @@ export default function ShareCandidateModal({ candidate, onClose }) {
         manualScore: candidate.manualScore || null,
       })
       setLinkResult(data)
-      await copyToClipboard(data.trackedUrl)
+      await copyToClipboard(data.shortUrl || data.trackedUrl)
       setLinkCopied(true)
       setTimeout(() => setLinkCopied(false), 2500)
     } catch (err) {
@@ -333,9 +333,9 @@ export default function ShareCandidateModal({ candidate, onClose }) {
                       Link for {linkResult.contactName} created{linkCopied ? ' and copied to your clipboard' : ''} — paste it into your message:
                     </p>
                     <div className="flex items-center gap-2">
-                      <input readOnly value={linkResult.trackedUrl} onFocus={e => e.target.select()}
+                      <input readOnly value={linkResult.shortUrl || linkResult.trackedUrl} onFocus={e => e.target.select()}
                         className="flex-1 border border-green-200 rounded-lg px-2 py-1.5 text-xs font-mono text-gray-700 bg-white focus:outline-none" />
-                      <button onClick={async () => { await copyToClipboard(linkResult.trackedUrl); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) }}
+                      <button onClick={async () => { await copyToClipboard(linkResult.shortUrl || linkResult.trackedUrl); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) }}
                         className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white">
                         {linkCopied ? 'Copied!' : 'Copy'}
                       </button>
