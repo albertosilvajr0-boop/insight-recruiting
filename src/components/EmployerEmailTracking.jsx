@@ -59,6 +59,20 @@ function buildVideoClickRecipients(events) {
     .sort((a, b) => b.clicks - a.clicks || a.recipient.localeCompare(b.recipient))
 }
 
+function reviewPageVideoEvents(share) {
+  const recipientFallback = Array.isArray(share.recipients) && share.recipients.length === 1
+    ? share.recipients[0]
+    : 'Review page visitor'
+  return (Array.isArray(share.employerActions) ? share.employerActions : [])
+    .filter(action => action?.action === 'view_video')
+    .map((action, index) => ({
+      target: `v-review-${index}`,
+      label: action.note || 'Review page video',
+      recipient: action.contactEmail || recipientFallback,
+      at: action.at || null,
+    }))
+}
+
 function percent(part, total) {
   if (!total) return '0%'
   return `${Math.round((part / total) * 100)}%`
@@ -112,7 +126,7 @@ function buildRows(shares, shareClicksByShareId) {
   return shares.map((share) => {
     const clicks = shareClicksByShareId[share.id] || []
     const linkEvents = clicks.filter(event => !isTrackingPixelEvent(event))
-    const videoEvents = linkEvents.filter(isVideoEvent)
+    const videoEvents = [...linkEvents.filter(isVideoEvent), ...reviewPageVideoEvents(share)]
     const recipients = recipientCount(share)
     return {
       share,
