@@ -149,6 +149,8 @@ export const shareCandidates = onCall({ secrets: EMAIL_SECRETS, timeoutSeconds: 
 })
 
 // No email secrets — minting a tracked link never sends anything.
+// NOTE: new exports must ALSO be added to the deploy allowlist in
+// .github/workflows/firebase-deploy.yml or they will never reach prod.
 export const createTrackedLink = onCall({ timeoutSeconds: 300 }, async (request) => {
   return createTrackedLinkHandler(request.data, request)
 })
