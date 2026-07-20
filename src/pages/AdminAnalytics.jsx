@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { collection, query, orderBy, onSnapshot } from "firebase/firestore"
+import { collection, query, orderBy, onSnapshot, getDocs, limit } from "firebase/firestore"
 import { db } from "../firebase"
 import { format, formatDistanceToNow, subDays, isAfter, startOfDay } from "date-fns"
 import {
@@ -20,6 +20,7 @@ const STAGE_LABELS = {
 const MONITORING_MIN_GROUP_SIZE = 5
 const LIVE_NOW_WINDOW_MS = 2 * 60 * 1000
 const LIVE_REFRESH_MS = 30 * 1000
+const TRACKED_SHARE_LIMIT = 250
 
 function toDate(ts) {
   return ts?.toDate ? ts.toDate() : null
@@ -48,10 +49,52 @@ function candidatePresenceLabel(candidate) {
   return "Application"
 }
 
+function recipientCount(share) {
+  return Array.isArray(share.recipients) ? share.recipients.length : 0
+}
+
+function candidateShareCount(share) {
+  if (Array.isArray(share.candidateIds)) return share.candidateIds.length
+  return share.candidateId ? 1 : 0
+}
+
+function isOpenEvent(event) {
+  return event.target === "open"
+}
+
+function isVideoEvent(event) {
+  const target = String(event.target || "").toLowerCase()
+  const label = String(event.label || "").toLowerCase()
+  return target.startsWith("v") || /^c\d+v/.test(target) || label.includes(" q")
+}
+
+function uniqueRecipientCount(events) {
+  return new Set(events.map(event => event.recipient || "unknown")).size
+}
+
+function percent(part, total) {
+  if (!total) return "0%"
+  return `${Math.round((part / total) * 100)}%`
+}
+
+function shareLabel(share) {
+  const count = candidateShareCount(share)
+  if (count > 1) return `${count} candidate shortlist`
+  return share.candidateName || "Candidate share"
+}
+
+function shareVersionLabel(share) {
+  if (share.emailVersion === "v2") return "Send Email V2"
+  if (share.emailVersion === "v1") return "Send Email V1"
+  return "Candidate profile"
+}
+
 export default function AdminAnalytics() {
   const [users, setUsers] = useState([])
   const [candidates, setCandidates] = useState([])
   const [candidatePresenceRecords, setCandidatePresenceRecords] = useState([])
+  const [shareRecords, setShareRecords] = useState([])
+  const [shareClicksByShareId, setShareClicksByShareId] = useState({})
   const [complianceRecords, setComplianceRecords] = useState([])
   const [eeoRecords, setEeoRecords] = useState([])
   const [onboardingRecords, setOnboardingRecords] = useState([])
@@ -78,6 +121,30 @@ export default function AdminAnalytics() {
       (snap) => setCandidatePresenceRecords(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       () => setCandidatePresenceRecords([])
     )
+    let shareFetchVersion = 0
+    let active = true
+    const unsubShares = onSnapshot(
+      query(collection(db, "shares"), orderBy("createdAt", "desc"), limit(TRACKED_SHARE_LIMIT)),
+      (snap) => {
+        const nextShares = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+        const fetchVersion = ++shareFetchVersion
+        setShareRecords(nextShares)
+        Promise.all(nextShares.map(async (share) => {
+          try {
+            const clickSnap = await getDocs(query(collection(db, "shares", share.id, "clicks"), orderBy("at", "asc")))
+            return [share.id, clickSnap.docs.map((d) => ({ id: d.id, ...d.data() }))]
+          } catch {
+            return [share.id, []]
+          }
+        })).then((entries) => {
+          if (active && fetchVersion === shareFetchVersion) setShareClicksByShareId(Object.fromEntries(entries))
+        })
+      },
+      () => {
+        setShareRecords([])
+        setShareClicksByShareId({})
+      }
+    )
     const unsubCompliance = onSnapshot(
       query(collection(db, "candidateCompliance"), orderBy("createdAt", "desc")),
       (snap) => setComplianceRecords(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
@@ -93,7 +160,10 @@ export default function AdminAnalytics() {
       (snap) => setOnboardingRecords(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       () => setOnboardingRecords([])
     )
-    return () => { unsubUsers(); unsubCandidates(); unsubCandidatePresence(); unsubCompliance(); unsubEeo(); unsubOnboarding() }
+    return () => {
+      active = false
+      unsubUsers(); unsubCandidates(); unsubCandidatePresence(); unsubShares(); unsubCompliance(); unsubEeo(); unsubOnboarding()
+    }
   }, [])
 
   useEffect(() => {
@@ -140,6 +210,34 @@ export default function AdminAnalytics() {
     : null
   const topPerformerCount = performanceRecords.filter((record) => record.outcome.averageRating >= 4).length
   const presenceByCandidateId = new Map(candidatePresenceRecords.map((record) => [record.candidateId || record.id, record]))
+  const rangedShares = shareRecords.filter((share) => inRange(share.createdAt))
+  const emailTrackingRows = rangedShares.map((share) => {
+    const clicks = shareClicksByShareId[share.id] || []
+    const openEvents = clicks.filter(isOpenEvent)
+    const linkEvents = clicks.filter(event => !isOpenEvent(event))
+    const videoEvents = linkEvents.filter(isVideoEvent)
+    const recipients = recipientCount(share)
+    return {
+      share,
+      recipients,
+      candidateCount: candidateShareCount(share),
+      openEvents: openEvents.length,
+      linkEvents: linkEvents.length,
+      videoEvents: videoEvents.length,
+      uniqueOpens: uniqueRecipientCount(openEvents),
+      uniqueClicks: uniqueRecipientCount(linkEvents),
+    }
+  })
+  const emailTrackingTotals = emailTrackingRows.reduce((acc, row) => {
+    acc.shares += 1
+    acc.recipients += row.recipients
+    acc.openedRecipients += row.uniqueOpens
+    acc.clickedRecipients += row.uniqueClicks
+    acc.openEvents += row.openEvents
+    acc.linkEvents += row.linkEvents
+    acc.videoEvents += row.videoEvents
+    return acc
+  }, { shares: 0, recipients: 0, openedRecipients: 0, clickedRecipients: 0, openEvents: 0, linkEvents: 0, videoEvents: 0 })
 
   // ─── KPI Calculations ─────────────────────────────────────────────
   const totalApplications = rangedCandidates.length
@@ -397,6 +495,97 @@ export default function AdminAnalytics() {
                           </div>
                         )}
                       </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {showCandidates && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-5">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Employer email tracking</h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Tracks app-sent share emails, opens, video clicks, and other link clicks. Opens depend on the employer's email client loading images, so clicks are the stronger buying signal.
+                    </p>
+                  </div>
+                  <span className="text-[11px] text-gray-500 px-2 py-1 rounded-full bg-gray-100 h-fit">
+                    Last {dateRange} days
+                  </span>
+                </div>
+
+                {emailTrackingRows.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-8 text-center">No tracked employer share emails in this period.</p>
+                ) : (
+                  <div className="space-y-5">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                      <Metric label="Share emails" value={emailTrackingTotals.shares} />
+                      <Metric label="Recipients" value={emailTrackingTotals.recipients} />
+                      <Metric label="Open rate" value={percent(emailTrackingTotals.openedRecipients, emailTrackingTotals.recipients)} />
+                      <Metric label="Click rate" value={percent(emailTrackingTotals.clickedRecipients, emailTrackingTotals.recipients)} />
+                      <Metric label="Video clicks" value={emailTrackingTotals.videoEvents} />
+                    </div>
+
+                    <div className="border border-gray-200 rounded-xl overflow-hidden">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="bg-gray-50 border-b border-gray-100">
+                            <th className="text-left text-[11px] font-semibold text-gray-500 px-4 py-2">Sent</th>
+                            <th className="text-left text-[11px] font-semibold text-gray-500 px-3 py-2">Packet</th>
+                            <th className="text-left text-[11px] font-semibold text-gray-500 px-3 py-2">Recipients</th>
+                            <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Opens</th>
+                            <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Clicks</th>
+                            <th className="text-right text-[11px] font-semibold text-gray-500 px-4 py-2">Videos</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {emailTrackingRows.slice(0, 12).map((row) => {
+                            const sentAt = toDate(row.share.createdAt)
+                            const recipients = row.share.recipients || []
+                            const extraRecipients = Math.max(0, recipients.length - 2)
+                            return (
+                              <tr key={row.share.id} className="border-b border-gray-100 last:border-0">
+                                <td className="px-4 py-3 align-top">
+                                  {sentAt ? (
+                                    <>
+                                      <p className="text-xs font-medium text-gray-900">{format(sentAt, "MMM d")}</p>
+                                      <p className="text-[11px] text-gray-400">{format(sentAt, "h:mm a")}</p>
+                                    </>
+                                  ) : (
+                                    <span className="text-xs text-gray-400">Pending</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-3 align-top">
+                                  <p className="text-xs font-medium text-gray-900">{shareLabel(row.share)}</p>
+                                  <p className="text-[11px] text-gray-400">
+                                    {shareVersionLabel(row.share)} - {row.candidateCount || "No"} candidate{row.candidateCount === 1 ? "" : "s"} - {row.share.videoCount || 0} video link{row.share.videoCount === 1 ? "" : "s"}
+                                  </p>
+                                  {row.share.by && <p className="text-[11px] text-gray-400">Sent by {row.share.by}</p>}
+                                </td>
+                                <td className="px-3 py-3 align-top">
+                                  <p className="text-xs text-gray-700">{recipients.slice(0, 2).join(", ") || "No recipients"}</p>
+                                  {extraRecipients > 0 && <p className="text-[11px] text-gray-400">+{extraRecipients} more</p>}
+                                </td>
+                                <td className="px-3 py-3 text-right align-top">
+                                  <p className="text-xs font-semibold text-blue-700">{row.uniqueOpens}/{row.recipients}</p>
+                                  <p className="text-[11px] text-gray-400">{row.openEvents} event{row.openEvents === 1 ? "" : "s"}</p>
+                                </td>
+                                <td className="px-3 py-3 text-right align-top">
+                                  <p className="text-xs font-semibold text-green-700">{row.uniqueClicks}/{row.recipients}</p>
+                                  <p className="text-[11px] text-gray-400">{row.linkEvents} click{row.linkEvents === 1 ? "" : "s"}</p>
+                                </td>
+                                <td className="px-4 py-3 text-right align-top">
+                                  <p className="text-xs font-semibold text-purple-700">{row.videoEvents}</p>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    {emailTrackingRows.length > 12 && (
+                      <p className="text-xs text-gray-400 text-right">Showing the 12 most recent tracked shares.</p>
                     )}
                   </div>
                 )}
