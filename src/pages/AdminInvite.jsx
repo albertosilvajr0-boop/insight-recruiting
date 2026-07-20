@@ -132,6 +132,7 @@ export default function AdminInvite() {
       setResult({
         ...data,
         email: form.email.trim(),
+        phone: form.phone.trim(),
         name: `${form.firstName.trim()} ${form.lastName.trim()}`,
       })
       setForm(EMPTY_FORM)
@@ -184,13 +185,18 @@ export default function AdminInvite() {
               <p className="text-xs text-blue-800 mb-1">Interview code</p>
               <p className="text-3xl font-bold font-mono tracking-[0.4em] text-blue-700">{result.accessCode}</p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className={`grid gap-3 ${result.phone ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}>
               <button onClick={() => copy(result.accessCode, 'code')} className="border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium py-2.5 rounded-xl">
                 {copied === 'code' ? 'Copied!' : 'Copy code'}
               </button>
               <button onClick={() => copy(result.inviteLink, 'link')} className="border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium py-2.5 rounded-xl">
                 {copied === 'link' ? 'Copied!' : 'Copy interview link'}
               </button>
+              {result.phone && (
+                <button onClick={() => copy(result.phone, 'invite-phone')} className="border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium py-2.5 rounded-xl">
+                  {copied === 'invite-phone' ? 'Copied!' : 'Copy phone'}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -281,8 +287,15 @@ export default function AdminInvite() {
                   <p className="text-sm font-medium text-gray-900 truncate">{c.firstName} {c.lastName}</p>
                   <p className="text-xs text-gray-500 truncate">{candidateJobTitle} · {c.email || 'No email'}</p>
                   {c.phone && (
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 flex items-center gap-2">
                       <a href={`tel:${c.phone}`} className="hover:text-blue-600">{c.phone}</a>
+                      <button
+                        type="button"
+                        onClick={() => copy(c.phone, `${c.id}:phone`)}
+                        className="text-[11px] font-medium text-blue-600 hover:text-blue-700"
+                      >
+                        {copied === `${c.id}:phone` ? 'Copied!' : 'Copy phone'}
+                      </button>
                     </p>
                   )}
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
