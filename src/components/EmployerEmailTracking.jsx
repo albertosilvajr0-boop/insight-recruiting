@@ -5,6 +5,13 @@ import { functions } from '../firebase'
 
 const EMAIL_TRACKING_INITIAL_ROWS = 12
 const EMAIL_TRACKING_LOAD_MORE_ROWS = 20
+const MEDIUM_OPTIONS = [
+  { key: 'email', label: 'Email' },
+  { key: 'linkedin', label: 'LinkedIn Message' },
+  { key: 'sms', label: 'Text' },
+  { key: 'whatsapp', label: 'WhatsApp' },
+  { key: 'other', label: 'Other Link' },
+]
 
 function toDate(ts) {
   return ts?.toDate ? ts.toDate() : null
@@ -74,20 +81,25 @@ function shareVersionLabel(share) {
   return 'Candidate profile'
 }
 
-const CHANNEL_LABELS = { linkedin: 'LinkedIn', sms: 'SMS', whatsapp: 'WhatsApp', other: 'Link' }
+const CHANNEL_LABELS = Object.fromEntries(MEDIUM_OPTIONS.map(option => [option.key, option.label]))
 
-function shareChannelLabel(share) {
-  if (share.kind === 'link') return CHANNEL_LABELS[share.channel] || 'Link'
-  return 'Email'
+function shareMediumKey(share) {
+  if (share.kind === 'link') return CHANNEL_LABELS[share.channel] ? share.channel : 'other'
+  return 'email'
 }
 
-function emailTrackingOptionLabel(share) {
+function shareChannelLabel(share) {
+  return CHANNEL_LABELS[shareMediumKey(share)] || 'Other Link'
+}
+
+function emailTrackingOptionLabel(share, includeMedium = false) {
   const sentAt = toDate(share.createdAt)
   const date = sentAt ? format(sentAt, 'MMM d, h:mm a') : 'Pending send'
   const recipients = Array.isArray(share.recipients) ? share.recipients : []
   const firstRecipient = recipients[0] || 'No recipient'
   const extra = recipients.length > 1 ? ` +${recipients.length - 1}` : ''
-  return `${date} - ${shareLabel(share)} - ${firstRecipient}${extra}`
+  const medium = includeMedium ? `${shareChannelLabel(share)} - ` : ''
+  return `${date} - ${medium}${shareLabel(share)} - ${firstRecipient}${extra}`
 }
 
 function followUpCount(share) {
@@ -115,6 +127,18 @@ function buildRows(shares, shareClicksByShareId) {
   })
 }
 
+function buildTotals(rows) {
+  return rows.reduce((acc, row) => {
+    acc.shares += 1
+    acc.recipients += row.recipients
+    acc.clickedRecipients += row.uniqueClicks
+    acc.linkEvents += row.linkEvents
+    acc.videoEvents += row.videoEvents
+    acc.followUps += row.followUps
+    return acc
+  }, { shares: 0, recipients: 0, clickedRecipients: 0, linkEvents: 0, videoEvents: 0, followUps: 0 })
+}
+
 function Metric({ label, value }) {
   return (
     <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
@@ -124,7 +148,49 @@ function Metric({ label, value }) {
   )
 }
 
+function MediumMetric({ label, value }) {
+  return (
+    <div className="rounded-lg border border-gray-100 bg-white px-3 py-2">
+      <p className="text-[10px] font-medium text-gray-400 uppercase">{label}</p>
+      <p className="text-sm font-semibold text-gray-900 mt-0.5">{value}</p>
+    </div>
+  )
+}
+
+function MediumSummary({ rows }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-gray-700">Counts by medium</p>
+        <span className="text-[11px] text-gray-400">Email, LinkedIn Message, Text, and tracked links</span>
+      </div>
+      <div className="space-y-2">
+        {MEDIUM_OPTIONS.map((option) => {
+          const mediumRows = rows.filter(row => shareMediumKey(row.share) === option.key)
+          const totals = buildTotals(mediumRows)
+          return (
+            <div key={option.key} className="rounded-xl border border-gray-100 bg-white p-3">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-2 items-stretch">
+                <div className="rounded-lg bg-gray-900 px-3 py-2 text-white">
+                  <p className="text-[10px] font-semibold uppercase opacity-70">Medium</p>
+                  <p className="text-sm font-semibold mt-0.5">{option.label}</p>
+                </div>
+                <MediumMetric label="Shares" value={totals.shares} />
+                <MediumMetric label="Recipients" value={totals.recipients} />
+                <MediumMetric label="Click rate" value={percent(totals.clickedRecipients, totals.recipients)} />
+                <MediumMetric label="Video clicks" value={totals.videoEvents} />
+                <MediumMetric label="Follow-ups" value={totals.followUps} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function EmployerEmailTracking({ shares, shareClicksByShareId, dateRange }) {
+  const [mediumFilter, setMediumFilter] = useState('all')
   const [emailTrackingFilter, setEmailTrackingFilter] = useState('all')
   const [emailTrackingVisibleCount, setEmailTrackingVisibleCount] = useState(EMAIL_TRACKING_INITIAL_ROWS)
   const [expandedVideoClickRows, setExpandedVideoClickRows] = useState({})
@@ -138,24 +204,23 @@ export default function EmployerEmailTracking({ shares, shareClicksByShareId, da
   useEffect(() => {
     setEmailTrackingVisibleCount(EMAIL_TRACKING_INITIAL_ROWS)
     setExpandedVideoClickRows({})
-  }, [dateRange, emailTrackingFilter])
+  }, [dateRange, emailTrackingFilter, mediumFilter])
+
+  useEffect(() => {
+    setEmailTrackingFilter('all')
+  }, [mediumFilter])
 
   const emailTrackingRows = buildRows(shares, shareClicksByShareId)
-  const visibleEmailTrackingRows = emailTrackingFilter === 'all'
+  const mediumFilteredRows = mediumFilter === 'all'
     ? emailTrackingRows
-    : emailTrackingRows.filter(row => row.share.id === emailTrackingFilter)
+    : emailTrackingRows.filter(row => shareMediumKey(row.share) === mediumFilter)
+  const visibleEmailTrackingRows = emailTrackingFilter === 'all'
+    ? mediumFilteredRows
+    : mediumFilteredRows.filter(row => row.share.id === emailTrackingFilter)
   const displayedEmailTrackingRows = visibleEmailTrackingRows.slice(0, emailTrackingVisibleCount)
   const hiddenEmailTrackingRows = Math.max(0, visibleEmailTrackingRows.length - displayedEmailTrackingRows.length)
   const nextEmailTrackingRows = Math.min(EMAIL_TRACKING_LOAD_MORE_ROWS, hiddenEmailTrackingRows)
-  const emailTrackingTotals = visibleEmailTrackingRows.reduce((acc, row) => {
-    acc.shares += 1
-    acc.recipients += row.recipients
-    acc.clickedRecipients += row.uniqueClicks
-    acc.linkEvents += row.linkEvents
-    acc.videoEvents += row.videoEvents
-    acc.followUps += row.followUps
-    return acc
-  }, { shares: 0, recipients: 0, clickedRecipients: 0, linkEvents: 0, videoEvents: 0, followUps: 0 })
+  const emailTrackingTotals = buildTotals(visibleEmailTrackingRows)
 
   const followUpConfirmRecipients = Array.isArray(followUpConfirmTarget?.recipients)
     ? followUpConfirmTarget.recipients
@@ -233,20 +298,30 @@ export default function EmployerEmailTracking({ shares, shareClicksByShareId, da
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-5">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900">Employer email tracking</h3>
+            <h3 className="text-sm font-semibold text-gray-900">Employer outreach tracking</h3>
             <p className="text-xs text-gray-500 mt-1">
-              Tracks app-sent share emails, video clicks, other link clicks, and follow-ups. Campaign-level employer records now roll up under Employers.
+              Tracks share emails, LinkedIn messages, texts, video clicks, other link clicks, and follow-ups. Campaign-level employer records roll up under Employers.
             </p>
           </div>
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <select
+              value={mediumFilter}
+              onChange={(e) => setMediumFilter(e.target.value)}
+              className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-full"
+            >
+              <option value="all">All mediums</option>
+              {MEDIUM_OPTIONS.map(option => (
+                <option key={option.key} value={option.key}>{option.label}</option>
+              ))}
+            </select>
             <select
               value={emailTrackingFilter}
               onChange={(e) => setEmailTrackingFilter(e.target.value)}
               className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-full"
             >
-              <option value="all">All tracked emails</option>
-              {emailTrackingRows.map((row) => (
-                <option key={row.share.id} value={row.share.id}>{emailTrackingOptionLabel(row.share)}</option>
+              <option value="all">{mediumFilter === 'all' ? 'All tracked outreach' : `All ${CHANNEL_LABELS[mediumFilter]} shares`}</option>
+              {mediumFilteredRows.map((row) => (
+                <option key={row.share.id} value={row.share.id}>{emailTrackingOptionLabel(row.share, mediumFilter === 'all')}</option>
               ))}
             </select>
             <span className="text-[11px] text-gray-500 px-2 py-1 rounded-full bg-gray-100 h-fit w-fit">
@@ -256,7 +331,7 @@ export default function EmployerEmailTracking({ shares, shareClicksByShareId, da
         </div>
 
         {emailTrackingRows.length === 0 ? (
-          <p className="text-xs text-gray-400 py-8 text-center">No tracked employer share emails in this period.</p>
+          <p className="text-xs text-gray-400 py-8 text-center">No tracked employer outreach in this period.</p>
         ) : (
           <div className="space-y-5">
             {followUpNotice && (
@@ -269,13 +344,19 @@ export default function EmployerEmailTracking({ shares, shareClicksByShareId, da
               </div>
             )}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <Metric label="Share emails" value={emailTrackingTotals.shares} />
+              <Metric label="Tracked shares" value={emailTrackingTotals.shares} />
               <Metric label="Recipients" value={emailTrackingTotals.recipients} />
               <Metric label="Click rate" value={percent(emailTrackingTotals.clickedRecipients, emailTrackingTotals.recipients)} />
               <Metric label="Video clicks" value={emailTrackingTotals.videoEvents} />
               <Metric label="Follow-ups" value={emailTrackingTotals.followUps} />
             </div>
+            {mediumFilter === 'all' && <MediumSummary rows={emailTrackingRows} />}
 
+            {visibleEmailTrackingRows.length === 0 ? (
+              <p className="text-xs text-gray-400 py-6 text-center border border-gray-100 rounded-xl">
+                No tracked outreach for this medium in the selected date range.
+              </p>
+            ) : (
             <div className="border border-gray-200 rounded-xl overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -339,7 +420,7 @@ export default function EmployerEmailTracking({ shares, shareClicksByShareId, da
                                 onClick={() => toggleVideoClickRow(row.share.id)}
                                 className="text-[11px] font-medium text-purple-700 hover:text-purple-900 mt-1"
                               >
-                                {videoDetailsOpen ? 'Hide emails' : `View ${row.videoClickRecipients.length} email${row.videoClickRecipients.length === 1 ? '' : 's'}`}
+                                {videoDetailsOpen ? 'Hide contacts' : `View ${row.videoClickRecipients.length} contact${row.videoClickRecipients.length === 1 ? '' : 's'}`}
                               </button>
                             )}
                           </td>
@@ -368,7 +449,7 @@ export default function EmployerEmailTracking({ shares, shareClicksByShareId, da
                             <td colSpan={7} className="px-4 py-3">
                               <div className="rounded-xl border border-purple-100 bg-white overflow-hidden">
                                 <div className="px-3 py-2 border-b border-purple-50 flex items-center justify-between gap-2">
-                                  <p className="text-xs font-semibold text-gray-900">Video clicks by recipient</p>
+                                  <p className="text-xs font-semibold text-gray-900">Video clicks by contact</p>
                                   <span className="text-[11px] text-purple-700 bg-purple-50 border border-purple-100 rounded-full px-2 py-0.5">
                                     {row.videoClickRecipients.length} recipient{row.videoClickRecipients.length === 1 ? '' : 's'}
                                   </span>
@@ -400,6 +481,7 @@ export default function EmployerEmailTracking({ shares, shareClicksByShareId, da
                 </tbody>
               </table>
             </div>
+            )}
             {hiddenEmailTrackingRows > 0 ? (
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <p className="text-xs text-gray-400">
