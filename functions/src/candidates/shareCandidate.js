@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getStorage, getDownloadURL } from 'firebase-admin/storage'
 import { HttpsError } from 'firebase-functions/v2/https'
@@ -881,6 +882,33 @@ export async function shareCandidateHandler(data, request) {
 // above is untouched.
 const LINK_CHANNELS = { linkedin: 'LinkedIn', sms: 'SMS', whatsapp: 'WhatsApp', other: 'Other' }
 
+// Short slugs for /r/{slug} — no ambiguous characters (0/O, 1/l/i), since
+// these get read off phones and pasted into DMs.
+const SLUG_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789'
+const SLUG_LENGTH = 6
+
+function generateSlug() {
+  const bytes = randomBytes(SLUG_LENGTH)
+  let slug = ''
+  for (let i = 0; i < SLUG_LENGTH; i++) slug += SLUG_ALPHABET[bytes[i] % SLUG_ALPHABET.length]
+  return slug
+}
+
+// Mints /r/{slug} → 301 → the full /t/ tracking URL. Returns null on the
+// (vanishingly unlikely) repeated collision — callers fall back to the
+// long URL, so a mint never fails over the short link.
+async function createShortLink(db, shareId, trackedUrl) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const slug = generateSlug()
+    const ref = db.collection('shortLinks').doc(slug)
+    const existing = await ref.get()
+    if (existing.exists) continue
+    await ref.set({ shareId, url: trackedUrl, createdAt: FieldValue.serverTimestamp() })
+    return slug
+  }
+  return null
+}
+
 export async function createTrackedLinkHandler(data, request) {
   const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
   const contactName = String(data?.contactName || '').trim().slice(0, 120)
@@ -990,10 +1018,16 @@ export async function createTrackedLinkHandler(data, request) {
     metadata: { shareId: shareRef.id, contactName, company: company || null, channel, candidates: candidates.length, videos: totalVideos },
   })
 
+  const trackedUrl = `${APP_URL}/t/${shareRef.id}/0/review`
+  const shortSlug = await createShortLink(db, shareRef.id, trackedUrl)
+  const shortUrl = shortSlug ? `${APP_URL}/r/${shortSlug}` : null
+  if (shortSlug) await shareRef.set({ shortSlug, shortUrl }, { merge: true })
+
   return {
     success: true,
     shareId: shareRef.id,
-    trackedUrl: `${APP_URL}/t/${shareRef.id}/0/review`,
+    trackedUrl,
+    shortUrl,
     reviewUrl,
     channel,
     contactName,
