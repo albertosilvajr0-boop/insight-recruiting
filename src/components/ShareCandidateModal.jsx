@@ -127,6 +127,7 @@ function buildEmailDraft({ candidate, note, links, includeResume, videoCount }) 
 export default function ShareCandidateModal({ candidate, onClose }) {
   const [mode, setMode] = useState('email')
   const [email, setEmail] = useState('')
+  const [employerName, setEmployerName] = useState('')
   const [note, setNote] = useState('')
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState(null)
@@ -187,6 +188,7 @@ export default function ShareCandidateModal({ candidate, onClose }) {
       const { data } = await shareCandidate({
         candidateId: candidate.id,
         toEmails: emailList,
+        employerName: employerName.trim(),
         note: note.trim(),
         manualResumeScores: candidate.manualResumeScores || {},
         manualAnswerScores: candidate.manualAnswerScores || {},
@@ -262,6 +264,17 @@ export default function ShareCandidateModal({ candidate, onClose }) {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <p className="text-xs text-gray-400 mt-1">Separate multiple addresses with commas (up to 10). Each person gets their own tracked email.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Employer / company</label>
+                  <input
+                    type="text"
+                    value={employerName}
+                    onChange={e => setEmployerName(e.target.value)}
+                    placeholder="Optional. Leave blank to group by email domain."
+                    maxLength={160}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
                 {error && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>}
                 <div className="flex gap-3">

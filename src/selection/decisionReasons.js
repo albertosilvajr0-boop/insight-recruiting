@@ -22,7 +22,7 @@ export const DECISION_REASON_SETS = Object.freeze({
     { code: 'minimum_requirements_not_met', label: 'Does not meet job-related minimum requirements' },
     { code: 'incomplete_application', label: 'Incomplete application or missing required response' },
     { code: 'communication_evidence_below_bar', label: 'Interview evidence did not meet communication expectations' },
-    { code: 'availability_mismatch', label: 'Availability or scheduling constraint' },
+    { code: 'availability_mismatch', label: 'Availability or timing constraint' },
     { code: 'candidate_withdrew', label: 'Candidate withdrew or stopped responding' },
     { code: 'stronger_candidate_selected', label: 'Selected stronger candidate for current opening' },
     { code: 'other_job_related', label: 'Other job-related reason' },

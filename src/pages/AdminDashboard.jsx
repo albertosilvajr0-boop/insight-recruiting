@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { collection, query, orderBy, onSnapshot, doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch, serverTimestamp } from "firebase/firestore"
 import { signOut } from "firebase/auth"
 import { db, auth } from "../firebase"
-import { format, differenceInHours } from "date-fns"
+import { differenceInHours } from "date-fns"
 import { downloadCandidateProfile } from "../utils/downloadProfile"
 import { adminAuditFields } from "../security/auditFields"
 import {
@@ -17,7 +17,8 @@ import ShareCandidateModal from "../components/ShareCandidateModal"
 import BulkShareCandidatesModal from "../components/BulkShareCandidatesModal"
 
 const STAGES = ["invited","applied","scored","to_schedule","scheduled","hired","rejected"]
-const STAGE_LABELS = { invited:"Invited", applied:"Applied", scored:"Scored", to_schedule:"To Schedule", scheduled:"Scheduled", hired:"Hired", rejected:"Rejected" }
+const ACTIVE_STAGE_FLOW = ["invited","applied","scored","to_schedule","hired"]
+const STAGE_LABELS = { invited:"Invited", applied:"Applied", scored:"Scored", to_schedule:"Employer Review", scheduled:"Legacy Scheduled", hired:"Hired", rejected:"Rejected" }
 // Map old stages to new ones for backwards compatibility
 const STAGE_MIGRATION = { screening: "applied", interview_2: "applied", scheduling: "to_schedule" }
 
@@ -414,6 +415,10 @@ export default function AdminDashboard() {
     if (!id) return
     const c = candidates.find(x => x.id === id)
     if (!c || stageOf(c) === stage) return
+    if (stage === "scheduled") {
+      alert("Legacy Scheduled is read-only. Move candidates to Employer Review, Hired, or Rejected instead.")
+      return
+    }
     if (stage === "rejected") {
       openRejectCandidate(null, c)
       return
@@ -465,8 +470,8 @@ export default function AdminDashboard() {
         })
         else if (action === "advance") {
           const cur = stageOf(c)
-          const idx = STAGES.indexOf(cur)
-          const next = idx >= 0 && idx < STAGES.length - 2 ? STAGES[idx + 1] : cur
+          const idx = ACTIVE_STAGE_FLOW.indexOf(cur)
+          const next = idx >= 0 && idx < ACTIVE_STAGE_FLOW.length - 1 ? ACTIVE_STAGE_FLOW[idx + 1] : cur
           if (next === cur) continue
           batch.update(r, {
             stage: next,
@@ -624,8 +629,8 @@ export default function AdminDashboard() {
                 <button onClick={() => navigate("/admin/jobs")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Jobs</button>
                 <button onClick={() => navigate("/admin/questions")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Questions</button>
                 <button onClick={() => navigate("/admin/library")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Library</button>
-                <button onClick={() => navigate("/admin/availability")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Availability</button>
                 <button onClick={() => navigate("/admin/onboarding")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Onboarding</button>
+                <button onClick={() => navigate("/admin/employers")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Employers</button>
                 <button onClick={() => navigate("/admin/users")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Users</button>
                 <button onClick={() => navigate("/admin/analytics")} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Analytics</button>
                 <button onClick={() => navigate("/admin/demo")} className="text-sm text-purple-700 border border-purple-200 px-3 py-1.5 rounded-lg hover:bg-purple-50">Demo</button>
@@ -657,8 +662,8 @@ export default function AdminDashboard() {
             <p className="text-2xl font-semibold text-amber-600">{candidates.filter(c => stageOf(c) === "applied").length}</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-500 mb-1">Scheduled today</p>
-            <p className="text-2xl font-semibold text-green-600">{candidates.filter(c => { if (!c.scheduledAt?.toDate) return false; return c.scheduledAt.toDate().toDateString() === new Date().toDateString() }).length}</p>
+            <p className="text-xs text-gray-500 mb-1">Shared with employers</p>
+            <p className="text-2xl font-semibold text-green-600">{candidates.filter(hasSharedWithEmployer).length}</p>
           </div>
           <button onClick={() => setFilterAging(v => !v)} className={`rounded-xl border p-4 text-left transition-colors ${filterAging ? "bg-red-50 border-red-200" : "bg-white border-gray-200 hover:border-red-200"}`}>
             <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
@@ -830,58 +835,6 @@ export default function AdminDashboard() {
           {renderKanbanBoard(filteredCandidates, "all")}
         </section>
 
-        {/* Upcoming Interviews */}
-        {(() => {
-          const scheduled = candidates
-            .filter(c => c.stage === "scheduled" && c.scheduledAt?.toDate)
-            .sort((a, b) => a.scheduledAt.toDate() - b.scheduledAt.toDate())
-          const upcoming = scheduled.filter(c => c.scheduledAt.toDate() >= new Date())
-          if (upcoming.length === 0 && scheduled.length === 0) return null
-          return (
-            <div className="mt-8">
-              <h2 className="text-sm font-semibold text-gray-900 mb-3">Upcoming In-Person Interviews</h2>
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200 bg-gray-50">
-                      <th className="text-left text-xs font-semibold text-gray-600 px-4 py-3">Candidate</th>
-                      <th className="text-left text-xs font-semibold text-gray-600 px-4 py-3">Position</th>
-                      <th className="text-left text-xs font-semibold text-gray-600 px-4 py-3">Date & Time</th>
-                      <th className="text-left text-xs font-semibold text-gray-600 px-4 py-3">Score</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(upcoming.length > 0 ? upcoming : scheduled).map(c => {
-                      const dt = c.scheduledAt.toDate()
-                      const isPast = dt < new Date()
-                      return (
-                        <tr key={c.id} onClick={() => navigate(`/admin/candidates/${c.id}`)}
-                          className={`border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer ${isPast ? "opacity-50" : ""}`}>
-                          <td className="px-4 py-3">
-                            <p className="text-sm font-medium text-gray-900">{c.firstName} {c.lastName}</p>
-                            <p className="text-xs text-gray-500">{c.email}</p>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-700">{c.jobTitle}</td>
-                          <td className="px-4 py-3">
-                            <p className="text-sm font-medium text-gray-900">{format(dt, "EEE, MMM d")}</p>
-                            <p className="text-xs text-gray-500">{format(dt, "h:mm a")}</p>
-                          </td>
-                          <td className="px-4 py-3">
-                            {c.manualScore?.avg != null ? (
-                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.manualScore.avg >= 4 ? "bg-green-100 text-green-800" : c.manualScore.avg >= 3 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>
-                                {c.manualScore.avg.toFixed(1)}/5
-                              </span>
-                            ) : <span className="text-xs text-gray-400">—</span>}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )
-        })()}
       </div>
 
       {/* Bulk confirmation modal */}
@@ -1003,7 +956,7 @@ function DecisionReasonFields({ form, onChange }) {
           onChange={(e) => onChange({ ...form, note: e.target.value })}
           rows={3}
           maxLength={600}
-          placeholder="Optional: cite job-related evidence from the resume, interview, availability, or current opening."
+          placeholder="Optional: cite job-related evidence from the resume, interview, scorecard, or current opening."
           className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
         />
         <span className="text-[11px] text-gray-400">{form.note.length}/600</span>

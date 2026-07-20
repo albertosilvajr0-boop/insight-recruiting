@@ -4,19 +4,19 @@ import JobListings from './pages/JobListings'
 import Apply from './pages/Apply'
 import ThankYou from './pages/ThankYou'
 import Status from './pages/Status'
-import Schedule from './pages/Schedule'
+import EmployerReview from './pages/EmployerReview'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminCandidate from './pages/AdminCandidate'
 import AdminJobs from './pages/AdminJobs'
 import AdminUsers from './pages/AdminUsers'
-import AdminAvailability from './pages/AdminAvailability'
 import AdminQuestions from './pages/AdminQuestions'
 import AdminLibrary from './pages/AdminLibrary'
 import AdminInvite from './pages/AdminInvite'
 import AdminDemo from './pages/AdminDemo'
 import AdminAnalytics from './pages/AdminAnalytics'
 import AdminOnboarding from './pages/AdminOnboarding'
+import AdminEmployers from './pages/AdminEmployers'
 import ProtectedRoute from './components/ProtectedRoute'
 import useForceRefresh from './hooks/useForceRefresh'
 import { PERMISSIONS, ROLES } from './security/roles'
@@ -33,7 +33,7 @@ export default function App() {
         <Route path="/i/:code" element={<Apply />} />
         <Route path="/thank-you" element={<ThankYou />} />
         <Route path="/status/:token" element={<Status />} />
-        <Route path="/schedule/:token" element={<Schedule />} />
+        <Route path="/review/:campaignId/:token" element={<EmployerReview />} />
 
         {/* Admin */}
         <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
@@ -63,11 +63,11 @@ export default function App() {
         <Route path="/admin/library" element={
           <ProtectedRoute requiredRole={ROLES.SUPERADMIN} requiredPermission={PERMISSIONS.MANAGE_QUESTIONS}><AdminLibrary /></ProtectedRoute>
         } />
-        <Route path="/admin/availability" element={
-          <ProtectedRoute requiredRole={ROLES.SUPERADMIN} requiredPermission={PERMISSIONS.MANAGE_AVAILABILITY}><AdminAvailability /></ProtectedRoute>
-        } />
         <Route path="/admin/analytics" element={
           <ProtectedRoute requiredRole={ROLES.SUPERADMIN} requiredPermission={PERMISSIONS.VIEW_ANALYTICS}><AdminAnalytics /></ProtectedRoute>
+        } />
+        <Route path="/admin/employers" element={
+          <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_CANDIDATES}><AdminEmployers /></ProtectedRoute>
         } />
         <Route path="/admin/onboarding" element={
           <ProtectedRoute requiredPermission={PERMISSIONS.MANAGE_ONBOARDING}><AdminOnboarding /></ProtectedRoute>

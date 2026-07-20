@@ -1,5 +1,6 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { APP_URL } from '../config/organization.js'
+import { recordEmployerClick } from '../employers/employerCrm.js'
 
 // Tracks engagement on shared-candidate emails. Hosting rewrites
 // /t/{shareId}/{recipientIndex}/{target} here; target is 'open' (tracking
@@ -35,6 +36,11 @@ export async function trackShareClick(req, res) {
           userAgent: String(req.get('user-agent') || '').slice(0, 400),
           at: FieldValue.serverTimestamp(),
         })
+        if (!isPixel) {
+          const normalizedTarget = String(target || '').toLowerCase()
+          const isVideo = normalizedTarget.startsWith('v') || /^c\d+v/.test(normalizedTarget) || String(link?.label || '').toLowerCase().includes(' q')
+          await recordEmployerClick(db, { shareId, recipient, target, link, isVideo })
+        }
       }
     }
   } catch (err) {

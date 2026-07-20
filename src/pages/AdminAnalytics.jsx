@@ -1,8 +1,7 @@
-import { Fragment, useState, useEffect } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { collection, query, orderBy, onSnapshot, getDocs } from "firebase/firestore"
-import { httpsCallable } from "firebase/functions"
-import { db, functions } from "../firebase"
+import { db } from "../firebase"
 import { format, formatDistanceToNow, subDays, isAfter, startOfDay } from "date-fns"
 import {
   buildOutcomeSegmentRows,
@@ -11,18 +10,17 @@ import {
 } from "../analytics/performanceCorrelation"
 import { buildSelectionRateRows } from "../compliance/adverseImpact"
 import { buildDecisionReasonRows } from "../selection/decisionReasons"
+import EmployerEmailTracking from "../components/EmployerEmailTracking"
 
 const STAGE_LABELS = {
-  applied: "Applied", scored: "Scored", to_schedule: "To Schedule",
-  scheduled: "Scheduled", rejected: "Rejected", screening: "Applied",
-  hired: "Hired", interview_2: "Applied", scheduling: "To Schedule",
+  applied: "Applied", scored: "Scored", to_schedule: "Employer Review",
+  scheduled: "Legacy Scheduled", rejected: "Rejected", screening: "Applied",
+  hired: "Hired", interview_2: "Applied", scheduling: "Employer Review",
 }
 
 const MONITORING_MIN_GROUP_SIZE = 5
 const LIVE_NOW_WINDOW_MS = 2 * 60 * 1000
 const LIVE_REFRESH_MS = 30 * 1000
-const EMAIL_TRACKING_INITIAL_ROWS = 12
-const EMAIL_TRACKING_LOAD_MORE_ROWS = 20
 
 function toDate(ts) {
   return ts?.toDate ? ts.toDate() : null
@@ -51,84 +49,6 @@ function candidatePresenceLabel(candidate) {
   return "Application"
 }
 
-function recipientCount(share) {
-  return Array.isArray(share.recipients) ? share.recipients.length : 0
-}
-
-function candidateShareCount(share) {
-  if (Array.isArray(share.candidateIds)) return share.candidateIds.length
-  return share.candidateId ? 1 : 0
-}
-
-function isTrackingPixelEvent(event) {
-  return event.target === "open"
-}
-
-function isVideoEvent(event) {
-  const target = String(event.target || "").toLowerCase()
-  const label = String(event.label || "").toLowerCase()
-  return target.startsWith("v") || /^c\d+v/.test(target) || label.includes(" q")
-}
-
-function uniqueRecipientCount(events) {
-  return new Set(events.map(event => event.recipient || "unknown")).size
-}
-
-function buildVideoClickRecipients(events) {
-  const byRecipient = new Map()
-  events.filter(isVideoEvent).forEach((event) => {
-    const recipient = String(event.recipient || "").trim()
-    if (!recipient) return
-    const existing = byRecipient.get(recipient) || { recipient, clicks: 0, labels: new Map() }
-    const label = String(event.label || event.target || "Video response").trim()
-    existing.clicks += 1
-    existing.labels.set(label, (existing.labels.get(label) || 0) + 1)
-    byRecipient.set(recipient, existing)
-  })
-  return Array.from(byRecipient.values())
-    .map((entry) => ({
-      ...entry,
-      labels: Array.from(entry.labels.entries()).map(([label, count]) => ({ label, count })),
-    }))
-    .sort((a, b) => b.clicks - a.clicks || a.recipient.localeCompare(b.recipient))
-}
-
-function percent(part, total) {
-  if (!total) return "0%"
-  return `${Math.round((part / total) * 100)}%`
-}
-
-function isValidEmail(value) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim())
-}
-
-function shareLabel(share) {
-  const count = candidateShareCount(share)
-  if (count > 1) return `${count} candidate shortlist`
-  return share.candidateName || "Candidate share"
-}
-
-function shareVersionLabel(share) {
-  if (share.emailVersion === "v2") return "Send Email V2"
-  if (share.emailVersion === "v1") return "Send Email V1"
-  return "Candidate profile"
-}
-
-function emailTrackingOptionLabel(share) {
-  const sentAt = toDate(share.createdAt)
-  const date = sentAt ? format(sentAt, "MMM d, h:mm a") : "Pending send"
-  const recipients = Array.isArray(share.recipients) ? share.recipients : []
-  const firstRecipient = recipients[0] || "No recipient"
-  const extra = recipients.length > 1 ? ` +${recipients.length - 1}` : ""
-  return `${date} - ${shareLabel(share)} - ${firstRecipient}${extra}`
-}
-
-function followUpCount(share) {
-  const count = Number(share.followUpCount || 0)
-  if (Number.isFinite(count) && count > 0) return count
-  return Array.isArray(share.followUps) ? share.followUps.length : 0
-}
-
 export default function AdminAnalytics() {
   const [users, setUsers] = useState([])
   const [candidates, setCandidates] = useState([])
@@ -142,15 +62,6 @@ export default function AdminAnalytics() {
   const [filterType, setFilterType] = useState("all") // "all" | "admins" | "candidates"
   const [dateRange, setDateRange] = useState("30") // days
   const [now, setNow] = useState(() => new Date())
-  const [emailTrackingFilter, setEmailTrackingFilter] = useState("all")
-  const [emailTrackingVisibleCount, setEmailTrackingVisibleCount] = useState(EMAIL_TRACKING_INITIAL_ROWS)
-  const [expandedVideoClickRows, setExpandedVideoClickRows] = useState({})
-  const [followUpConfirmTarget, setFollowUpConfirmTarget] = useState(null)
-  const [followUpSendingId, setFollowUpSendingId] = useState(null)
-  const [followUpPreviewEmail, setFollowUpPreviewEmail] = useState("")
-  const [followUpPreviewSending, setFollowUpPreviewSending] = useState(false)
-  const [followUpPreviewNotice, setFollowUpPreviewNotice] = useState(null)
-  const [followUpNotice, setFollowUpNotice] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -220,11 +131,6 @@ export default function AdminAnalytics() {
     return () => window.clearInterval(interval)
   }, [])
 
-  useEffect(() => {
-    setEmailTrackingVisibleCount(EMAIL_TRACKING_INITIAL_ROWS)
-    setExpandedVideoClickRows({})
-  }, [dateRange, emailTrackingFilter])
-
   const cutoff = startOfDay(subDays(new Date(), Number(dateRange)))
   const inRange = (ts) => ts?.toDate && isAfter(ts.toDate(), cutoff)
 
@@ -265,48 +171,17 @@ export default function AdminAnalytics() {
   const topPerformerCount = performanceRecords.filter((record) => record.outcome.averageRating >= 4).length
   const presenceByCandidateId = new Map(candidatePresenceRecords.map((record) => [record.candidateId || record.id, record]))
   const rangedShares = shareRecords.filter((share) => inRange(share.createdAt))
-  const emailTrackingRows = rangedShares.map((share) => {
-    const clicks = shareClicksByShareId[share.id] || []
-    const linkEvents = clicks.filter(event => !isTrackingPixelEvent(event))
-    const videoEvents = linkEvents.filter(isVideoEvent)
-    const recipients = recipientCount(share)
-    return {
-      share,
-      recipients,
-      candidateCount: candidateShareCount(share),
-      linkEvents: linkEvents.length,
-      videoEvents: videoEvents.length,
-      videoClickRecipients: buildVideoClickRecipients(videoEvents),
-      uniqueClicks: uniqueRecipientCount(linkEvents),
-      followUps: followUpCount(share),
-    }
-  })
-  const visibleEmailTrackingRows = emailTrackingFilter === "all"
-    ? emailTrackingRows
-    : emailTrackingRows.filter(row => row.share.id === emailTrackingFilter)
-  const displayedEmailTrackingRows = visibleEmailTrackingRows.slice(0, emailTrackingVisibleCount)
-  const hiddenEmailTrackingRows = Math.max(0, visibleEmailTrackingRows.length - displayedEmailTrackingRows.length)
-  const nextEmailTrackingRows = Math.min(EMAIL_TRACKING_LOAD_MORE_ROWS, hiddenEmailTrackingRows)
-  const emailTrackingTotals = visibleEmailTrackingRows.reduce((acc, row) => {
-    acc.shares += 1
-    acc.recipients += row.recipients
-    acc.clickedRecipients += row.uniqueClicks
-    acc.linkEvents += row.linkEvents
-    acc.videoEvents += row.videoEvents
-    acc.followUps += row.followUps
-    return acc
-  }, { shares: 0, recipients: 0, clickedRecipients: 0, linkEvents: 0, videoEvents: 0, followUps: 0 })
-
   // ─── KPI Calculations ─────────────────────────────────────────────
   const totalApplications = rangedCandidates.length
-  const totalScheduled = rangedCandidates.filter((c) => c.stage === "scheduled").length
+  const totalEmployerReady = rangedCandidates.filter((c) => ["to_schedule", "scheduled", "hired"].includes(c.stage)).length
+  const totalSharedWithEmployers = rangedCandidates.filter((c) => Array.isArray(c.sharedWith) && c.sharedWith.length > 0).length
   const totalRejected = rangedCandidates.filter((c) => c.stage === "rejected").length
-  const totalScored = rangedCandidates.filter((c) => c.compositeScore != null).length
-  const avgComposite = totalScored > 0
-    ? (rangedCandidates.reduce((sum, c) => sum + (c.compositeScore || 0), 0) / totalScored).toFixed(1)
+  const _totalScored = rangedCandidates.filter((c) => c.compositeScore != null).length
+  const _avgComposite = _totalScored > 0
+    ? (rangedCandidates.reduce((sum, c) => sum + (c.compositeScore || 0), 0) / _totalScored).toFixed(1)
     : "—"
   const conversionRate = totalApplications > 0
-    ? ((totalScheduled / totalApplications) * 100).toFixed(1)
+    ? ((totalEmployerReady / totalApplications) * 100).toFixed(1)
     : "0"
   const rejectionRate = totalApplications > 0
     ? ((totalRejected / totalApplications) * 100).toFixed(1)
@@ -331,7 +206,7 @@ export default function AdminAnalytics() {
   // the Applied count is the entry cohort, Scored is everyone who got
   // past review, etc.). Rejected pulls from any stage.
   const stageReached = (c, stage) => {
-    const order = ['applied', 'scored', 'to_schedule', 'scheduled']
+    const order = ['applied', 'scored', 'to_schedule']
     const mapped = STAGE_LABELS[c.stage] === STAGE_LABELS[stage] ? c.stage : c.stage
     const current = mapped === 'screening' ? 'applied' : mapped === 'interview_2' ? 'applied' : mapped === 'scheduling' ? 'to_schedule' : mapped
     const curIdx = order.indexOf(current)
@@ -347,8 +222,7 @@ export default function AdminAnalytics() {
   const funnel = [
     { key: 'applied', label: 'Applied' },
     { key: 'scored', label: 'Reviewed' },
-    { key: 'to_schedule', label: 'Invited to interview' },
-    { key: 'scheduled', label: 'Scheduled' },
+    { key: 'to_schedule', label: 'Employer-ready' },
   ].map(s => ({ ...s, count: rangedCandidates.filter(c => stageReached(c, s.key)).length }))
   const funnelTop = funnel[0]?.count || 0
 
@@ -403,77 +277,6 @@ export default function AdminAnalytics() {
   const showCandidates = filterType === "all" || filterType === "candidates"
   const visibleLiveCount = (showCandidates ? liveCandidates.length : 0) + (showAdmins ? liveAdmins.length : 0)
 
-  const toggleVideoClickRow = (shareId) => {
-    setExpandedVideoClickRows(prev => ({ ...prev, [shareId]: !prev[shareId] }))
-  }
-
-  const sendFollowUp = async (share) => {
-    if (!share?.id || followUpSendingId) return
-    setFollowUpSendingId(share.id)
-    setFollowUpNotice(null)
-    try {
-      const followUpShare = httpsCallable(functions, "followUpShare")
-      const { data } = await followUpShare({ shareId: share.id })
-      setFollowUpNotice({
-        type: "success",
-        message: `Follow-up sent to ${(data.recipients || []).join(", ") || "the original recipients"}.`,
-      })
-      setFollowUpConfirmTarget(null)
-      setFollowUpPreviewEmail("")
-      setFollowUpPreviewNotice(null)
-    } catch (err) {
-      setFollowUpNotice({
-        type: "error",
-        message: err?.message || "Follow-up email failed. Please try again.",
-      })
-    } finally {
-      setFollowUpSendingId(null)
-    }
-  }
-
-  const openFollowUpConfirm = (share) => {
-    setFollowUpConfirmTarget(share)
-    setFollowUpPreviewEmail("")
-    setFollowUpPreviewNotice(null)
-  }
-
-  const closeFollowUpConfirm = () => {
-    if (followUpSendingId || followUpPreviewSending) return
-    setFollowUpConfirmTarget(null)
-    setFollowUpPreviewEmail("")
-    setFollowUpPreviewNotice(null)
-  }
-
-  const sendFollowUpPreview = async () => {
-    if (!followUpConfirmTarget?.id || followUpPreviewSending || !isValidEmail(followUpPreviewEmail)) return
-    setFollowUpPreviewSending(true)
-    setFollowUpPreviewNotice(null)
-    try {
-      const followUpShare = httpsCallable(functions, "followUpShare")
-      const { data } = await followUpShare({
-        shareId: followUpConfirmTarget.id,
-        previewToEmail: followUpPreviewEmail.trim(),
-      })
-      setFollowUpPreviewNotice({
-        type: "success",
-        message: `Preview sent to ${(data.recipients || []).join(", ") || followUpPreviewEmail.trim()}.`,
-      })
-    } catch (err) {
-      setFollowUpPreviewNotice({
-        type: "error",
-        message: err?.message || "Preview email failed. Please try again.",
-      })
-    } finally {
-      setFollowUpPreviewSending(false)
-    }
-  }
-
-  const followUpConfirmRecipients = Array.isArray(followUpConfirmTarget?.recipients)
-    ? followUpConfirmTarget.recipients
-    : []
-  const followUpConfirmSending = Boolean(followUpConfirmTarget && followUpSendingId === followUpConfirmTarget.id)
-  const previewEmailReady = isValidEmail(followUpPreviewEmail)
-
   const roleBadge = (role) => {
     const styles = { superadmin: "bg-purple-100 text-purple-800", manager: "bg-blue-100 text-blue-800" }
     const labels = { superadmin: "Superadmin", manager: "Manager" }
@@ -527,9 +330,9 @@ export default function AdminAnalytics() {
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <KpiCard label="Total Applications" value={totalApplications} />
                 <KpiCard label="Candidates Live Now" value={liveCandidates.length} color="green" />
-                <KpiCard label="Scheduled Interviews" value={totalScheduled} color="green" />
-                <KpiCard label="Conversion Rate" value={`${conversionRate}%`} color="blue" />
-                <KpiCard label="Avg Composite Score" value={avgComposite} color="purple" />
+                <KpiCard label="Employer-ready" value={totalEmployerReady} color="green" />
+                <KpiCard label="Shared with Employers" value={totalSharedWithEmployers} color="blue" />
+                <KpiCard label="Conversion Rate" value={`${conversionRate}%`} color="purple" />
               </div>
             )}
 
@@ -631,195 +434,14 @@ export default function AdminAnalytics() {
             )}
 
             {showCandidates && (
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-5">
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-900">Employer email tracking</h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Tracks app-sent share emails, video clicks, and other link clicks. Follow-up emails are sent as simple reply-friendly messages without tracking pixels.
-                    </p>
-                  </div>
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                    <select
-                      value={emailTrackingFilter}
-                      onChange={(e) => setEmailTrackingFilter(e.target.value)}
-                      className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-full"
-                    >
-                      <option value="all">All tracked emails</option>
-                      {emailTrackingRows.map((row) => (
-                        <option key={row.share.id} value={row.share.id}>{emailTrackingOptionLabel(row.share)}</option>
-                      ))}
-                    </select>
-                    <span className="text-[11px] text-gray-500 px-2 py-1 rounded-full bg-gray-100 h-fit w-fit">
-                      Last {dateRange} days
-                    </span>
-                  </div>
-                </div>
-
-                {emailTrackingRows.length === 0 ? (
-                  <p className="text-xs text-gray-400 py-8 text-center">No tracked employer share emails in this period.</p>
-                ) : (
-                  <div className="space-y-5">
-                    {followUpNotice && (
-                      <div className={`text-xs rounded-lg px-3 py-2 border ${
-                        followUpNotice.type === "success"
-                          ? "bg-green-50 border-green-100 text-green-700"
-                          : "bg-red-50 border-red-100 text-red-700"
-                      }`}>
-                        {followUpNotice.message}
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                      <Metric label="Share emails" value={emailTrackingTotals.shares} />
-                      <Metric label="Recipients" value={emailTrackingTotals.recipients} />
-                      <Metric label="Click rate" value={percent(emailTrackingTotals.clickedRecipients, emailTrackingTotals.recipients)} />
-                      <Metric label="Video clicks" value={emailTrackingTotals.videoEvents} />
-                      <Metric label="Follow-ups" value={emailTrackingTotals.followUps} />
-                    </div>
-
-                    <div className="border border-gray-200 rounded-xl overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="bg-gray-50 border-b border-gray-100">
-                            <th className="text-left text-[11px] font-semibold text-gray-500 px-4 py-2">Sent</th>
-                            <th className="text-left text-[11px] font-semibold text-gray-500 px-3 py-2">Packet</th>
-                            <th className="text-left text-[11px] font-semibold text-gray-500 px-3 py-2">Recipients</th>
-                            <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Clicks</th>
-                            <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Videos</th>
-                            <th className="text-right text-[11px] font-semibold text-gray-500 px-4 py-2">Follow-up</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {displayedEmailTrackingRows.map((row) => {
-                            const sentAt = toDate(row.share.createdAt)
-                            const lastFollowUpAt = toDate(row.share.lastFollowUpAt)
-                            const recipients = row.share.recipients || []
-                            const extraRecipients = Math.max(0, recipients.length - 2)
-                            const sending = followUpSendingId === row.share.id
-                            const videoDetailsOpen = expandedVideoClickRows[row.share.id] === true
-                            return (
-                              <Fragment key={row.share.id}>
-                                <tr className="border-b border-gray-100 last:border-0">
-                                  <td className="px-4 py-3 align-top">
-                                    {sentAt ? (
-                                      <>
-                                        <p className="text-xs font-medium text-gray-900">{format(sentAt, "MMM d")}</p>
-                                        <p className="text-[11px] text-gray-400">{format(sentAt, "h:mm a")}</p>
-                                      </>
-                                    ) : (
-                                      <span className="text-xs text-gray-400">Pending</span>
-                                    )}
-                                  </td>
-                                  <td className="px-3 py-3 align-top">
-                                    <p className="text-xs font-medium text-gray-900">{shareLabel(row.share)}</p>
-                                    <p className="text-[11px] text-gray-400">
-                                      {shareVersionLabel(row.share)} - {row.candidateCount || "No"} candidate{row.candidateCount === 1 ? "" : "s"} - {row.share.videoCount || 0} video link{row.share.videoCount === 1 ? "" : "s"}
-                                    </p>
-                                    {row.share.by && <p className="text-[11px] text-gray-400">Sent by {row.share.by}</p>}
-                                  </td>
-                                  <td className="px-3 py-3 align-top">
-                                    <p className="text-xs text-gray-700">{recipients.slice(0, 2).join(", ") || "No recipients"}</p>
-                                    {extraRecipients > 0 && <p className="text-[11px] text-gray-400">+{extraRecipients} more</p>}
-                                  </td>
-                                  <td className="px-3 py-3 text-right align-top">
-                                    <p className="text-xs font-semibold text-green-700">{row.uniqueClicks}/{row.recipients}</p>
-                                    <p className="text-[11px] text-gray-400">{row.linkEvents} click{row.linkEvents === 1 ? "" : "s"}</p>
-                                  </td>
-                                  <td className="px-3 py-3 text-right align-top">
-                                    <p className="text-xs font-semibold text-purple-700">{row.videoEvents}</p>
-                                    {row.videoClickRecipients.length > 0 && (
-                                      <button
-                                        type="button"
-                                        onClick={() => toggleVideoClickRow(row.share.id)}
-                                        className="text-[11px] font-medium text-purple-700 hover:text-purple-900 mt-1"
-                                      >
-                                        {videoDetailsOpen ? "Hide emails" : `View ${row.videoClickRecipients.length} email${row.videoClickRecipients.length === 1 ? "" : "s"}`}
-                                      </button>
-                                    )}
-                                  </td>
-                                  <td className="px-4 py-3 text-right align-top">
-                                    <button
-                                      type="button"
-                                      onClick={() => openFollowUpConfirm(row.share)}
-                                      disabled={sending || followUpSendingId !== null || row.recipients === 0}
-                                      className="whitespace-nowrap text-xs font-medium text-blue-700 border border-blue-100 bg-blue-50 hover:bg-blue-100 disabled:opacity-60 disabled:cursor-wait px-3 py-1.5 rounded-lg"
-                                    >
-                                      {sending ? "Sending..." : "Send follow up"}
-                                    </button>
-                                    {lastFollowUpAt ? (
-                                      <p className="text-[11px] text-gray-400 mt-1">Last {format(lastFollowUpAt, "MMM d, h:mm a")}</p>
-                                    ) : row.followUps > 0 ? (
-                                      <p className="text-[11px] text-gray-400 mt-1">{row.followUps} sent</p>
-                                    ) : null}
-                                  </td>
-                                </tr>
-                                {videoDetailsOpen && (
-                                  <tr className="border-b border-purple-100 bg-purple-50/40">
-                                    <td colSpan={6} className="px-4 py-3">
-                                      <div className="rounded-xl border border-purple-100 bg-white overflow-hidden">
-                                        <div className="px-3 py-2 border-b border-purple-50 flex items-center justify-between gap-2">
-                                          <p className="text-xs font-semibold text-gray-900">Video clicks by recipient</p>
-                                          <span className="text-[11px] text-purple-700 bg-purple-50 border border-purple-100 rounded-full px-2 py-0.5">
-                                            {row.videoClickRecipients.length} recipient{row.videoClickRecipients.length === 1 ? "" : "s"}
-                                          </span>
-                                        </div>
-                                        <div className="divide-y divide-gray-100">
-                                          {row.videoClickRecipients.map((recipient) => (
-                                            <div key={recipient.recipient} className="px-3 py-2 flex flex-col md:flex-row md:items-start md:justify-between gap-2">
-                                              <div>
-                                                <p className="text-xs font-medium text-gray-900">{recipient.recipient}</p>
-                                                <p className="text-[11px] text-gray-400">{recipient.clicks} video click{recipient.clicks === 1 ? "" : "s"}</p>
-                                              </div>
-                                              <div className="md:text-right space-y-1">
-                                                {recipient.labels.map((item) => (
-                                                  <p key={item.label} className="text-[11px] text-gray-600">
-                                                    {item.label}{item.count > 1 ? ` (${item.count})` : ""}
-                                                  </p>
-                                                ))}
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                              </Fragment>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    {hiddenEmailTrackingRows > 0 ? (
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <p className="text-xs text-gray-400">
-                          Showing {displayedEmailTrackingRows.length} of {visibleEmailTrackingRows.length} tracked share{visibleEmailTrackingRows.length === 1 ? "" : "s"}.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => setEmailTrackingVisibleCount(count => Math.min(count + EMAIL_TRACKING_LOAD_MORE_ROWS, visibleEmailTrackingRows.length))}
-                          className="text-xs font-medium text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-1.5 rounded-lg w-fit"
-                        >
-                          Load next {nextEmailTrackingRows}
-                        </button>
-                      </div>
-                    ) : (
-                      visibleEmailTrackingRows.length > EMAIL_TRACKING_INITIAL_ROWS && (
-                        <p className="text-xs text-gray-400 text-right">
-                          Showing all {visibleEmailTrackingRows.length} tracked share{visibleEmailTrackingRows.length === 1 ? "" : "s"}.
-                        </p>
-                      )
-                    )}
-                  </div>
-                )}
-              </div>
+              <EmployerEmailTracking shares={rangedShares} shareClicksByShareId={shareClicksByShareId} dateRange={dateRange} />
             )}
 
             {showCandidates && funnelTop > 0 && (
               <div className="bg-white rounded-xl border border-gray-200 p-5">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-semibold text-gray-900">Conversion funnel</h3>
-                  <p className="text-xs text-gray-500">Applied → Scheduled</p>
+                  <p className="text-xs text-gray-500">Applied to employer-ready</p>
                 </div>
                 <div className="space-y-2">
                   {funnel.map((s, i) => {
@@ -832,7 +454,7 @@ export default function AdminAnalytics() {
                         <div className="flex-1 bg-gray-100 rounded-full h-6 overflow-hidden relative">
                           <div
                             className={`h-full rounded-full flex items-center justify-end pr-2 text-[11px] font-semibold text-white ${
-                              i === 0 ? 'bg-blue-500' : i === 1 ? 'bg-indigo-500' : i === 2 ? 'bg-purple-500' : 'bg-green-500'
+                              i === 0 ? 'bg-blue-500' : i === 1 ? 'bg-indigo-500' : 'bg-green-500'
                             }`}
                             style={{ width: `${Math.max(pctOfTop, 4)}%` }}
                           >
@@ -847,7 +469,7 @@ export default function AdminAnalytics() {
                   })}
                 </div>
                 <p className="text-xs text-gray-500 mt-4">
-                  Overall conversion (applied → scheduled): <span className="font-semibold text-gray-900">{funnel[3]?.count && funnelTop ? ((funnel[3].count / funnelTop) * 100).toFixed(1) : '0'}%</span>
+                  Overall conversion (applied to employer-ready): <span className="font-semibold text-gray-900">{funnel[2]?.count && funnelTop ? ((funnel[2].count / funnelTop) * 100).toFixed(1) : '0'}%</span>
                 </p>
               </div>
             )}
@@ -1171,79 +793,16 @@ export default function AdminAnalytics() {
         )}
       </div>
 
-      {followUpConfirmTarget && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={closeFollowUpConfirm}>
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-lg p-6 space-y-5" onClick={e => e.stopPropagation()}>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Send follow-up?</h3>
-              <p className="text-sm text-gray-500 mt-1">
-                Are you sure? This will send a simple follow-up email to the original recipient{followUpConfirmRecipients.length === 1 ? "" : "s"} for {shareLabel(followUpConfirmTarget)}.
-              </p>
-            </div>
-
-            <div className="border border-gray-100 bg-gray-50 rounded-xl p-3">
-              <p className="text-xs font-semibold text-gray-600 mb-1">Recipients</p>
-              <p className="text-sm text-gray-800 break-words">{followUpConfirmRecipients.join(", ") || "No recipients on this share"}</p>
-            </div>
-
-            <div className="border border-blue-100 bg-blue-50 rounded-xl p-3">
-              <p className="text-xs font-semibold text-blue-800 mb-1">Preview first</p>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="email"
-                  value={followUpPreviewEmail}
-                  onChange={(e) => {
-                    setFollowUpPreviewEmail(e.target.value)
-                    setFollowUpPreviewNotice(null)
-                  }}
-                  placeholder="Preview email address"
-                  className="flex-1 text-sm border border-blue-100 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                />
-                <button
-                  type="button"
-                  onClick={sendFollowUpPreview}
-                  disabled={!previewEmailReady || followUpPreviewSending || followUpConfirmSending}
-                  className="text-sm font-medium text-blue-700 border border-blue-200 bg-white hover:bg-blue-100 disabled:opacity-60 disabled:cursor-not-allowed px-3 py-2 rounded-lg"
-                >
-                  {followUpPreviewSending ? "Sending preview..." : "Send preview"}
-                </button>
-              </div>
-              {followUpPreviewNotice && (
-                <p className={`text-xs mt-2 ${followUpPreviewNotice.type === "success" ? "text-green-700" : "text-red-700"}`}>
-                  {followUpPreviewNotice.message}
-                </p>
-              )}
-            </div>
-
-            <div className="flex flex-col sm:flex-row justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeFollowUpConfirm}
-                disabled={followUpConfirmSending || followUpPreviewSending}
-                className="text-sm font-medium text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-60 px-4 py-2 rounded-lg"
-              >
-                No
-              </button>
-              <button
-                type="button"
-                onClick={() => sendFollowUp(followUpConfirmTarget)}
-                disabled={followUpConfirmSending || followUpPreviewSending || followUpConfirmRecipients.length === 0}
-                className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-wait px-4 py-2 rounded-lg"
-              >
-                {followUpConfirmSending ? "Sending..." : "Yes, send follow-up"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
 
 function KpiCard({ label, value, color }) {
   const colors = {
-    green: "text-green-600", blue: "text-blue-600",
-    purple: "text-purple-600", red: "text-red-600",
+    green: "text-green-600",
+    blue: "text-blue-600",
+    purple: "text-purple-600",
+    red: "text-red-600",
   }
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -1338,7 +897,7 @@ function CorrelationTable({ rows }) {
               <td className="px-4 py-2">
                 <p className="text-xs font-medium text-gray-800">{row.label}</p>
                 <p className="text-[11px] text-gray-400">
-                  Avg signal {formatMetric(row.averageSignal, row.formatSignal)} - outcome {formatMetric(row.averageOutcome, (v) => `${v.toFixed(1)}/5`)}
+                  Avg signal {formatMetric(row.averageSignal, row.formatSignal)} - outcome {formatMetric(row.averageOutcome, (value) => `${value.toFixed(1)}/5`)}
                 </p>
               </td>
               <td className="px-3 py-2 text-xs text-gray-600 text-right">{row.sampleSize}</td>
@@ -1382,7 +941,7 @@ function OutcomeSegmentTable({ title, rows }) {
               <td className="px-4 py-2">
                 <p className="text-xs font-medium text-gray-800 truncate">{row.label}</p>
                 <p className="text-[11px] text-gray-400">
-                  Manual {formatMetric(row.averageManualScore, (v) => v.toFixed(1))} - AI {formatMetric(row.averageCompositeScore, (v) => v.toFixed(1))}
+                  Manual {formatMetric(row.averageManualScore, (value) => value.toFixed(1))} - AI {formatMetric(row.averageCompositeScore, (value) => value.toFixed(1))}
                 </p>
               </td>
               <td className="px-3 py-2 text-xs text-gray-600 text-right">{row.sampleSize}</td>

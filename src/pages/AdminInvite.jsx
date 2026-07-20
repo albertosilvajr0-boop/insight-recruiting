@@ -11,13 +11,13 @@ const STAGE_LABELS = {
   invited: 'Invited',
   applied: 'Applied',
   scored: 'Scored',
-  to_schedule: 'To Schedule',
-  scheduled: 'Scheduled',
+  to_schedule: 'Employer Review',
+  scheduled: 'Legacy Scheduled',
   hired: 'Hired',
   rejected: 'Rejected',
   screening: 'Applied',
   interview_2: 'Applied',
-  scheduling: 'To Schedule',
+  scheduling: 'Employer Review',
 }
 
 const STAGE_BADGE_COLORS = {

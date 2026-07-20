@@ -84,7 +84,7 @@ function buildShortlistDraft(candidates, note) {
     '',
     'Hi,',
     '',
-    `I pulled together ${candidates.length} screened candidate${candidates.length === 1 ? '' : 's'} with AI scores, response evidence, video availability, and scoring notes so your team can compare candidates quickly.`,
+    `I pulled together ${candidates.length} screened candidate${candidates.length === 1 ? '' : 's'} with AI scores, response evidence, video responses, and scoring notes so your team can compare candidates quickly.`,
   ]
   if (note.trim()) lines.push('', `Share note: ${note.trim()}`)
   candidates.forEach((candidate, index) => {
@@ -97,6 +97,7 @@ function buildShortlistDraft(candidates, note) {
 export default function BulkShareCandidatesModal({ candidates, onClose, onSent }) {
   const [mode, setMode] = useState('email')
   const [email, setEmail] = useState('')
+  const [employerName, setEmployerName] = useState('')
   const [note, setNote] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(null)
@@ -120,6 +121,7 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
       const { data } = await shareCandidates({
         candidateIds: candidates.map(candidate => candidate.id),
         toEmails: emailList,
+        employerName: employerName.trim(),
         note: note.trim(),
         emailVersion,
       })
@@ -204,6 +206,20 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
                   className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <p className="text-xs text-gray-400 mt-1">Separate multiple employers with commas. Each recipient gets their own tracked email.</p>
+              </div>
+            )}
+
+            {isEmailMode && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Employer / company</label>
+                <input
+                  type="text"
+                  value={employerName}
+                  onChange={e => setEmployerName(e.target.value)}
+                  placeholder="Optional. Leave blank to group contacts by email domain."
+                  maxLength={160}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
             )}
 

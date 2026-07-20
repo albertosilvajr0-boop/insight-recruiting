@@ -191,7 +191,7 @@ service cloud.firestore {
     match /candidates/{candidateId} {
       allow create: if validCandidateCreate(candidateId);
       allow get, list: if hasPermission('view_candidates');
-      allow update: if hasPermission('score_candidates') || hasPermission('schedule_interviews');
+      allow update: if hasPermission('score_candidates');
       allow delete: if isSuperadmin();
     }
 
@@ -219,7 +219,8 @@ service cloud.firestore {
     }
 
     match /availability/{slotId} {
-      allow get, list, create, update, delete: if hasPermission('manage_availability');
+      allow get, list: if hasPermission('view_candidates');
+      allow create, update, delete: if false;
     }
 
     match /users/{userId} {
@@ -246,6 +247,21 @@ service cloud.firestore {
         allow get, list: if hasPermission('view_candidates') || hasPermission('view_analytics');
         allow create, update, delete: if false;
       }
+    }
+
+    match /employers/{employerId} {
+      allow get, list: if hasPermission('view_candidates') || hasPermission('view_analytics');
+      allow create, update, delete: if false;
+    }
+
+    match /employerContacts/{contactId} {
+      allow get, list: if hasPermission('view_candidates') || hasPermission('view_analytics');
+      allow create, update, delete: if false;
+    }
+
+    match /campaigns/{campaignId} {
+      allow get, list: if hasPermission('view_candidates') || hasPermission('view_analytics');
+      allow create, update, delete: if false;
     }
 
     match /verificationCodes/{codeId} {

@@ -7,7 +7,6 @@ import { scoreResume } from './pipeline/scoreResume.js'
 import { transcribeAndScoreVideo } from './pipeline/transcribeVideo.js'
 import { routeCandidate } from './pipeline/routeCandidate.js'
 import { sendDailyDigest } from './email/dailyDigest.js'
-import { sendReminders } from './email/sendReminder.js'
 import { sendNewApplicationNotification } from './email/sendNewApplicationNotification.js'
 import { sendApplicationReceipt } from './email/sendApplicationReceipt.js'
 import { generateJobFeed } from './jobs/jobFeed.js'
@@ -19,6 +18,7 @@ import { getCandidateStatusHandler } from './candidates/getCandidateStatus.js'
 import { auditCandidateUpdate } from './candidates/auditCandidateChanges.js'
 import { shareCandidateHandler, shareCandidatesHandler, followUpShareHandler } from './candidates/shareCandidate.js'
 import { trackShareClick } from './candidates/shareTracking.js'
+import { getEmployerReviewHandler, recordEmployerReviewActionHandler } from './employers/employerCrm.js'
 import {
   createCandidateInviteHandler,
   attachInviteResumeHandler,
@@ -135,28 +135,6 @@ export const dailyDigest = onSchedule(
   }
 )
 
-// ─── Reminders: check every hour for upcoming interviews ───────────────────
-export const interviewReminders = onSchedule(
-  { schedule: '0 * * * *', timeZone: 'America/Chicago', secrets: EMAIL_SECRETS },
-  async () => {
-    await sendReminders()
-  }
-)
-
-// ─── Callable: get available scheduling slots ───────────────────────────────
-export const getSlots = onCall(async (request) => {
-  const { token } = request.data
-  if (!token) throw new HttpsError('invalid-argument', 'Missing scheduling token.')
-  throw new HttpsError('failed-precondition', 'Self-scheduling is no longer available. The recruiting team will reach out directly with next steps.')
-})
-
-// ─── Callable: book a scheduling slot ──────────────────────────────────────
-export const bookInterview = onCall({ secrets: EMAIL_SECRETS }, async (request) => {
-  const { token, slotId } = request.data
-  if (!token || !slotId) throw new HttpsError('invalid-argument', 'Missing token or slotId.')
-  throw new HttpsError('failed-precondition', 'Self-scheduling is no longer available. The recruiting team will reach out directly with next steps.')
-})
-
 export const getCandidateStatus = onCall(async (request) => {
   return getCandidateStatusHandler(request.data)
 })
@@ -172,6 +150,14 @@ export const shareCandidates = onCall({ secrets: EMAIL_SECRETS, timeoutSeconds: 
 
 export const followUpShare = onCall({ secrets: EMAIL_SECRETS, timeoutSeconds: 180 }, async (request) => {
   return followUpShareHandler(request.data, request)
+})
+
+export const getEmployerReview = onCall(async (request) => {
+  return getEmployerReviewHandler(request.data)
+})
+
+export const recordEmployerReviewAction = onCall(async (request) => {
+  return recordEmployerReviewActionHandler(request.data)
 })
 
 export const createCandidateInvite = onCall({ secrets: EMAIL_SECRETS }, async (request) => {

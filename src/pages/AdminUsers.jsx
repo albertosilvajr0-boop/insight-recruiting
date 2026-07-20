@@ -6,7 +6,7 @@ import { db, auth, functions } from "../firebase"
 import { PERMISSIONS as APP_PERMISSIONS, ROLE_DEFAULT_PERMISSIONS, ROLES as APP_ROLES } from "../security/roles"
 
 const ROLE_OPTIONS = [
-  { value: APP_ROLES.MANAGER, label: "Manager", description: "Score candidates, schedule interviews, view all candidates and interviews" },
+  { value: APP_ROLES.MANAGER, label: "Manager", description: "Score candidates, share shortlists, view candidates, and manage onboarding" },
   { value: APP_ROLES.SUPERADMIN, label: "Superadmin", description: "Full system administration, including jobs, questions, users, and analytics" },
 ]
 
@@ -14,11 +14,9 @@ const PERMISSION_OPTIONS = [
   { key: APP_PERMISSIONS.VIEW_DASHBOARD, label: "View Dashboard" },
   { key: APP_PERMISSIONS.VIEW_CANDIDATES, label: "View Candidates" },
   { key: APP_PERMISSIONS.SCORE_CANDIDATES, label: "Score Candidates" },
-  { key: APP_PERMISSIONS.SCHEDULE_INTERVIEWS, label: "Schedule Interviews" },
   { key: APP_PERMISSIONS.MANAGE_ONBOARDING, label: "Manage Onboarding" },
   { key: APP_PERMISSIONS.MANAGE_JOBS, label: "Manage Jobs" },
   { key: APP_PERMISSIONS.MANAGE_QUESTIONS, label: "Manage Questions" },
-  { key: APP_PERMISSIONS.MANAGE_AVAILABILITY, label: "Manage Availability" },
   { key: APP_PERMISSIONS.MANAGE_USERS, label: "Manage Users" },
   { key: APP_PERMISSIONS.VIEW_ANALYTICS, label: "View Analytics" },
 ]
