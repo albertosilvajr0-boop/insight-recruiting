@@ -79,10 +79,10 @@ export default function EmployerReview() {
     }
   }
 
-  const openVideo = async (candidate, item) => {
+  const openVideo = (candidate, item) => {
     const link = review?.links?.[item.videoTarget]
-    await recordAction({ candidateId: candidate.candidateId, action: 'view_video', note: item.question })
     if (link?.url) window.open(link.url, '_blank', 'noopener,noreferrer')
+    void recordAction({ candidateId: candidate.candidateId, action: 'view_video', note: item.question })
   }
 
   if (loading) {
