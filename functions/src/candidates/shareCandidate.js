@@ -976,6 +976,7 @@ export async function shareCandidatesHandler(data, request) {
 export async function followUpShareHandler(data, request) {
   const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
   const shareId = String(data?.shareId || '').trim()
+  const previewToEmail = String(data?.previewToEmail || '').trim()
   if (!shareId) throw new HttpsError('invalid-argument', 'Missing shareId.')
 
   const db = getFirestore()
@@ -984,9 +985,10 @@ export async function followUpShareHandler(data, request) {
   if (!snap.exists) throw new HttpsError('not-found', 'Share record not found.')
 
   const share = { id: snap.id, ...snap.data() }
-  const toEmails = validateRecipients({ toEmails: share.recipients || [] })
+  const previewMode = previewToEmail.length > 0
+  const toEmails = validateRecipients({ toEmails: previewMode ? [previewToEmail] : share.recipients || [] })
   const sharedBy = profile.email || request.auth.token?.email || request.auth.uid
-  const subject = followUpSubject(share)
+  const subject = previewMode ? `Preview: ${followUpSubject(share)}` : followUpSubject(share)
   const text = buildFollowUpText({ share, sharedBy })
   const html = buildFollowUpHtml({ share, sharedBy })
 
@@ -999,6 +1001,23 @@ export async function followUpShareHandler(data, request) {
       text,
       html,
     })
+  }
+
+  if (previewMode) {
+    await writeAuditLog({
+      actorUid: request.auth.uid,
+      actorEmail: profile.email || request.auth.token?.email || null,
+      action: 'candidate.share_follow_up_preview_sent',
+      targetType: 'share',
+      targetId: shareId,
+      metadata: {
+        toEmails,
+        candidateIds: share.candidateIds || (share.candidateId ? [share.candidateId] : []),
+        emailVersion: share.emailVersion || null,
+      },
+    })
+
+    return { success: true, recipients: toEmails, preview: true }
   }
 
   const sentAt = new Date().toISOString()
