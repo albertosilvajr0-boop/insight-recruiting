@@ -137,6 +137,13 @@ export default function ShareCandidateModal({ candidate, onClose }) {
   const [includeResume, setIncludeResume] = useState(true)
   const [videoCount, setVideoCount] = useState('1')
   const [copied, setCopied] = useState(false)
+  // Tracked-link tab: mints a /t/ token for LinkedIn/SMS/etc. without email
+  const [linkContact, setLinkContact] = useState('')
+  const [linkCompany, setLinkCompany] = useState('')
+  const [linkChannel, setLinkChannel] = useState('linkedin')
+  const [linkCreating, setLinkCreating] = useState(false)
+  const [linkResult, setLinkResult] = useState(null) // { trackedUrl, contactName }
+  const [linkCopied, setLinkCopied] = useState(false)
   const videoEntries = useMemo(() => getVideoEntries(candidate), [candidate])
 
   useEffect(() => {
@@ -178,6 +185,34 @@ export default function ShareCandidateModal({ candidate, onClose }) {
   const validEmail = emailList.length > 0
     && emailList.length <= 10
     && emailList.every(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))
+
+  const handleCreateLink = async () => {
+    if (!linkContact.trim() || linkCreating) return
+    setLinkCreating(true)
+    setError(null)
+    try {
+      const createTrackedLink = httpsCallable(functions, 'createTrackedLink')
+      const { data } = await createTrackedLink({
+        candidateId: candidate.id,
+        contactName: linkContact.trim(),
+        company: linkCompany.trim(),
+        channel: linkChannel,
+        manualResumeScores: candidate.manualResumeScores || {},
+        manualAnswerScores: candidate.manualAnswerScores || {},
+        manualAnswerNotes: candidate.manualAnswerNotes || {},
+        manualScore: candidate.manualScore || null,
+      })
+      setLinkResult(data)
+      await copyToClipboard(data.trackedUrl)
+      setLinkCopied(true)
+      setTimeout(() => setLinkCopied(false), 2500)
+    } catch (err) {
+      console.error('Tracked link failed:', err)
+      setError(err?.message || 'Could not create the link. Please try again.')
+    } finally {
+      setLinkCreating(false)
+    }
+  }
 
   const handleSend = async () => {
     if (!validEmail || sending) return
@@ -227,12 +262,14 @@ export default function ShareCandidateModal({ candidate, onClose }) {
               <p className="text-xs text-gray-500 mt-1">
                 {mode === 'email'
                   ? 'Sends a client-ready candidate packet with AI score, scoring notes, resume, response evidence, and one-click video links.'
-                  : 'Builds a ready-to-send email draft you can paste into Gmail from your own mailbox.'}
+                  : mode === 'text'
+                  ? 'Builds a ready-to-send email draft you can paste into Gmail from your own mailbox.'
+                  : 'Mints a tracked link for LinkedIn, SMS, or WhatsApp — no email sent. Clicks and video views show up under this contact\'s name in Employer tracking, just like email recipients.'}
               </p>
             </div>
 
             <div className="flex rounded-xl bg-gray-100 p-1">
-              {[['email', 'Send email'], ['text', 'Copy email draft']].map(([value, label]) => (
+              {[['email', 'Send email'], ['text', 'Copy email draft'], ['link', 'Tracked link']].map(([value, label]) => (
                 <button key={value} onClick={() => setMode(value)}
                   className={`flex-1 text-sm font-medium py-2 rounded-lg transition-colors ${mode === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                   {label}
@@ -240,6 +277,7 @@ export default function ShareCandidateModal({ candidate, onClose }) {
               ))}
             </div>
 
+            {mode !== 'link' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Note (optional)</label>
               <textarea
@@ -250,8 +288,72 @@ export default function ShareCandidateModal({ candidate, onClose }) {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+            )}
 
-            {mode === 'email' ? (
+            {mode === 'link' ? (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Contact name</label>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={linkContact}
+                    onChange={e => { setLinkContact(e.target.value); setError(null) }}
+                    placeholder="Michael McDonald"
+                    maxLength={120}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Company</label>
+                    <input
+                      type="text"
+                      value={linkCompany}
+                      onChange={e => setLinkCompany(e.target.value)}
+                      placeholder="Optional"
+                      maxLength={160}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Channel</label>
+                    <select value={linkChannel} onChange={e => setLinkChannel(e.target.value)}
+                      className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="linkedin">LinkedIn</option>
+                      <option value="sms">SMS</option>
+                      <option value="whatsapp">WhatsApp</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                </div>
+                {linkResult && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2.5 space-y-1.5">
+                    <p className="text-xs font-medium text-green-800">
+                      Link for {linkResult.contactName} created{linkCopied ? ' and copied to your clipboard' : ''} — paste it into your message:
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <input readOnly value={linkResult.trackedUrl} onFocus={e => e.target.select()}
+                        className="flex-1 border border-green-200 rounded-lg px-2 py-1.5 text-xs font-mono text-gray-700 bg-white focus:outline-none" />
+                      <button onClick={async () => { await copyToClipboard(linkResult.trackedUrl); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) }}
+                        className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white">
+                        {linkCopied ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {error && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>}
+                <div className="flex gap-3">
+                  <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium py-2.5 rounded-xl">
+                    {linkResult ? 'Done' : 'Cancel'}
+                  </button>
+                  <button onClick={handleCreateLink} disabled={!linkContact.trim() || linkCreating}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-xl">
+                    {linkCreating ? 'Creating…' : linkResult ? 'Create another link' : 'Create tracked link'}
+                  </button>
+                </div>
+              </>
+            ) : mode === 'email' ? (
               <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Send to</label>

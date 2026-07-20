@@ -60,7 +60,7 @@ export default function AdminAnalytics() {
   const [onboardingRecords, setOnboardingRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterType, setFilterType] = useState("all") // "all" | "admins" | "candidates"
-  const [dateRange, setDateRange] = useState("30") // days
+  const [dateRange, setDateRange] = useState("all") // days, or "all" for everything
   const [now, setNow] = useState(() => new Date())
   const navigate = useNavigate()
 
@@ -131,7 +131,8 @@ export default function AdminAnalytics() {
     return () => window.clearInterval(interval)
   }, [])
 
-  const cutoff = startOfDay(subDays(new Date(), Number(dateRange)))
+  const allTime = dateRange === "all"
+  const cutoff = allTime ? new Date(0) : startOfDay(subDays(new Date(), Number(dateRange)))
   const inRange = (ts) => ts?.toDate && isAfter(ts.toDate(), cutoff)
 
   // Filtered candidates by date range
@@ -240,7 +241,7 @@ export default function AdminAnalytics() {
 
   // Applications per day (last N days)
   const dailyApps = {}
-  const days = Number(dateRange)
+  const days = allTime ? 30 : Number(dateRange)
   for (let i = 0; i < Math.min(days, 30); i++) {
     const d = format(subDays(new Date(), i), "MMM d")
     dailyApps[d] = 0
@@ -309,6 +310,7 @@ export default function AdminAnalytics() {
             {/* Date range */}
             <select value={dateRange} onChange={(e) => setDateRange(e.target.value)}
               className="text-xs border border-gray-200 rounded-full px-3 py-1.5 text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="all">All time</option>
               <option value="7">Last 7 days</option>
               <option value="30">Last 30 days</option>
               <option value="90">Last 90 days</option>
@@ -340,7 +342,7 @@ export default function AdminAnalytics() {
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <KpiCard label="Total Admin Users" value={users.length} />
                 <KpiCard label="Admins Live Now" value={liveAdmins.length} color="green" />
-                <KpiCard label={`Active (last ${dateRange}d)`} value={activeAdmins.length} color="green" />
+                <KpiCard label={allTime ? "Active (all time)" : `Active (last ${dateRange}d)`} value={activeAdmins.length} color="green" />
                 <KpiCard label="Total Logins" value={users.reduce((s, u) => s + (u.loginCount || 0), 0)} color="blue" />
                 <KpiCard label="Superadmins" value={users.filter((u) => u.role === "superadmin").length} color="purple" />
               </div>

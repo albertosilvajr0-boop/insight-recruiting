@@ -68,9 +68,17 @@ function shareLabel(share) {
 }
 
 function shareVersionLabel(share) {
+  if (share.kind === 'link') return 'Tracked link'
   if (share.emailVersion === 'v2') return 'Send Email V2'
   if (share.emailVersion === 'v1') return 'Send Email V1'
   return 'Candidate profile'
+}
+
+const CHANNEL_LABELS = { linkedin: 'LinkedIn', sms: 'SMS', whatsapp: 'WhatsApp', other: 'Link' }
+
+function shareChannelLabel(share) {
+  if (share.kind === 'link') return CHANNEL_LABELS[share.channel] || 'Link'
+  return 'Email'
 }
 
 function emailTrackingOptionLabel(share) {
@@ -242,7 +250,7 @@ export default function EmployerEmailTracking({ shares, shareClicksByShareId, da
               ))}
             </select>
             <span className="text-[11px] text-gray-500 px-2 py-1 rounded-full bg-gray-100 h-fit w-fit">
-              Last {dateRange} days
+              {dateRange === "all" ? "All time" : `Last ${dateRange} days`}
             </span>
           </div>
         </div>
@@ -274,6 +282,7 @@ export default function EmployerEmailTracking({ shares, shareClicksByShareId, da
                   <tr className="bg-gray-50 border-b border-gray-100">
                     <th className="text-left text-[11px] font-semibold text-gray-500 px-4 py-2">Sent</th>
                     <th className="text-left text-[11px] font-semibold text-gray-500 px-3 py-2">Packet</th>
+                    <th className="text-left text-[11px] font-semibold text-gray-500 px-3 py-2">Channel</th>
                     <th className="text-left text-[11px] font-semibold text-gray-500 px-3 py-2">Recipients</th>
                     <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Clicks</th>
                     <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Videos</th>
@@ -310,6 +319,11 @@ export default function EmployerEmailTracking({ shares, shareClicksByShareId, da
                             {row.share.reviewUrl && <p className="text-[11px] text-blue-600 mt-0.5">Secure review page included</p>}
                           </td>
                           <td className="px-3 py-3 align-top">
+                            <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${row.share.kind === 'link' ? 'bg-indigo-50 text-indigo-700' : 'bg-gray-100 text-gray-600'}`}>
+                              {shareChannelLabel(row.share)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 align-top">
                             <p className="text-xs text-gray-700">{recipients.slice(0, 2).join(', ') || 'No recipients'}</p>
                             {extraRecipients > 0 && <p className="text-[11px] text-gray-400">+{extraRecipients} more</p>}
                           </td>
@@ -330,6 +344,9 @@ export default function EmployerEmailTracking({ shares, shareClicksByShareId, da
                             )}
                           </td>
                           <td className="px-4 py-3 text-right align-top">
+                            {row.share.kind === 'link' ? (
+                              <span className="text-[11px] text-gray-400">No email to follow up</span>
+                            ) : (
                             <button
                               type="button"
                               onClick={() => openFollowUpConfirm(row.share)}
@@ -338,6 +355,7 @@ export default function EmployerEmailTracking({ shares, shareClicksByShareId, da
                             >
                               {sending ? 'Sending...' : 'Send follow up'}
                             </button>
+                            )}
                             {lastFollowUpAt ? (
                               <p className="text-[11px] text-gray-400 mt-1">Last {format(lastFollowUpAt, 'MMM d, h:mm a')}</p>
                             ) : row.followUps > 0 ? (
@@ -347,7 +365,7 @@ export default function EmployerEmailTracking({ shares, shareClicksByShareId, da
                         </tr>
                         {videoDetailsOpen && (
                           <tr className="border-b border-purple-100 bg-purple-50/40">
-                            <td colSpan={6} className="px-4 py-3">
+                            <td colSpan={7} className="px-4 py-3">
                               <div className="rounded-xl border border-purple-100 bg-white overflow-hidden">
                                 <div className="px-3 py-2 border-b border-purple-50 flex items-center justify-between gap-2">
                                   <p className="text-xs font-semibold text-gray-900">Video clicks by recipient</p>

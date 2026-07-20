@@ -16,7 +16,7 @@ import { createUserHandler, updateUserHandler, deleteUserHandler, ensureCurrentU
 import { sendPhoneVerificationHandler, verifyPhoneCodeHandler } from './verification/phoneVerification.js'
 import { getCandidateStatusHandler } from './candidates/getCandidateStatus.js'
 import { auditCandidateUpdate } from './candidates/auditCandidateChanges.js'
-import { shareCandidateHandler, shareCandidatesHandler, followUpShareHandler } from './candidates/shareCandidate.js'
+import { shareCandidateHandler, shareCandidatesHandler, followUpShareHandler, createTrackedLinkHandler } from './candidates/shareCandidate.js'
 import { trackShareClick } from './candidates/shareTracking.js'
 import { getEmployerReviewHandler, recordEmployerReviewActionHandler } from './employers/employerCrm.js'
 import {
@@ -146,6 +146,11 @@ export const shareCandidate = onCall({ secrets: EMAIL_SECRETS, timeoutSeconds: 3
 
 export const shareCandidates = onCall({ secrets: EMAIL_SECRETS, timeoutSeconds: 300 }, async (request) => {
   return shareCandidatesHandler(request.data, request)
+})
+
+// No email secrets — minting a tracked link never sends anything.
+export const createTrackedLink = onCall({ timeoutSeconds: 300 }, async (request) => {
+  return createTrackedLinkHandler(request.data, request)
 })
 
 export const followUpShare = onCall({ secrets: EMAIL_SECRETS, timeoutSeconds: 180 }, async (request) => {

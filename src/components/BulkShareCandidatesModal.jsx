@@ -103,6 +103,13 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState(false)
+  // Tracked-link mode: mints a /t/ token for LinkedIn/SMS/etc. without email
+  const [linkContact, setLinkContact] = useState('')
+  const [linkCompany, setLinkCompany] = useState('')
+  const [linkChannel, setLinkChannel] = useState('linkedin')
+  const [linkCreating, setLinkCreating] = useState(false)
+  const [linkResult, setLinkResult] = useState(null)
+  const [linkCopied, setLinkCopied] = useState(false)
   const draftText = buildShortlistDraft(candidates, note)
   const isEmailMode = mode === 'email' || mode === 'emailV2'
   const emailVersion = mode === 'emailV2' ? 'v2' : 'v1'
@@ -141,6 +148,31 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const handleCreateLink = async () => {
+    if (!linkContact.trim() || linkCreating || candidates.length === 0) return
+    setLinkCreating(true)
+    setError(null)
+    try {
+      const createTrackedLink = httpsCallable(functions, 'createTrackedLink')
+      const { data } = await createTrackedLink({
+        candidateIds: candidates.map(candidate => candidate.id),
+        contactName: linkContact.trim(),
+        company: linkCompany.trim(),
+        channel: linkChannel,
+      })
+      setLinkResult(data)
+      await copyToClipboard(data.trackedUrl)
+      setLinkCopied(true)
+      setTimeout(() => setLinkCopied(false), 2500)
+      onSent?.()
+    } catch (err) {
+      console.error('Tracked link failed:', err)
+      setError(err?.message || 'Could not create the link. Please try again.')
+    } finally {
+      setLinkCreating(false)
+    }
+  }
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={onClose}>
       <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-2xl p-6 space-y-5" onClick={e => e.stopPropagation()}>
@@ -167,12 +199,14 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
                   ? 'Send one employer-ready email with the selected candidates, AI scores, scoring notes, response evidence, and tracked video links.'
                   : mode === 'emailV2'
                     ? 'Send a summary-first version with a ranked table, compact candidate cards, and the clearest video response links.'
+                  : mode === 'link'
+                    ? 'Mints a tracked shortlist link for LinkedIn, SMS, or WhatsApp — no email sent. Clicks and video views appear under this contact\'s name in Employer tracking.'
                   : 'Build a ready-to-send shortlist draft you can paste into Gmail from your own mailbox.'}
               </p>
             </div>
 
             <div className="flex rounded-xl bg-gray-100 p-1">
-              {[['email', 'Send email'], ['emailV2', 'Send email V2'], ['draft', 'Copy email draft']].map(([value, label]) => (
+              {[['email', 'Send email'], ['emailV2', 'Send email V2'], ['draft', 'Copy email draft'], ['link', 'Tracked link']].map(([value, label]) => (
                 <button key={value} onClick={() => setMode(value)}
                   className={`flex-1 text-sm font-medium py-2 rounded-lg transition-colors ${mode === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                   {label}
@@ -223,6 +257,62 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
               </div>
             )}
 
+            {mode === 'link' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Contact name</label>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={linkContact}
+                    onChange={e => { setLinkContact(e.target.value); setError(null) }}
+                    placeholder="Michael McDonald"
+                    maxLength={120}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Company</label>
+                    <input
+                      type="text"
+                      value={linkCompany}
+                      onChange={e => setLinkCompany(e.target.value)}
+                      placeholder="Optional"
+                      maxLength={160}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Channel</label>
+                    <select value={linkChannel} onChange={e => setLinkChannel(e.target.value)}
+                      className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="linkedin">LinkedIn</option>
+                      <option value="sms">SMS</option>
+                      <option value="whatsapp">WhatsApp</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                </div>
+                {linkResult && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2.5 space-y-1.5">
+                    <p className="text-xs font-medium text-green-800">
+                      Shortlist link for {linkResult.contactName} created{linkCopied ? ' and copied to your clipboard' : ''}:
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <input readOnly value={linkResult.trackedUrl} onFocus={e => e.target.select()}
+                        className="flex-1 border border-green-200 rounded-lg px-2 py-1.5 text-xs font-mono text-gray-700 bg-white focus:outline-none" />
+                      <button onClick={async () => { await copyToClipboard(linkResult.trackedUrl); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) }}
+                        className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white">
+                        {linkCopied ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {mode !== 'link' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Shortlist note</label>
               <textarea
@@ -234,6 +324,7 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+            )}
 
             {mode === 'draft' && (
               <textarea
@@ -245,11 +336,18 @@ export default function BulkShareCandidatesModal({ candidates, onClose, onSent }
               />
             )}
 
-            {error && isEmailMode && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>}
+            {error && (isEmailMode || mode === 'link') && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{error}</div>}
 
             <div className="flex gap-3">
-              <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium py-2.5 rounded-xl">Cancel</button>
-              {isEmailMode ? (
+              <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium py-2.5 rounded-xl">
+                {mode === 'link' && linkResult ? 'Done' : 'Cancel'}
+              </button>
+              {mode === 'link' ? (
+                <button onClick={handleCreateLink} disabled={!linkContact.trim() || linkCreating || candidates.length === 0}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-xl">
+                  {linkCreating ? 'Creating…' : linkResult ? 'Create another link' : 'Create tracked link'}
+                </button>
+              ) : isEmailMode ? (
                 <button onClick={handleSend} disabled={!validEmail || sending || candidates.length === 0}
                   className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-xl">
                   {sending ? 'Sending...' : mode === 'emailV2' ? 'Send email V2' : `Send ${candidates.length} candidate${candidates.length === 1 ? '' : 's'}`}

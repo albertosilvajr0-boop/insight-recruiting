@@ -57,6 +57,7 @@ export default function AdminInvite() {
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null) // { accessCode, inviteLink, emailSent, email, name }
   const [people, setPeople] = useState([])
+  const [peopleSearch, setPeopleSearch] = useState('')
   const [loadingPeople, setLoadingPeople] = useState(true)
   const [copied, setCopied] = useState(null)
   const navigate = useNavigate()
@@ -247,18 +248,29 @@ export default function AdminInvite() {
           </button>
         </div>
 
-        {/* People list */}
+        {/* People list — always the FULL candidate list, searchable */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-700">People ({people.length})</h3>
-            <button onClick={refreshPeople} className="text-xs text-blue-600 hover:underline">Refresh</button>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-gray-700 shrink-0">People ({people.length})</h3>
+            <input
+              type="text"
+              value={peopleSearch}
+              onChange={e => setPeopleSearch(e.target.value)}
+              placeholder="Search name, email, phone, or role…"
+              className="flex-1 max-w-xs border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button onClick={refreshPeople} className="text-xs text-blue-600 hover:underline shrink-0">Refresh</button>
           </div>
           {loadingPeople ? (
             <div className="flex justify-center py-8"><div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
           ) : people.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-8">No candidates found yet.</p>
           ) : (
-            people.map(c => {
+            people.filter(c => {
+              const s = peopleSearch.trim().toLowerCase()
+              if (!s) return true
+              return `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''} ${c.jobTitle || ''}`.toLowerCase().includes(s)
+            }).map(c => {
               const stageLabel = STAGE_LABELS[c.stage] || c.stage || 'Unknown'
               const stageBadgeColor = STAGE_BADGE_COLORS[c.stage] || 'bg-gray-100 text-gray-600'
               const candidateJobTitle = c.jobTitle || jobTitle(c.jobId) || 'No job selected'

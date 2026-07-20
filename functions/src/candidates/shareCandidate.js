@@ -874,6 +874,134 @@ export async function shareCandidateHandler(data, request) {
   return { success: true, videos: videos.length, resumeAttached: resume.attached, packetAttached, recipients: toEmails }
 }
 
+// ─── Tracked links for non-email channels (LinkedIn / SMS / WhatsApp) ───────
+// Mints the same /t/ tracking token an email recipient gets, without sending
+// any email: one share+campaign record per contact, recipient index 0, and
+// the link resolves to the secure review (packet) page. The email pipeline
+// above is untouched.
+const LINK_CHANNELS = { linkedin: 'LinkedIn', sms: 'SMS', whatsapp: 'WhatsApp', other: 'Other' }
+
+export async function createTrackedLinkHandler(data, request) {
+  const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
+  const contactName = String(data?.contactName || '').trim().slice(0, 120)
+  const company = String(data?.company || '').trim().slice(0, 160)
+  const channelKey = String(data?.channel || 'other').trim().toLowerCase()
+  const channel = LINK_CHANNELS[channelKey] ? channelKey : 'other'
+  if (!contactName) throw new HttpsError('invalid-argument', 'Enter the contact name this link is for.')
+
+  const rawIds = Array.isArray(data?.candidateIds) && data.candidateIds.length
+    ? data.candidateIds
+    : [data?.candidateId]
+  const candidateIds = [...new Set(rawIds.map(id => String(id || '').trim()).filter(Boolean))].slice(0, MAX_BULK_CANDIDATES)
+  if (!candidateIds.length) throw new HttpsError('invalid-argument', 'Missing candidateId.')
+
+  const db = getFirestore()
+  const bucket = getStorage().bucket()
+  const candidates = []
+  for (const id of candidateIds) {
+    const snap = await db.collection('candidates').doc(id).get()
+    if (snap.exists) {
+      const candidate = { id: snap.id, ...snap.data() }
+      candidates.push(candidateIds.length === 1 ? applyShareOverrides(candidate, data) : candidate)
+    }
+  }
+  if (!candidates.length) throw new HttpsError('not-found', 'Candidate not found.')
+
+  const single = candidates.length === 1
+  const videosByCandidate = new Map()
+  const links = {}
+  let totalVideos = 0
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i]
+    const videos = await resolveCandidateVideos(bucket, candidate, single ? 'v' : `c${i}v`)
+    videosByCandidate.set(candidate.id, videos)
+    totalVideos += videos.length
+    for (const v of videos) {
+      links[v.target] = { url: v.url, label: `${candidateName(candidate)} Q${v.num} - ${v.label}`, num: v.num }
+    }
+  }
+
+  const sharedBy = profile.email || request.auth.token?.email || request.auth.uid
+  const shareRef = db.collection('shares').doc()
+  const reviewToken = createReviewToken()
+  const reviewUrl = `${APP_URL}/review/${shareRef.id}/${reviewToken}`
+  links.review = { url: reviewUrl, label: single ? 'Secure candidate review page' : 'Secure shortlist review page', type: 'review' }
+
+  const channelLabel = LINK_CHANNELS[channel]
+  const contactRecipient = company ? `${contactName} (${company})` : contactName
+  const subject = single
+    ? `${candidateName(candidates[0])} - tracked ${channelLabel} link for ${contactRecipient}`
+    : `Candidate shortlist (${candidates.length}) - tracked ${channelLabel} link for ${contactRecipient}`
+
+  await shareRef.set({
+    ...(single
+      ? { candidateId: candidates[0].id, candidateName: candidateName(candidates[0]), jobTitle: candidates[0].jobTitle || 'Open role' }
+      : { candidateIds: candidates.map(c => c.id), candidateName: `${candidates.length} candidate shortlist` }),
+    recipients: [contactRecipient],
+    kind: 'link',
+    channel,
+    contactName,
+    company: company || null,
+    employerName: company || null,
+    note: null,
+    by: sharedBy,
+    links,
+    videoCount: totalVideos,
+    resumeAttached: false,
+    packetAttached: false,
+    subject,
+    reviewUrl,
+    createdAt: FieldValue.serverTimestamp(),
+  })
+
+  // Same campaign/CRM records as an email share, so the review page resolves
+  // and engagement rolls up under Employers (grouped by company name here,
+  // since there's no email domain to group by).
+  await writeEmployerCampaign({
+    db,
+    shareRef,
+    shareId: shareRef.id,
+    recipients: [contactRecipient],
+    employerName: company,
+    candidates,
+    videosByCandidate,
+    note: '',
+    sharedBy,
+    emailVersion: 'link',
+    subject,
+    reviewToken,
+    reviewUrl,
+  })
+
+  const sharedAt = new Date().toISOString()
+  for (const candidate of candidates) {
+    await db.collection('candidates').doc(candidate.id).update({
+      sharedWith: FieldValue.arrayUnion({ email: contactRecipient, at: sharedAt, by: sharedBy, shareId: shareRef.id, channel }),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+  }
+
+  await writeAuditLog({
+    actorUid: request.auth.uid,
+    actorEmail: profile.email || request.auth.token?.email || null,
+    action: 'candidate.tracked_link_created',
+    targetType: single ? 'candidate' : 'shortlist',
+    targetId: single ? candidates[0].id : shareRef.id,
+    metadata: { shareId: shareRef.id, contactName, company: company || null, channel, candidates: candidates.length, videos: totalVideos },
+  })
+
+  return {
+    success: true,
+    shareId: shareRef.id,
+    trackedUrl: `${APP_URL}/t/${shareRef.id}/0/review`,
+    reviewUrl,
+    channel,
+    contactName,
+    videos: totalVideos,
+    candidates: candidates.length,
+  }
+}
+
 export async function shareCandidatesHandler(data, request) {
   const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
   const toEmails = validateRecipients(data)
