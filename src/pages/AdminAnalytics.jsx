@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { Fragment, useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { collection, query, orderBy, onSnapshot, getDocs } from "firebase/firestore"
 import { httpsCallable } from "firebase/functions"
@@ -74,6 +74,25 @@ function uniqueRecipientCount(events) {
   return new Set(events.map(event => event.recipient || "unknown")).size
 }
 
+function buildVideoClickRecipients(events) {
+  const byRecipient = new Map()
+  events.filter(isVideoEvent).forEach((event) => {
+    const recipient = String(event.recipient || "").trim()
+    if (!recipient) return
+    const existing = byRecipient.get(recipient) || { recipient, clicks: 0, labels: new Map() }
+    const label = String(event.label || event.target || "Video response").trim()
+    existing.clicks += 1
+    existing.labels.set(label, (existing.labels.get(label) || 0) + 1)
+    byRecipient.set(recipient, existing)
+  })
+  return Array.from(byRecipient.values())
+    .map((entry) => ({
+      ...entry,
+      labels: Array.from(entry.labels.entries()).map(([label, count]) => ({ label, count })),
+    }))
+    .sort((a, b) => b.clicks - a.clicks || a.recipient.localeCompare(b.recipient))
+}
+
 function percent(part, total) {
   if (!total) return "0%"
   return `${Math.round((part / total) * 100)}%`
@@ -125,6 +144,7 @@ export default function AdminAnalytics() {
   const [now, setNow] = useState(() => new Date())
   const [emailTrackingFilter, setEmailTrackingFilter] = useState("all")
   const [emailTrackingVisibleCount, setEmailTrackingVisibleCount] = useState(EMAIL_TRACKING_INITIAL_ROWS)
+  const [expandedVideoClickRows, setExpandedVideoClickRows] = useState({})
   const [followUpConfirmTarget, setFollowUpConfirmTarget] = useState(null)
   const [followUpSendingId, setFollowUpSendingId] = useState(null)
   const [followUpPreviewEmail, setFollowUpPreviewEmail] = useState("")
@@ -202,6 +222,7 @@ export default function AdminAnalytics() {
 
   useEffect(() => {
     setEmailTrackingVisibleCount(EMAIL_TRACKING_INITIAL_ROWS)
+    setExpandedVideoClickRows({})
   }, [dateRange, emailTrackingFilter])
 
   const cutoff = startOfDay(subDays(new Date(), Number(dateRange)))
@@ -255,6 +276,7 @@ export default function AdminAnalytics() {
       candidateCount: candidateShareCount(share),
       linkEvents: linkEvents.length,
       videoEvents: videoEvents.length,
+      videoClickRecipients: buildVideoClickRecipients(videoEvents),
       uniqueClicks: uniqueRecipientCount(linkEvents),
       followUps: followUpCount(share),
     }
@@ -380,6 +402,10 @@ export default function AdminAnalytics() {
   const showAdmins = filterType === "all" || filterType === "admins"
   const showCandidates = filterType === "all" || filterType === "candidates"
   const visibleLiveCount = (showCandidates ? liveCandidates.length : 0) + (showAdmins ? liveAdmins.length : 0)
+
+  const toggleVideoClickRow = (shareId) => {
+    setExpandedVideoClickRows(prev => ({ ...prev, [shareId]: !prev[shareId] }))
+  }
 
   const sendFollowUp = async (share) => {
     if (!share?.id || followUpSendingId) return
@@ -670,52 +696,95 @@ export default function AdminAnalytics() {
                             const recipients = row.share.recipients || []
                             const extraRecipients = Math.max(0, recipients.length - 2)
                             const sending = followUpSendingId === row.share.id
+                            const videoDetailsOpen = expandedVideoClickRows[row.share.id] === true
                             return (
-                              <tr key={row.share.id} className="border-b border-gray-100 last:border-0">
-                                <td className="px-4 py-3 align-top">
-                                  {sentAt ? (
-                                    <>
-                                      <p className="text-xs font-medium text-gray-900">{format(sentAt, "MMM d")}</p>
-                                      <p className="text-[11px] text-gray-400">{format(sentAt, "h:mm a")}</p>
-                                    </>
-                                  ) : (
-                                    <span className="text-xs text-gray-400">Pending</span>
-                                  )}
-                                </td>
-                                <td className="px-3 py-3 align-top">
-                                  <p className="text-xs font-medium text-gray-900">{shareLabel(row.share)}</p>
-                                  <p className="text-[11px] text-gray-400">
-                                    {shareVersionLabel(row.share)} - {row.candidateCount || "No"} candidate{row.candidateCount === 1 ? "" : "s"} - {row.share.videoCount || 0} video link{row.share.videoCount === 1 ? "" : "s"}
-                                  </p>
-                                  {row.share.by && <p className="text-[11px] text-gray-400">Sent by {row.share.by}</p>}
-                                </td>
-                                <td className="px-3 py-3 align-top">
-                                  <p className="text-xs text-gray-700">{recipients.slice(0, 2).join(", ") || "No recipients"}</p>
-                                  {extraRecipients > 0 && <p className="text-[11px] text-gray-400">+{extraRecipients} more</p>}
-                                </td>
-                                <td className="px-3 py-3 text-right align-top">
-                                  <p className="text-xs font-semibold text-green-700">{row.uniqueClicks}/{row.recipients}</p>
-                                  <p className="text-[11px] text-gray-400">{row.linkEvents} click{row.linkEvents === 1 ? "" : "s"}</p>
-                                </td>
-                                <td className="px-3 py-3 text-right align-top">
-                                  <p className="text-xs font-semibold text-purple-700">{row.videoEvents}</p>
-                                </td>
-                                <td className="px-4 py-3 text-right align-top">
-                                  <button
-                                    type="button"
-                                    onClick={() => openFollowUpConfirm(row.share)}
-                                    disabled={sending || followUpSendingId !== null || row.recipients === 0}
-                                    className="whitespace-nowrap text-xs font-medium text-blue-700 border border-blue-100 bg-blue-50 hover:bg-blue-100 disabled:opacity-60 disabled:cursor-wait px-3 py-1.5 rounded-lg"
-                                  >
-                                    {sending ? "Sending..." : "Send follow up"}
-                                  </button>
-                                  {lastFollowUpAt ? (
-                                    <p className="text-[11px] text-gray-400 mt-1">Last {format(lastFollowUpAt, "MMM d, h:mm a")}</p>
-                                  ) : row.followUps > 0 ? (
-                                    <p className="text-[11px] text-gray-400 mt-1">{row.followUps} sent</p>
-                                  ) : null}
-                                </td>
-                              </tr>
+                              <Fragment key={row.share.id}>
+                                <tr className="border-b border-gray-100 last:border-0">
+                                  <td className="px-4 py-3 align-top">
+                                    {sentAt ? (
+                                      <>
+                                        <p className="text-xs font-medium text-gray-900">{format(sentAt, "MMM d")}</p>
+                                        <p className="text-[11px] text-gray-400">{format(sentAt, "h:mm a")}</p>
+                                      </>
+                                    ) : (
+                                      <span className="text-xs text-gray-400">Pending</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-3 align-top">
+                                    <p className="text-xs font-medium text-gray-900">{shareLabel(row.share)}</p>
+                                    <p className="text-[11px] text-gray-400">
+                                      {shareVersionLabel(row.share)} - {row.candidateCount || "No"} candidate{row.candidateCount === 1 ? "" : "s"} - {row.share.videoCount || 0} video link{row.share.videoCount === 1 ? "" : "s"}
+                                    </p>
+                                    {row.share.by && <p className="text-[11px] text-gray-400">Sent by {row.share.by}</p>}
+                                  </td>
+                                  <td className="px-3 py-3 align-top">
+                                    <p className="text-xs text-gray-700">{recipients.slice(0, 2).join(", ") || "No recipients"}</p>
+                                    {extraRecipients > 0 && <p className="text-[11px] text-gray-400">+{extraRecipients} more</p>}
+                                  </td>
+                                  <td className="px-3 py-3 text-right align-top">
+                                    <p className="text-xs font-semibold text-green-700">{row.uniqueClicks}/{row.recipients}</p>
+                                    <p className="text-[11px] text-gray-400">{row.linkEvents} click{row.linkEvents === 1 ? "" : "s"}</p>
+                                  </td>
+                                  <td className="px-3 py-3 text-right align-top">
+                                    <p className="text-xs font-semibold text-purple-700">{row.videoEvents}</p>
+                                    {row.videoClickRecipients.length > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleVideoClickRow(row.share.id)}
+                                        className="text-[11px] font-medium text-purple-700 hover:text-purple-900 mt-1"
+                                      >
+                                        {videoDetailsOpen ? "Hide emails" : `View ${row.videoClickRecipients.length} email${row.videoClickRecipients.length === 1 ? "" : "s"}`}
+                                      </button>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-right align-top">
+                                    <button
+                                      type="button"
+                                      onClick={() => openFollowUpConfirm(row.share)}
+                                      disabled={sending || followUpSendingId !== null || row.recipients === 0}
+                                      className="whitespace-nowrap text-xs font-medium text-blue-700 border border-blue-100 bg-blue-50 hover:bg-blue-100 disabled:opacity-60 disabled:cursor-wait px-3 py-1.5 rounded-lg"
+                                    >
+                                      {sending ? "Sending..." : "Send follow up"}
+                                    </button>
+                                    {lastFollowUpAt ? (
+                                      <p className="text-[11px] text-gray-400 mt-1">Last {format(lastFollowUpAt, "MMM d, h:mm a")}</p>
+                                    ) : row.followUps > 0 ? (
+                                      <p className="text-[11px] text-gray-400 mt-1">{row.followUps} sent</p>
+                                    ) : null}
+                                  </td>
+                                </tr>
+                                {videoDetailsOpen && (
+                                  <tr className="border-b border-purple-100 bg-purple-50/40">
+                                    <td colSpan={6} className="px-4 py-3">
+                                      <div className="rounded-xl border border-purple-100 bg-white overflow-hidden">
+                                        <div className="px-3 py-2 border-b border-purple-50 flex items-center justify-between gap-2">
+                                          <p className="text-xs font-semibold text-gray-900">Video clicks by recipient</p>
+                                          <span className="text-[11px] text-purple-700 bg-purple-50 border border-purple-100 rounded-full px-2 py-0.5">
+                                            {row.videoClickRecipients.length} recipient{row.videoClickRecipients.length === 1 ? "" : "s"}
+                                          </span>
+                                        </div>
+                                        <div className="divide-y divide-gray-100">
+                                          {row.videoClickRecipients.map((recipient) => (
+                                            <div key={recipient.recipient} className="px-3 py-2 flex flex-col md:flex-row md:items-start md:justify-between gap-2">
+                                              <div>
+                                                <p className="text-xs font-medium text-gray-900">{recipient.recipient}</p>
+                                                <p className="text-[11px] text-gray-400">{recipient.clicks} video click{recipient.clicks === 1 ? "" : "s"}</p>
+                                              </div>
+                                              <div className="md:text-right space-y-1">
+                                                {recipient.labels.map((item) => (
+                                                  <p key={item.label} className="text-[11px] text-gray-600">
+                                                    {item.label}{item.count > 1 ? ` (${item.count})` : ""}
+                                                  </p>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
                             )
                           })}
                         </tbody>
