@@ -86,13 +86,12 @@ jobs:
           ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           EOF
 
-      # Single deploy call for all targets. Previously this was split across
-      # FirebaseExtended/action-hosting-deploy@v0 + two firebase-tools calls,
-      # and the third-party action was the source of an intermittent exit-2.
-      # Using firebase-tools directly makes failures easier to debug (the
-      # specific target that failed shows up in the log) and avoids the
-      # rolling @v0 tag as a moving dependency.
+      # Single deploy call for all active targets. `interviewReminders` is a
+      # legacy Scheduler-managed function from the old self-scheduling flow; the
+      # PR #97 main deploy failed while Firebase tried to update its Cloud
+      # Scheduler job. Exclude it so candidate/profile/email changes can deploy
+      # without touching that stale scheduler resource.
       - name: Deploy to Firebase (hosting, firestore, storage, functions)
-        run: npx firebase-tools deploy --only hosting,firestore,storage,functions --force --project insight-recruiting-d37dc --non-interactive
+        run: npx firebase-tools deploy --only hosting,firestore,storage,functions --except functions:interviewReminders --force --project insight-recruiting-d37dc --non-interactive
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa-key.json
