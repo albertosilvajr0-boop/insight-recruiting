@@ -18,7 +18,12 @@ import { getCandidateStatusHandler } from './candidates/getCandidateStatus.js'
 import { auditCandidateUpdate } from './candidates/auditCandidateChanges.js'
 import { shareCandidateHandler, shareCandidatesHandler, followUpShareHandler, createTrackedLinkHandler } from './candidates/shareCandidate.js'
 import { trackShareClick } from './candidates/shareTracking.js'
-import { getEmployerReviewHandler, recordEmployerReviewActionHandler } from './employers/employerCrm.js'
+import {
+  getEmployerReviewHandler,
+  logEmployerOutcomeHandler,
+  recordEmployerReviewActionHandler,
+  updateEmployerCrmHandler,
+} from './employers/employerCrm.js'
 import {
   createCandidateInviteHandler,
   attachInviteResumeHandler,
@@ -165,6 +170,14 @@ export const getEmployerReview = onCall(async (request) => {
 
 export const recordEmployerReviewAction = onCall(async (request) => {
   return recordEmployerReviewActionHandler(request.data)
+})
+
+export const updateEmployerCrm = onCall(async (request) => {
+  return updateEmployerCrmHandler(request.data, request)
+})
+
+export const logEmployerOutcome = onCall(async (request) => {
+  return logEmployerOutcomeHandler(request.data, request)
 })
 
 export const createCandidateInvite = onCall({ secrets: EMAIL_SECRETS }, async (request) => {
