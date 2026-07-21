@@ -264,6 +264,11 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    match /employerActivities/{activityId} {
+      allow get, list: if hasPermission('view_candidates') || hasPermission('view_analytics');
+      allow create, update, delete: if false;
+    }
+
     match /verificationCodes/{codeId} {
       allow read, write: if false;
     }

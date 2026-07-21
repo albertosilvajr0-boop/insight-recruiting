@@ -1,6 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import { FieldValue, getFirestore } from 'firebase-admin/firestore'
 import { HttpsError } from 'firebase-functions/v2/https'
+import { assertPermission } from '../security/assertAccess.js'
+import { PERMISSIONS } from '../security/roles.js'
+import { writeAuditLog } from '../utils/auditLog.js'
 
 const REVIEW_ACTIONS = new Set([
   'interested',
@@ -10,9 +13,57 @@ const REVIEW_ACTIONS = new Set([
   'view_video',
 ])
 
+const CRM_STAGES = new Set([
+  'prospect',
+  'contacted',
+  'clicked',
+  'watched_video',
+  'interested',
+  'interview_requested',
+  'active_client',
+  'nurture',
+  'do_not_contact',
+])
+
+const CRM_PRIORITIES = new Set(['high', 'medium', 'low'])
+
+const CRM_OUTCOMES = new Set([
+  'manual_note',
+  'follow_up_sent',
+  'left_voicemail',
+  'reply_interested',
+  'wants_more_candidates',
+  'interview_requested',
+  'not_a_fit',
+  'not_hiring',
+  'wrong_contact',
+  'sent_to_hr',
+  'nurture_later',
+  'do_not_contact',
+])
+
+const OUTCOME_STAGE = {
+  follow_up_sent: 'contacted',
+  left_voicemail: 'contacted',
+  reply_interested: 'interested',
+  wants_more_candidates: 'interested',
+  interview_requested: 'interview_requested',
+  not_a_fit: 'nurture',
+  not_hiring: 'nurture',
+  wrong_contact: 'contacted',
+  sent_to_hr: 'contacted',
+  nurture_later: 'nurture',
+  do_not_contact: 'do_not_contact',
+}
+
 function truncate(text, max = 900) {
   const cleaned = String(text || '').replace(/\s+/g, ' ').trim()
   return cleaned.length > max ? `${cleaned.slice(0, max - 1)}...` : cleaned
+}
+
+function nullableText(text, max = 900) {
+  const cleaned = truncate(text, max)
+  return cleaned || null
 }
 
 function safeDocId(value, fallback = 'unknown') {
@@ -23,6 +74,28 @@ function safeDocId(value, fallback = 'unknown') {
     .replace(/^-+|-+$/g, '')
     .slice(0, 120)
   return id || fallback
+}
+
+function requireDocId(value, label = 'document id') {
+  const id = String(value || '').trim()
+  if (!id || id.includes('/') || id.length > 160) {
+    throw new HttpsError('invalid-argument', `Invalid ${label}.`)
+  }
+  return id
+}
+
+function enumValue(value, allowed, fallback = null) {
+  const normalized = String(value || '').trim()
+  return allowed.has(normalized) ? normalized : fallback
+}
+
+function optionalDate(value) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    throw new HttpsError('invalid-argument', 'Invalid date.')
+  }
+  return date
 }
 
 function candidateName(candidate) {
@@ -349,6 +422,157 @@ export async function recordEmployerReviewActionHandler(data) {
 
   await Promise.all(updates)
   return { success: true, action }
+}
+
+export async function updateEmployerCrmHandler(data, request) {
+  const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
+  const employerId = requireDocId(data?.employerId, 'employer id')
+  const crmStage = enumValue(data?.crmStage, CRM_STAGES)
+  const crmPriority = enumValue(data?.crmPriority, CRM_PRIORITIES)
+
+  if (!crmStage) throw new HttpsError('invalid-argument', 'Unsupported employer stage.')
+  if (!crmPriority) throw new HttpsError('invalid-argument', 'Unsupported employer priority.')
+
+  const db = getFirestore()
+  const employerRef = db.collection('employers').doc(employerId)
+  const employerSnap = await employerRef.get()
+  if (!employerSnap.exists) throw new HttpsError('not-found', 'Employer not found.')
+
+  const nextActionDue = optionalDate(data?.nextActionDue)
+  const updates = {
+    crmStage,
+    crmPriority,
+    crmOwnerName: nullableText(data?.crmOwnerName, 120),
+    crmNotes: nullableText(data?.crmNotes, 1800),
+    nextAction: nullableText(data?.nextAction, 240),
+    nextActionDue,
+    crmUpdatedAt: FieldValue.serverTimestamp(),
+    crmUpdatedBy: request.auth?.token?.email || profile.email || request.auth?.uid || 'admin',
+    updatedAt: FieldValue.serverTimestamp(),
+  }
+
+  await employerRef.set(updates, { merge: true })
+  await writeAuditLog({
+    actorUid: request.auth?.uid || 'admin',
+    actorEmail: request.auth?.token?.email || profile.email || null,
+    action: 'employer.crm_update',
+    targetType: 'employer',
+    targetId: employerId,
+    metadata: {
+      crmStage,
+      crmPriority,
+      hasNextAction: Boolean(updates.nextAction),
+      hasNotes: Boolean(updates.crmNotes),
+    },
+  })
+
+  return { success: true, employerId }
+}
+
+export async function logEmployerOutcomeHandler(data, request) {
+  const profile = await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
+  const employerId = requireDocId(data?.employerId, 'employer id')
+  const outcome = enumValue(data?.outcome, CRM_OUTCOMES)
+  if (!outcome) throw new HttpsError('invalid-argument', 'Unsupported employer outcome.')
+
+  const db = getFirestore()
+  const employerRef = db.collection('employers').doc(employerId)
+  const employerSnap = await employerRef.get()
+  if (!employerSnap.exists) throw new HttpsError('not-found', 'Employer not found.')
+
+  const contactEmail = normalizeEmail(data?.contactEmail)
+  const contactId = data?.contactId ? requireDocId(data.contactId, 'contact id') : (contactEmail ? employerContactId(contactEmail) : null)
+  const campaignId = data?.campaignId ? requireDocId(data.campaignId, 'campaign id') : null
+  const note = nullableText(data?.note, 1200)
+  const nextAction = nullableText(data?.nextAction, 240)
+  const nextActionDue = optionalDate(data?.nextActionDue)
+  const activityId = randomBytes(12).toString('hex')
+  const createdAtIso = new Date().toISOString()
+  const actorEmail = request.auth?.token?.email || profile.email || null
+  const actorUid = request.auth?.uid || 'admin'
+
+  const activity = {
+    employerId,
+    contactId,
+    contactEmail: contactEmail || null,
+    campaignId,
+    outcome,
+    note,
+    nextAction,
+    nextActionDue,
+    actorUid,
+    actorEmail,
+    createdAtIso,
+    createdAt: FieldValue.serverTimestamp(),
+  }
+  const activityEntry = {
+    employerId,
+    contactId,
+    contactEmail: contactEmail || null,
+    campaignId,
+    outcome,
+    note,
+    nextAction,
+    createdAtIso,
+    actorEmail,
+  }
+
+  const batch = db.batch()
+  batch.set(db.collection('employerActivities').doc(activityId), activity)
+
+  const employerUpdate = {
+    lastOutcome: outcome,
+    lastOutcomeNote: note,
+    lastOutcomeAt: FieldValue.serverTimestamp(),
+    lastCrmActivityAt: FieldValue.serverTimestamp(),
+    activityCount: FieldValue.increment(1),
+    updatedAt: FieldValue.serverTimestamp(),
+  }
+  const stage = OUTCOME_STAGE[outcome]
+  if (stage) employerUpdate.crmStage = stage
+  if (nextAction || Object.prototype.hasOwnProperty.call(data || {}, 'nextAction')) {
+    employerUpdate.nextAction = nextAction
+    employerUpdate.nextActionDue = nextActionDue
+  }
+  batch.set(employerRef, employerUpdate, { merge: true })
+
+  if (contactId) {
+    const contactUpdate = {
+      lastOutcome: outcome,
+      lastOutcomeNote: note,
+      lastOutcomeAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }
+    if (OUTCOME_STAGE[outcome]) contactUpdate.status = OUTCOME_STAGE[outcome]
+    batch.set(db.collection('employerContacts').doc(contactId), contactUpdate, { merge: true })
+  }
+
+  if (campaignId) {
+    batch.set(db.collection('campaigns').doc(campaignId), {
+      crmActions: FieldValue.arrayUnion(activityEntry),
+      manualOutcomeCounts: { [outcome]: FieldValue.increment(1) },
+      lastCrmOutcome: outcome,
+      lastCrmOutcomeAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true })
+  }
+
+  await batch.commit()
+  await writeAuditLog({
+    actorUid,
+    actorEmail,
+    action: 'employer.outcome_log',
+    targetType: 'employer',
+    targetId: employerId,
+    metadata: {
+      outcome,
+      contactEmail: contactEmail || null,
+      campaignId,
+      hasNextAction: Boolean(nextAction),
+    },
+  })
+
+  return { success: true, employerId, activityId }
 }
 
 function serializeTimestamp(value) {

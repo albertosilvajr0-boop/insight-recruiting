@@ -17,6 +17,7 @@ import AdminDemo from './pages/AdminDemo'
 import AdminAnalytics from './pages/AdminAnalytics'
 import AdminOnboarding from './pages/AdminOnboarding'
 import AdminEmployers from './pages/AdminEmployers'
+import AdminEmployerDetail from './pages/AdminEmployerDetail'
 import ProtectedRoute from './components/ProtectedRoute'
 import useForceRefresh from './hooks/useForceRefresh'
 import { PERMISSIONS, ROLES } from './security/roles'
@@ -68,6 +69,9 @@ export default function App() {
         } />
         <Route path="/admin/employers" element={
           <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_CANDIDATES}><AdminEmployers /></ProtectedRoute>
+        } />
+        <Route path="/admin/employers/:employerId" element={
+          <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_CANDIDATES}><AdminEmployerDetail /></ProtectedRoute>
         } />
         <Route path="/admin/onboarding" element={
           <ProtectedRoute requiredPermission={PERMISSIONS.MANAGE_ONBOARDING}><AdminOnboarding /></ProtectedRoute>

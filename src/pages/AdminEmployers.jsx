@@ -3,18 +3,17 @@ import { useNavigate } from 'react-router-dom'
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore'
 import { db } from '../firebase'
 import { PLATFORM_NAME } from '../config/organization'
-
-function toDate(value) {
-  if (!value) return null
-  if (value.toDate) return value.toDate()
-  if (value.seconds) return new Date(value.seconds * 1000)
-  return null
-}
-
-function formatDate(value) {
-  const date = toDate(value)
-  return date ? date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'No activity'
-}
+import {
+  buildEmployerWorkQueue,
+  derivedEmployerStage,
+  employerDisplayName,
+  employerStats,
+  formatDate,
+  priorityLabel,
+  priorityTone,
+  stageLabel,
+  stageTone,
+} from '../utils/employerCrm'
 
 function contactStatus(contact) {
   if (contact.status === 'interested') return 'Interested'
@@ -63,18 +62,6 @@ export default function AdminEmployers() {
     return map
   }, [contacts])
 
-  const campaignsByEmployer = useMemo(() => {
-    const map = new Map()
-    campaigns.forEach(campaign => {
-      ;(campaign.employerIds || []).forEach(employerId => {
-        const list = map.get(employerId) || []
-        list.push(campaign)
-        map.set(employerId, list)
-      })
-    })
-    return map
-  }, [campaigns])
-
   const visibleEmployers = useMemo(() => {
     const needle = search.trim().toLowerCase()
     if (!needle) return employers
@@ -83,12 +70,20 @@ export default function AdminEmployers() {
       const hay = [
         employer.name,
         employer.domain,
+        employer.crmStage,
+        employer.nextAction,
+        employer.crmNotes,
         ...(employer.contactEmails || []),
         ...employerContacts.map(contact => contact.email),
       ].join(' ').toLowerCase()
       return hay.includes(needle)
     })
   }, [contactsByEmployer, employers, search])
+
+  const employerQueue = useMemo(() => (
+    buildEmployerWorkQueue(employers, contacts, campaigns)
+  ), [campaigns, contacts, employers])
+  const highPriorityQueueCount = employerQueue.filter(item => item.priority === 'high').length
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -132,32 +127,95 @@ export default function AdminEmployers() {
         </section>
 
         <section className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Employer action queue</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Warm accounts, overdue next actions, and follow-ups that should move outreach toward interviews or client conversations.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-2.5 py-1 rounded-full">{employerQueue.length} open</span>
+              {highPriorityQueueCount > 0 && (
+                <span className="text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">{highPriorityQueueCount} high</span>
+              )}
+            </div>
+          </div>
+          {employerQueue.length === 0 ? (
+            <p className="text-sm text-gray-400 px-5 py-6">No employer follow-up is due right now.</p>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {employerQueue.slice(0, 10).map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => navigate(`/admin/employers/${item.employer.id}`)}
+                  className="w-full px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-left hover:bg-blue-50/50"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <PriorityBadge priority={item.priority} />
+                      <StageBadge stage={item.stage} />
+                      <p className="text-sm font-semibold text-gray-900">{item.title}</p>
+                    </div>
+                    <p className="text-sm text-gray-800 mt-1">{employerDisplayName(item.employer)}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{item.detail}</p>
+                  </div>
+                  <div className="md:text-right shrink-0">
+                    <p className="text-xs text-gray-400">{item.meta}</p>
+                    <span className="inline-flex mt-1 text-xs font-medium text-blue-700">Open account</span>
+                  </div>
+                </button>
+              ))}
+              {employerQueue.length > 10 && (
+                <p className="px-5 py-3 text-xs text-gray-400 bg-gray-50">Showing the first 10 of {employerQueue.length} employer queue items.</p>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="bg-white border border-gray-200 rounded-xl overflow-hidden">
           {visibleEmployers.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-10">No employer campaign records yet.</p>
           ) : (
             <div className="divide-y divide-gray-100">
               {visibleEmployers.map(employer => {
-                const employerContacts = contactsByEmployer.get(employer.id) || []
-                const employerCampaigns = campaignsByEmployer.get(employer.id) || []
-                const videoClicks = employerContacts.reduce((sum, contact) => sum + Number(contact.videoClickCount || 0), 0)
-                const totalClicks = employerContacts.reduce((sum, contact) => sum + Number(contact.clickCount || 0), 0)
+                const stats = employerStats(employer, contacts, campaigns)
+                const employerContacts = stats.contacts
+                const employerCampaigns = stats.campaigns
+                const stage = derivedEmployerStage(employer, stats)
                 return (
                   <div key={employer.id} className="p-5">
                     <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                       <div>
-                        <h3 className="text-base font-semibold text-gray-900">{employer.name || employer.domain || 'Employer'}</h3>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-base font-semibold text-gray-900">{employerDisplayName(employer)}</h3>
+                          <StageBadge stage={stage} />
+                          <PriorityBadge priority={employer.crmPriority || 'medium'} />
+                        </div>
                         <p className="text-xs text-gray-500 mt-1">{employer.domain || 'No domain'} - Last shared {formatDate(employer.lastSharedAt)}</p>
                         <div className="flex flex-wrap gap-2 mt-3">
                           <Badge>{employerContacts.length} contact{employerContacts.length === 1 ? '' : 's'}</Badge>
                           <Badge>{employerCampaigns.length} campaign{employerCampaigns.length === 1 ? '' : 's'}</Badge>
-                          <Badge>{totalClicks} click{totalClicks === 1 ? '' : 's'}</Badge>
-                          <Badge>{videoClicks} video click{videoClicks === 1 ? '' : 's'}</Badge>
+                          <Badge>{stats.clicks} click{stats.clicks === 1 ? '' : 's'}</Badge>
+                          <Badge>{stats.videoClicks} video click{stats.videoClicks === 1 ? '' : 's'}</Badge>
                         </div>
+                        {employer.nextAction && (
+                          <p className="text-xs text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mt-3">
+                            <span className="font-semibold">Next:</span> {employer.nextAction}
+                            {employer.nextActionDue ? <span className="text-blue-600"> - {formatDate(employer.nextActionDue)}</span> : null}
+                          </p>
+                        )}
                       </div>
                       <div className="lg:text-right">
                         <p className="text-xs font-semibold text-gray-500 uppercase">Latest campaign</p>
                         <p className="text-sm text-gray-800 mt-1">{employerCampaigns[0]?.subject || 'No campaign subject'}</p>
                         <p className="text-xs text-gray-400 mt-1">{formatDate(employerCampaigns[0]?.createdAt)}</p>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/admin/employers/${employer.id}`)}
+                          className="text-xs font-medium text-blue-700 border border-blue-100 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg mt-3"
+                        >
+                          Open account
+                        </button>
                       </div>
                     </div>
 
@@ -204,6 +262,22 @@ function Metric({ label, value }) {
       <p className="text-xs text-gray-500">{label}</p>
       <p className="text-2xl font-semibold text-gray-900 mt-1">{value}</p>
     </div>
+  )
+}
+
+function StageBadge({ stage }) {
+  return (
+    <span className={`text-[11px] font-semibold border px-2 py-0.5 rounded-full ${stageTone(stage)}`}>
+      {stageLabel(stage)}
+    </span>
+  )
+}
+
+function PriorityBadge({ priority }) {
+  return (
+    <span className={`text-[11px] font-semibold border px-2 py-0.5 rounded-full ${priorityTone(priority)}`}>
+      {priorityLabel(priority)}
+    </span>
   )
 }
 
