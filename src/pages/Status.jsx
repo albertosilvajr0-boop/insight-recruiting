@@ -47,6 +47,13 @@ function stageHeadline(c) {
   }
 }
 
+function formatSharedAt(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return format(date, 'MMM d')
+}
+
 export default function Status() {
   const { token } = useParams()
   const [candidate, setCandidate] = useState(null)
@@ -122,6 +129,26 @@ export default function Status() {
             </div>
           </div>
         </div>
+
+        {candidate.sharedEmployers?.length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-6">
+            <h2 className="text-sm font-semibold text-gray-900">Where your application has been shared</h2>
+            <p className="text-xs text-gray-500 mt-1">
+              These are employer/company names only. Individual contact details stay private.
+            </p>
+            <div className="mt-4 space-y-2">
+              {candidate.sharedEmployers.map((employer) => {
+                const sharedAt = formatSharedAt(employer.sharedAt)
+                return (
+                  <div key={employer.name} className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
+                    <p className="text-sm font-medium text-gray-900">{employer.name}</p>
+                    {sharedAt && <span className="text-xs text-gray-500">Shared {sharedAt}</span>}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Timeline */}
         <div className="bg-white rounded-2xl border border-gray-200 p-6">
