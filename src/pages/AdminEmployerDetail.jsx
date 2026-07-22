@@ -5,18 +5,26 @@ import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../firebase'
 import { PLATFORM_NAME } from '../config/organization'
 import {
+  CAMPAIGN_SEQUENCE_STEPS,
+  CONTACT_CHANNEL_OPTIONS,
   EMPLOYER_OUTCOME_OPTIONS,
   EMPLOYER_PRIORITY_OPTIONS,
   EMPLOYER_STAGE_OPTIONS,
+  buildOutreachDraft,
+  channelLabel,
+  contactDisplayName,
+  contactSubtitle,
   dateTimeLocalValue,
   derivedEmployerStage,
   employerDisplayName,
   employerStats,
   formatDate,
+  formatTags,
   localInputToIso,
   outcomeLabel,
   priorityLabel,
   priorityTone,
+  sequenceStepLabel,
   stageLabel,
   stageTone,
   toDate,
@@ -44,7 +52,36 @@ function emptyOutcomeForm() {
   }
 }
 
+function emptyContactForm() {
+  return {
+    contactId: '',
+    name: '',
+    title: '',
+    email: '',
+    phone: '',
+    linkedinUrl: '',
+    preferredChannel: 'email',
+    tags: '',
+    notes: '',
+  }
+}
+
+function contactFormFrom(contact) {
+  return {
+    contactId: contact?.id || '',
+    name: contact?.name || '',
+    title: contact?.title || '',
+    email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(contact?.email || '')) ? contact.email : '',
+    phone: contact?.phone || '',
+    linkedinUrl: contact?.linkedinUrl || '',
+    preferredChannel: contact?.preferredChannel || 'email',
+    tags: formatTags(contact?.tags),
+    notes: contact?.notes || '',
+  }
+}
+
 function contactStatus(contact) {
+  if (contact.status === 'prospect') return 'Prospect'
   if (contact.status === 'interested') return 'Interested'
   if (contact.status === 'engaged_video' || contact.status === 'watched_video') return 'Watched video'
   if (contact.status === 'clicked') return 'Clicked'
@@ -88,6 +125,14 @@ export default function AdminEmployerDetail() {
   const [activities, setActivities] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [outcomeForm, setOutcomeForm] = useState(emptyOutcomeForm)
+  const [contactForm, setContactForm] = useState(emptyContactForm)
+  const [contactEditorOpen, setContactEditorOpen] = useState(false)
+  const [contactSaving, setContactSaving] = useState(false)
+  const [sequenceContactId, setSequenceContactId] = useState('')
+  const [sequenceMedium, setSequenceMedium] = useState('email')
+  const [sequenceCampaignId, setSequenceCampaignId] = useState('')
+  const [sequenceStepSaving, setSequenceStepSaving] = useState(null)
+  const [copiedKey, setCopiedKey] = useState('')
   const [saving, setSaving] = useState(false)
   const [logging, setLogging] = useState(false)
   const [notice, setNotice] = useState(null)
@@ -107,7 +152,7 @@ export default function AdminEmployerDetail() {
       () => setNotFound(true)
     )
     const unsubContacts = onSnapshot(
-      query(collection(db, 'employerContacts'), orderBy('lastSharedAt', 'desc')),
+      query(collection(db, 'employerContacts'), orderBy('updatedAt', 'desc')),
       snap => setContacts(snap.docs.map(item => ({ id: item.id, ...item.data() })).filter(contact => contact.employerId === employerId)),
       () => setContacts([])
     )
@@ -138,6 +183,14 @@ export default function AdminEmployerDetail() {
   ), [employer, stats])
 
   const candidateSummaries = useMemo(() => uniqueCandidateSummaries(campaigns), [campaigns])
+
+  const selectedSequenceCampaign = useMemo(() => (
+    campaigns.find(campaign => campaign.id === sequenceCampaignId) || campaigns[0] || null
+  ), [campaigns, sequenceCampaignId])
+
+  const selectedSequenceContact = useMemo(() => (
+    contacts.find(contact => contact.id === sequenceContactId) || contacts[0] || null
+  ), [contacts, sequenceContactId])
 
   const timeline = useMemo(() => {
     const campaignActions = campaigns.flatMap(campaign => [
@@ -171,6 +224,18 @@ export default function AdminEmployerDetail() {
     })
   }, [employer, stage])
 
+  useEffect(() => {
+    if (!sequenceCampaignId && campaigns[0]?.id) setSequenceCampaignId(campaigns[0].id)
+  }, [campaigns, sequenceCampaignId])
+
+  useEffect(() => {
+    if (!sequenceContactId && contacts[0]?.id) setSequenceContactId(contacts[0].id)
+  }, [contacts, sequenceContactId])
+
+  useEffect(() => {
+    if (selectedSequenceContact?.preferredChannel) setSequenceMedium(selectedSequenceContact.preferredChannel)
+  }, [selectedSequenceContact])
+
   const updateForm = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }))
     setNotice(null)
@@ -178,6 +243,23 @@ export default function AdminEmployerDetail() {
 
   const updateOutcomeForm = (field, value) => {
     setOutcomeForm(prev => ({ ...prev, [field]: value }))
+    setNotice(null)
+  }
+
+  const updateContactForm = (field, value) => {
+    setContactForm(prev => ({ ...prev, [field]: value }))
+    setNotice(null)
+  }
+
+  const openNewContact = () => {
+    setContactForm(emptyContactForm())
+    setContactEditorOpen(true)
+    setNotice(null)
+  }
+
+  const openEditContact = (contact) => {
+    setContactForm(contactFormFrom(contact))
+    setContactEditorOpen(true)
     setNotice(null)
   }
 
@@ -230,6 +312,77 @@ export default function AdminEmployerDetail() {
       setNotice({ type: 'error', message: err?.message || 'Could not log employer outcome.' })
     } finally {
       setLogging(false)
+    }
+  }
+
+  const saveContact = async () => {
+    if (!employer || contactSaving) return
+    setContactSaving(true)
+    setNotice(null)
+    try {
+      const updateEmployerContact = httpsCallable(functions, 'updateEmployerContact')
+      await updateEmployerContact({
+        employerId,
+        contactId: contactForm.contactId || undefined,
+        name: contactForm.name,
+        title: contactForm.title,
+        email: contactForm.email,
+        phone: contactForm.phone,
+        linkedinUrl: contactForm.linkedinUrl,
+        preferredChannel: contactForm.preferredChannel,
+        tags: contactForm.tags,
+        notes: contactForm.notes,
+      })
+      setContactEditorOpen(false)
+      setContactForm(emptyContactForm())
+      setNotice({ type: 'success', message: 'Contact saved.' })
+    } catch (err) {
+      setNotice({ type: 'error', message: err?.message || 'Could not save contact.' })
+    } finally {
+      setContactSaving(false)
+    }
+  }
+
+  const sequenceDraft = (stepId) => buildOutreachDraft({
+    stepId,
+    medium: sequenceMedium,
+    employer,
+    contact: selectedSequenceContact,
+    campaign: selectedSequenceCampaign,
+    reviewUrl: selectedSequenceCampaign?.reviewUrl,
+  })
+
+  const copySequenceDraft = async (stepId) => {
+    const key = `${stepId}:${sequenceMedium}`
+    try {
+      await navigator.clipboard.writeText(sequenceDraft(stepId))
+      setCopiedKey(key)
+      window.setTimeout(() => setCopiedKey(current => current === key ? '' : current), 1600)
+    } catch (err) {
+      setNotice({ type: 'error', message: err?.message || 'Could not copy draft.' })
+    }
+  }
+
+  const markSequenceStepComplete = async (stepId) => {
+    if (!selectedSequenceCampaign || sequenceStepSaving) return
+    setSequenceStepSaving(stepId)
+    setNotice(null)
+    try {
+      const recordCampaignSequenceStep = httpsCallable(functions, 'recordCampaignSequenceStep')
+      await recordCampaignSequenceStep({
+        campaignId: selectedSequenceCampaign.id,
+        employerId,
+        step: stepId,
+        medium: sequenceMedium,
+        contactId: selectedSequenceContact?.id || undefined,
+        contactEmail: selectedSequenceContact?.email || undefined,
+        note: `Marked ${sequenceStepLabel(stepId)} complete from employer account.`,
+      })
+      setNotice({ type: 'success', message: `${sequenceStepLabel(stepId)} marked complete.` })
+    } catch (err) {
+      setNotice({ type: 'error', message: err?.message || 'Could not update campaign sequence.' })
+    } finally {
+      setSequenceStepSaving(null)
     }
   }
 
@@ -393,34 +546,159 @@ export default function AdminEmployerDetail() {
           </div>
         </section>
 
+        <section className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Outreach sequence</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Reusable copy for email, LinkedIn, and text. Copy the draft, send it from your own channel, then mark the step complete.</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 lg:w-[640px]">
+              <select
+                value={sequenceCampaignId}
+                onChange={(e) => setSequenceCampaignId(e.target.value)}
+                className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {campaigns.length === 0 ? (
+                  <option value="">No campaigns yet</option>
+                ) : campaigns.map(campaign => (
+                  <option key={campaign.id} value={campaign.id}>{campaign.subject || campaign.id}</option>
+                ))}
+              </select>
+              <select
+                value={sequenceContactId}
+                onChange={(e) => setSequenceContactId(e.target.value)}
+                className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {contacts.length === 0 ? (
+                  <option value="">No contacts yet</option>
+                ) : contacts.map(contact => (
+                  <option key={contact.id} value={contact.id}>{contactDisplayName(contact)}</option>
+                ))}
+              </select>
+              <select
+                value={sequenceMedium}
+                onChange={(e) => setSequenceMedium(e.target.value)}
+                className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {CONTACT_CHANNEL_OPTIONS.filter(option => ['email', 'linkedin', 'sms', 'whatsapp'].includes(option.value)).map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {!selectedSequenceCampaign ? (
+            <p className="text-sm text-gray-400 px-5 py-6">Send or create a tracked campaign first, then use the sequence here.</p>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {CAMPAIGN_SEQUENCE_STEPS.map(step => {
+                const complete = selectedSequenceCampaign.sequenceSteps?.[step.id]
+                const savingStep = sequenceStepSaving === step.id
+                const key = `${step.id}:${sequenceMedium}`
+                return (
+                  <div key={step.id} className="px-5 py-4">
+                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full">{step.timing}</span>
+                          <p className="text-sm font-semibold text-gray-900">{step.label}</p>
+                          {complete && <span className="text-[11px] font-semibold text-green-700 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full">Complete</span>}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">{step.goal}</p>
+                        <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-gray-50 border border-gray-100 rounded-xl p-3 mt-3 max-h-40 overflow-y-auto font-sans">{sequenceDraft(step.id)}</pre>
+                      </div>
+                      <div className="shrink-0 flex lg:flex-col gap-2">
+                        <button
+                          type="button"
+                          onClick={() => copySequenceDraft(step.id)}
+                          className="text-xs font-medium text-blue-700 border border-blue-100 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg"
+                        >
+                          {copiedKey === key ? 'Copied' : `Copy ${channelLabel(sequenceMedium)}`}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => markSequenceStepComplete(step.id)}
+                          disabled={savingStep}
+                          className="text-xs font-medium text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-60 px-3 py-2 rounded-lg"
+                        >
+                          {savingStep ? 'Saving...' : 'Mark complete'}
+                        </button>
+                      </div>
+                    </div>
+                    {complete?.completedAtIso && <p className="text-[11px] text-gray-400 mt-2">Last completed {formatDate(complete.completedAtIso)} by {complete.actorEmail || 'admin'} via {channelLabel(complete.medium)}</p>}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
+
         <section className="grid grid-cols-1 xl:grid-cols-3 gap-5">
           <div className="bg-white border border-gray-200 rounded-xl overflow-hidden xl:col-span-2">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-900">Contacts</h3>
-              <span className="text-xs text-gray-400">{contacts.length}</span>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Contacts</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Add names, roles, channels, and notes for the people you are working.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">{contacts.length}</span>
+                <button
+                  type="button"
+                  onClick={openNewContact}
+                  className="text-xs font-medium text-blue-700 border border-blue-100 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg"
+                >
+                  Add contact
+                </button>
+              </div>
             </div>
             {contacts.length === 0 ? (
-              <p className="text-sm text-gray-400 px-5 py-6">No contacts recorded for this employer yet.</p>
+              <div className="px-5 py-6">
+                <p className="text-sm text-gray-400">No contacts recorded for this employer yet.</p>
+                <button
+                  type="button"
+                  onClick={openNewContact}
+                  className="text-xs font-medium text-blue-700 border border-blue-100 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg mt-3"
+                >
+                  Add first contact
+                </button>
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-100">
                       <th className="text-left text-[11px] font-semibold text-gray-500 px-4 py-2">Contact</th>
+                      <th className="text-left text-[11px] font-semibold text-gray-500 px-3 py-2">Channel</th>
                       <th className="text-left text-[11px] font-semibold text-gray-500 px-3 py-2">Status</th>
                       <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Clicks</th>
                       <th className="text-right text-[11px] font-semibold text-gray-500 px-3 py-2">Videos</th>
-                      <th className="text-right text-[11px] font-semibold text-gray-500 px-4 py-2">Last action</th>
+                      <th className="text-right text-[11px] font-semibold text-gray-500 px-4 py-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {contacts.map(contact => (
                       <tr key={contact.id} className="border-b border-gray-50 last:border-0">
-                        <td className="px-4 py-3 text-xs text-gray-800">{contact.email}</td>
+                        <td className="px-4 py-3 text-xs text-gray-800">
+                          <p className="font-medium text-gray-900">{contactDisplayName(contact)}</p>
+                          {contactSubtitle(contact) && <p className="text-[11px] text-gray-400 mt-0.5">{contactSubtitle(contact)}</p>}
+                          {contact.linkedinUrl && <p className="text-[11px] text-blue-700 mt-0.5 truncate max-w-64">{contact.linkedinUrl}</p>}
+                          {Array.isArray(contact.tags) && contact.tags.length > 0 && (
+                            <p className="text-[11px] text-gray-500 mt-1">{contact.tags.join(', ')}</p>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-xs text-gray-600">{channelLabel(contact.preferredChannel || 'email')}</td>
                         <td className="px-3 py-3 text-xs text-gray-600">{contactStatus(contact)}</td>
                         <td className="px-3 py-3 text-xs text-gray-700 text-right">{contact.clickCount || 0}</td>
                         <td className="px-3 py-3 text-xs text-gray-700 text-right">{contact.videoClickCount || 0}</td>
-                        <td className="px-4 py-3 text-xs text-gray-400 text-right">{formatDate(contact.lastOutcomeAt || contact.lastActionAt || contact.lastClickedAt || contact.lastSharedAt)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <p className="text-[11px] text-gray-400 mb-1">{formatDate(contact.lastOutcomeAt || contact.lastActionAt || contact.lastClickedAt || contact.lastSharedAt || contact.updatedAt)}</p>
+                          <button
+                            type="button"
+                            onClick={() => openEditContact(contact)}
+                            className="text-xs font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 px-3 py-1.5 rounded-lg"
+                          >
+                            Edit
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -510,6 +788,13 @@ export default function AdminEmployerDetail() {
                         Open review page
                       </a>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/admin/campaigns/${campaign.id}`)}
+                      className="inline-flex text-xs font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 px-3 py-1.5 rounded-lg mt-3 ml-2"
+                    >
+                      Open campaign
+                    </button>
                   </div>
                 ))}
               </div>
@@ -517,6 +802,83 @@ export default function AdminEmployerDetail() {
           </div>
         </section>
       </main>
+
+      {contactEditorOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => !contactSaving && setContactEditorOpen(false)}>
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-2xl p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">{contactForm.contactId ? 'Edit contact' : 'Add contact'}</h3>
+                <p className="text-sm text-gray-500 mt-1">Keep the person, role, and best outreach channel attached to this company profile.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setContactEditorOpen(false)}
+                disabled={contactSaving}
+                className="text-sm text-gray-400 hover:text-gray-700 disabled:opacity-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+              <label className="block">
+                <span className="block text-xs font-medium text-gray-600 mb-1">Name</span>
+                <input value={contactForm.name} onChange={(e) => updateContactForm('name', e.target.value)} placeholder="Jane Smith" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </label>
+              <label className="block">
+                <span className="block text-xs font-medium text-gray-600 mb-1">Role/title</span>
+                <input value={contactForm.title} onChange={(e) => updateContactForm('title', e.target.value)} placeholder="Service Director, HR, GM..." className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </label>
+              <label className="block">
+                <span className="block text-xs font-medium text-gray-600 mb-1">Email</span>
+                <input type="email" value={contactForm.email} onChange={(e) => updateContactForm('email', e.target.value)} placeholder="name@company.com" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </label>
+              <label className="block">
+                <span className="block text-xs font-medium text-gray-600 mb-1">Phone</span>
+                <input value={contactForm.phone} onChange={(e) => updateContactForm('phone', e.target.value)} placeholder="Direct line or mobile" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </label>
+              <label className="block">
+                <span className="block text-xs font-medium text-gray-600 mb-1">Preferred channel</span>
+                <select value={contactForm.preferredChannel} onChange={(e) => updateContactForm('preferredChannel', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  {CONTACT_CHANNEL_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="block text-xs font-medium text-gray-600 mb-1">LinkedIn URL</span>
+                <input value={contactForm.linkedinUrl} onChange={(e) => updateContactForm('linkedinUrl', e.target.value)} placeholder="https://linkedin.com/in/..." className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </label>
+              <label className="block md:col-span-2">
+                <span className="block text-xs font-medium text-gray-600 mb-1">Tags</span>
+                <input value={contactForm.tags} onChange={(e) => updateContactForm('tags', e.target.value)} placeholder="Decision maker, HR, warm, service advisor" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </label>
+              <label className="block md:col-span-2">
+                <span className="block text-xs font-medium text-gray-600 mb-1">Notes</span>
+                <textarea value={contactForm.notes} onChange={(e) => updateContactForm('notes', e.target.value)} rows={4} maxLength={1200} placeholder="Relationship notes, objections, who they route hiring to, or what they care about." className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                type="button"
+                onClick={() => setContactEditorOpen(false)}
+                disabled={contactSaving}
+                className="text-sm font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 disabled:opacity-60 px-4 py-2 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveContact}
+                disabled={contactSaving}
+                className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 px-4 py-2 rounded-lg"
+              >
+                {contactSaving ? 'Saving...' : 'Save contact'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

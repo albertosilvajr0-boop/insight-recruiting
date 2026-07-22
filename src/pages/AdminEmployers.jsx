@@ -5,6 +5,8 @@ import { db } from '../firebase'
 import { PLATFORM_NAME } from '../config/organization'
 import {
   buildEmployerWorkQueue,
+  contactDisplayName,
+  contactSubtitle,
   derivedEmployerStage,
   employerDisplayName,
   employerStats,
@@ -16,6 +18,7 @@ import {
 } from '../utils/employerCrm'
 
 function contactStatus(contact) {
+  if (contact.status === 'prospect') return 'Prospect'
   if (contact.status === 'interested') return 'Interested'
   if (contact.status === 'engaged_video') return 'Clicked video'
   if (contact.status === 'clicked') return 'Clicked'
@@ -36,7 +39,7 @@ export default function AdminEmployers() {
       () => setEmployers([])
     )
     const unsubContacts = onSnapshot(
-      query(collection(db, 'employerContacts'), orderBy('lastSharedAt', 'desc')),
+      query(collection(db, 'employerContacts'), orderBy('updatedAt', 'desc')),
       snap => setContacts(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))),
       () => setContacts([])
     )
@@ -74,7 +77,7 @@ export default function AdminEmployers() {
         employer.nextAction,
         employer.crmNotes,
         ...(employer.contactEmails || []),
-        ...employerContacts.map(contact => contact.email),
+        ...employerContacts.flatMap(contact => [contact.name, contact.title, contact.email, contact.phone]),
       ].join(' ').toLowerCase()
       return hay.includes(needle)
     })
@@ -234,7 +237,10 @@ export default function AdminEmployers() {
                           <tbody>
                             {employerContacts.slice(0, 8).map(contact => (
                               <tr key={contact.id} className="border-b border-gray-50 last:border-0">
-                                <td className="px-3 py-2 text-xs text-gray-800">{contact.email}</td>
+                                <td className="px-3 py-2 text-xs text-gray-800">
+                                  <p className="font-medium text-gray-900">{contactDisplayName(contact)}</p>
+                                  {contactSubtitle(contact) && <p className="text-[11px] text-gray-400 mt-0.5">{contactSubtitle(contact)}</p>}
+                                </td>
                                 <td className="px-3 py-2 text-xs text-gray-600">{contactStatus(contact)}</td>
                                 <td className="px-3 py-2 text-xs text-gray-700 text-right">{contact.clickCount || 0}</td>
                                 <td className="px-3 py-2 text-xs text-gray-700 text-right">{contact.videoClickCount || 0}</td>
