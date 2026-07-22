@@ -21,7 +21,9 @@ import { trackShareClick } from './candidates/shareTracking.js'
 import {
   getEmployerReviewHandler,
   logEmployerOutcomeHandler,
+  recordCampaignSequenceStepHandler,
   recordEmployerReviewActionHandler,
+  updateEmployerContactHandler,
   updateEmployerCrmHandler,
 } from './employers/employerCrm.js'
 import {
@@ -178,6 +180,14 @@ export const updateEmployerCrm = onCall(async (request) => {
 
 export const logEmployerOutcome = onCall(async (request) => {
   return logEmployerOutcomeHandler(request.data, request)
+})
+
+export const updateEmployerContact = onCall(async (request) => {
+  return updateEmployerContactHandler(request.data, request)
+})
+
+export const recordCampaignSequenceStep = onCall(async (request) => {
+  return recordCampaignSequenceStepHandler(request.data, request)
 })
 
 export const createCandidateInvite = onCall({ secrets: EMAIL_SECRETS }, async (request) => {

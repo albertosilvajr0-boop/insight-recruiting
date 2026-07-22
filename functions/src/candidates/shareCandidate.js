@@ -990,6 +990,12 @@ export async function createTrackedLinkHandler(data, request) {
     shareRef,
     shareId: shareRef.id,
     recipients: [contactRecipient],
+    contactDetailsByRecipient: {
+      [contactRecipient.toLowerCase()]: {
+        contactName,
+        preferredChannel: channel === 'sms' ? 'sms' : channel,
+      },
+    },
     employerName: company,
     candidates,
     videosByCandidate,
