@@ -9,7 +9,7 @@ on:
       - migrate_scores_to_10.mjs
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   migrate:
@@ -36,6 +36,28 @@ jobs:
           EOF
 
       - name: Convert stored candidate scores from 5 to 10
-        run: node migrate_scores_to_10.mjs
+        shell: bash
+        run: |
+          set -o pipefail
+          node migrate_scores_to_10.mjs | tee /tmp/score-migration-full.log
+          {
+            echo "Candidate score migration verification"
+            echo "Run: ${GITHUB_RUN_ID}"
+            echo "Commit: ${GITHUB_SHA}"
+            grep -E '^(Candidates:|Campaigns:|Done\.)' /tmp/score-migration-full.log
+          } > score-migration-status.txt
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa-key.json
+
+      - name: Commit non-sensitive migration status
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add score-migration-status.txt
+          if git diff --cached --quiet; then
+            echo "Migration status is unchanged."
+          else
+            git commit -m "Record candidate score migration status [skip ci]"
+            git push
+          fi
