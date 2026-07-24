@@ -1,0 +1,41 @@
+name: Migrate candidate scores to 10
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/migrate-scores-to-10.yml
+      - migrate_scores_to_10.mjs
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install Firebase Admin dependencies
+        run: npm --prefix functions ci
+
+      - name: Write service account key
+        shell: bash
+        run: |
+          cat > /tmp/sa-key.json <<'EOF'
+          ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          EOF
+
+      - name: Convert stored candidate scores from 5 to 10
+        run: node migrate_scores_to_10.mjs
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa-key.json
