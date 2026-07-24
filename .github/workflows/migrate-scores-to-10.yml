@@ -59,13 +59,17 @@ jobs:
           else
             {
               echo "Candidate score migration failed with exit code ${code}."
-              grep -Ei '(error|failed|credential|permission|denied|invalid|not found)' /tmp/score-migration-full.log | tail -n 20
+              grep -Ei '(error|failed|credential|permission|denied|invalid|not found|project)' /tmp/score-migration-full.log | tail -n 20
             } > /tmp/score-migration-summary.txt
           fi
 
           cat /tmp/score-migration-summary.txt
           cp /tmp/score-migration-summary.txt score-migration-status.txt
           echo "exit_code=${code}" >> "$GITHUB_OUTPUT"
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa-key.json
+          GOOGLE_CLOUD_PROJECT: insight-recruiting-d37dc
+          GCLOUD_PROJECT: insight-recruiting-d37dc
 
       - name: Report verification result on PR
         if: always() && github.event_name == 'pull_request'
