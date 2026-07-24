@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import Home from './pages/Home'
 import CandidateLogin from './pages/CandidateLogin'
 import JobListings from './pages/JobListings'
 import Apply from './pages/Apply'
@@ -28,8 +29,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Public — candidate facing */}
-        <Route path="/" element={<CandidateLogin />} />
+        {/* Public */}
+        <Route path="/" element={<Home />} />
+        <Route path="/start" element={<CandidateLogin />} />
         <Route path="/jobs" element={<JobListings />} />
         <Route path="/apply/:jobId" element={<Apply />} />
         <Route path="/i/:code" element={<Apply />} />

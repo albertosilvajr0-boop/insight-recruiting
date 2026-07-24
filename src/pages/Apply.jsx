@@ -751,7 +751,7 @@ export default function Apply() {
       <div className="bg-white rounded-2xl border border-gray-200 p-8 max-w-sm text-center space-y-4">
         <p className="text-gray-900 font-semibold">We couldn't open your interview</p>
         <p className="text-sm text-gray-500">{inviteError}</p>
-        <button onClick={() => navigate('/')} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl">
+        <button onClick={() => navigate('/start')} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl">
           Re-enter your code
         </button>
       </div>

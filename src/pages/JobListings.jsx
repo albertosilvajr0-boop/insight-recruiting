@@ -165,7 +165,7 @@ export default function JobListings() {
         <div className="text-center mt-10">
           <p className="text-sm text-gray-500">
             Already have an interview code?{' '}
-            <Link to="/" className="text-blue-600 font-medium hover:underline">Start here</Link>
+            <Link to="/start" className="text-blue-600 font-medium hover:underline">Start here</Link>
           </p>
         </div>
         <div className="flex justify-end mt-8">
