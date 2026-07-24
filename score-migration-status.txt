@@ -1,0 +1,6 @@
+Candidate score migration verification
+Run: 30112446885
+Commit: 22c95d4eec0e0808eafee8ec92e7b2b7cbd8fd88
+Candidates: 0 migrated, 88 already on the 10 scale.
+Campaigns: 0 migrated, 111 already on the 10 scale.
+Done. All scores now read out of 10.
