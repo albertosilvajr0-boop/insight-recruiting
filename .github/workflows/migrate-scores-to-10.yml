@@ -7,6 +7,11 @@ on:
     paths:
       - .github/workflows/migrate-scores-to-10.yml
       - migrate_scores_to_10.mjs
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/migrate-scores-to-10.yml
+      - migrate_scores_to_10.mjs
 
 permissions:
   contents: write
@@ -50,6 +55,7 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa-key.json
 
       - name: Commit non-sensitive migration status
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
