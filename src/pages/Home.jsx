@@ -165,7 +165,7 @@ export default function Home() {
             ['🎬', 'Screened on camera first', 'Every attendee has already completed the full role-specific video battery — scripts read aloud, objection handling, timed cognitive tests, written samples — before they get a seat.'],
             ['📅', 'Appointment-only calendars', 'No walk-in lines. Confirmed 25-minute appointments with automatic confirmations and 24-hour and 1-hour reminders; no-shows backfill from the pre-screened bench.'],
             ['📋', 'Managers briefed in advance', 'Before each handshake: the candidate\'s profile and photo, playable footage, the scoring report with strengths and concerns, and 3–5 tailored follow-up questions.'],
-            ['🤝', 'Offers by Day 3', 'Same core questions and anchored 1–5 scorecards for every interviewer, end-of-day calibration huddles, and finalist interviews with offers extended on the spot.'],
+            ['🤝', 'Hired on the spot', 'Same core questions and anchored scorecards for every interviewer, end-of-day calibration huddles — and your managers extend offers in the room, the same day.'],
           ].map(([icon, title, body]) => (
             <div key={title} className="border border-gray-200 rounded-2xl p-5">
               <div className="text-2xl">{icon}</div>
@@ -177,9 +177,9 @@ export default function Home() {
 
         <div className="border border-gray-200 rounded-2xl p-6 mt-6 grid md:grid-cols-3 gap-6">
           {[
-            ['Day 1', 'First interviews at volume', 'Back-to-back appointed interviews — every one pre-screened, every manager briefed.'],
-            ['Day 2', 'Depth and same-day callbacks', 'Second looks for strong candidates, structured follow-ups, ratings reconciled against screening scores.'],
-            ['Day 3', 'Finalists and offers', 'GM interviews, written acknowledgment of company standards, and offers extended on the spot.'],
+            ['Days 1–3', 'Appointed interviews all three days', 'Back-to-back 25-minute appointments every day — every candidate pre-screened, every manager briefed before the handshake.'],
+            ['In the room', 'Your managers hire on the spot', 'When an interviewer sees the right candidate, they extend the offer that day — company standards stated and acknowledged in writing.'],
+            ['Afterward', 'We report back', 'You get the event report: appointments booked versus shown, hires made by role, and the feedback gathered from your interviewers and the candidates.'],
           ].map(([day, title, body]) => (
             <div key={day} className="space-y-1.5">
               <div className="inline-block bg-blue-600 text-white text-xs font-bold px-2.5 py-1 rounded-full">{day}</div>
@@ -191,9 +191,10 @@ export default function Home() {
 
         <div className="text-center mt-8 space-y-3">
           <p className="text-sm text-gray-500 max-w-2xl mx-auto">
-            You keep everything: a ranked shortlist per role, per-candidate evidence packets, the event
-            funnel report — and a standing bench of pre-screened runners-up for your next opening.
-            Top hires start development before day one through coached redos and pre-boarding.
+            After the event, we deliver the report — appointments shown, hires made, and feedback from
+            interviewers and candidates — plus a standing bench of pre-screened runners-up for your
+            next opening. Your new hires start development before day one through coached redos and
+            pre-boarding.
           </p>
           <a href={`mailto:${DEFAULT_CONTACT_EMAIL}?subject=Job%20Fair%20%E2%80%94%20book%20a%20planning%20call`}
             className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium px-8 py-3.5 rounded-xl">
