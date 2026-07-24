@@ -3,7 +3,7 @@ import { httpsCallable } from 'firebase/functions'
 import { functions } from '../firebase'
 
 function formatScore(candidate) {
-  if (candidate.manualScore?.avg != null) return `${candidate.manualScore.avg.toFixed(1)}/5`
+  if (candidate.manualScore?.avg != null) return `${candidate.manualScore.avg.toFixed(1)}/10`
   return 'Pending'
 }
 
@@ -67,7 +67,7 @@ function candidateDraftSection(candidate) {
       const num = Number(qIndex) + 1
       return [
         `Q${num}: ${questions[qIndex]?.text || `Interview answer ${num}`}`,
-        ...(score != null ? [`AI score: ${score}/5`] : []),
+        ...(score != null ? [`AI score: ${score}/10`] : []),
         ...(note ? [`Scoring note: ${truncate(note, 500)}`] : []),
       ].join('\n')
     })

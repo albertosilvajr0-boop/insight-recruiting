@@ -27,7 +27,7 @@ function formatScores(candidate) {
   const lines = []
   const manual = candidate.manualScore
   if (manual?.avg != null) {
-    lines.push(`Manual score: ${manual.avg.toFixed(1)}/5 (${manual.sum}/${manual.max} points across ${manual.count} items)`)
+    lines.push(`Manual score: ${manual.avg.toFixed(1)}/10 (${manual.sum}/${manual.max} points across ${manual.count} items)`)
   }
   if (candidate.compositeScore != null) {
     lines.push(`AI composite: ${candidate.compositeScore.toFixed(1)}/10 (resume ${candidate.resumeScore ?? '—'}/10, interview ${candidate.interviewScore ?? '—'}/10)`)
@@ -105,7 +105,7 @@ function buildSummary(candidate, issues) {
         transcript.transcript.split('\n').forEach(line => L.push(`    ${line}`))
       }
       const answerScore = candidate.manualAnswerScores?.[k]
-      if (answerScore) L.push(`  Evaluator score: ${answerScore}/5`)
+      if (answerScore) L.push(`  Evaluator score: ${answerScore}/10`)
       const answerNote = candidate.manualAnswerNotes?.[k]
       if (answerNote) {
         L.push(`  Evaluator notes:`)
@@ -117,7 +117,7 @@ function buildSummary(candidate, issues) {
   if (candidate.manualResumeScores && Object.keys(candidate.manualResumeScores).length) {
     L.push(''); L.push('RESUME CRITERIA SCORES'); L.push('-'.repeat(60))
     for (const [k, v] of Object.entries(candidate.manualResumeScores)) {
-      L.push(`  ${k.replace(/_/g, ' ')}: ${v}/5`)
+      L.push(`  ${k.replace(/_/g, ' ')}: ${v}/10`)
     }
   }
 

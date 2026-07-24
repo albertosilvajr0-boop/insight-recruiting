@@ -6,7 +6,7 @@ import { PLATFORM_NAME } from '../config/organization'
 
 function formatScore(value) {
   const score = Number(value)
-  return Number.isFinite(score) ? `${score.toFixed(1)}/5` : 'Pending'
+  return Number.isFinite(score) ? `${score.toFixed(1)}/10` : 'Pending'
 }
 
 function actionLabel(action) {
@@ -23,8 +23,8 @@ function actionLabel(action) {
 function scoreTone(value) {
   const score = Number(value)
   if (!Number.isFinite(score)) return 'bg-gray-100 text-gray-700 border-gray-200'
-  if (score >= 4) return 'bg-green-50 text-green-800 border-green-200'
-  if (score >= 3) return 'bg-amber-50 text-amber-800 border-amber-200'
+  if (score >= 8) return 'bg-green-50 text-green-800 border-green-200'
+  if (score >= 6) return 'bg-amber-50 text-amber-800 border-amber-200'
   return 'bg-red-50 text-red-800 border-red-200'
 }
 
@@ -187,7 +187,7 @@ export default function EmployerReview() {
                   <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold text-gray-500 uppercase">
-                        Question {item.num} - AI score {item.score == null ? 'Pending' : `${item.score}/5`}
+                        Question {item.num} - AI score {item.score == null ? 'Pending' : `${item.score}/10`}
                       </p>
                       <p className="text-sm font-medium text-gray-900 mt-1">{item.question}</p>
                     </div>

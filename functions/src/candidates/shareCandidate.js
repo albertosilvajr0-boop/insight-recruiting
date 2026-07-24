@@ -179,13 +179,13 @@ async function attachResumeIfSmall(bucket, candidate, attachments, bytesRemainin
 
 function scoreCardsHtml(candidate) {
   const score = candidate.manualScore?.avg
-  const band = scoreBand(score, 5)
+  const band = scoreBand(score, 10)
   return `
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin: 16px 0; border-collapse: collapse;">
       <tr>
         <td style="background: ${band.bg}; border: 1px solid ${band.bg}; border-radius: 12px; padding: 14px;">
           <p style="margin: 0 0 4px; color: ${band.color}; font-size: 11px; font-weight: 700; text-transform: uppercase;">AI score</p>
-          <p style="margin: 0; color: #111827; font-size: 24px; font-weight: 800;">${escapeHtml(formatScore(score, 5))}</p>
+          <p style="margin: 0; color: #111827; font-size: 24px; font-weight: 800;">${escapeHtml(formatScore(score, 10))}</p>
           <p style="margin: 4px 0 0; color: ${band.color}; font-size: 12px; font-weight: 700;">${candidate.manualScore?.count ? `${candidate.manualScore.count} scored response${candidate.manualScore.count === 1 ? '' : 's'}` : 'Pending score'}</p>
         </td>
       </tr>
@@ -240,7 +240,7 @@ function responseEvidenceHtml(candidate, videos, trackUrl, limit = 20) {
         const transcript = truncate(candidate.videoTranscripts?.[qIndex]?.transcript, 900)
         return `
           <div style="border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; margin: 0 0 10px;">
-            <p style="margin: 0 0 5px; color: #6b7280; font-size: 11px; font-weight: 800; text-transform: uppercase;">Question ${num}${answerScore ? ` - AI score ${escapeHtml(answerScore)}/5` : ''}</p>
+            <p style="margin: 0 0 5px; color: #6b7280; font-size: 11px; font-weight: 800; text-transform: uppercase;">Question ${num}${answerScore ? ` - AI score ${escapeHtml(answerScore)}/10` : ''}</p>
             <p style="margin: 0 0 8px; color: #111827; font-size: 13px; font-weight: 700; line-height: 1.45;">${escapeHtml(q.text || `Interview answer ${num}`)}</p>
             ${video ? '<p style="margin: 0 0 8px; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 7px 9px; font-size: 12px; font-weight: 800;">Video response available</p>' : ''}
             ${note ? `<p style="margin: 0 0 8px; color: #92400e; background: #fffbeb; border-left: 3px solid #f59e0b; padding: 8px 10px; font-size: 13px; line-height: 1.45;"><strong>Scoring note:</strong> ${escapeHtml(note)}</p>` : ''}
@@ -516,7 +516,7 @@ function shortlistSummaryTableHtml({ candidates, videosByCandidate, trackUrl }) 
                   ${index + 1}. ${escapeHtml(candidateName(candidate))}
                   <p style="margin: 3px 0 0; color: #6b7280; font-size: 11px; font-weight: 500;">${escapeHtml(candidate.jobTitle || 'Open role')}</p>
                 </td>
-                <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb; color: #111827; font-size: 13px; font-weight: 800;">${escapeHtml(formatScore(scoreValue(candidate), 5))}</td>
+                <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb; color: #111827; font-size: 13px; font-weight: 800;">${escapeHtml(formatScore(scoreValue(candidate), 10))}</td>
                 <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb; color: #374151; font-size: 12px; line-height: 1.45;">${escapeHtml(candidatePrimaryStrength(candidate))}</td>
                 <td valign="top" style="padding: 12px 10px; border-top: 1px solid #e5e7eb;">${summaryEvidenceCellHtml(candidate, videos, trackUrl)}</td>
               </tr>`
@@ -537,7 +537,7 @@ function questionEvidenceHtml(candidate, videos, trackUrl) {
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
             <tr>
               <td valign="top">
-                <p style="margin: 0 0 4px; color: #6b7280; font-size: 11px; font-weight: 800; text-transform: uppercase;">Q${item.num}${item.score != null ? ` - AI score ${escapeHtml(item.score)}/5` : ' - AI score pending'}</p>
+                <p style="margin: 0 0 4px; color: #6b7280; font-size: 11px; font-weight: 800; text-transform: uppercase;">Q${item.num}${item.score != null ? ` - AI score ${escapeHtml(item.score)}/10` : ' - AI score pending'}</p>
                 <p style="margin: 0 0 7px; color: #111827; font-size: 13px; font-weight: 700; line-height: 1.4;">${escapeHtml(item.question)}</p>
               </td>
               <td valign="top" align="right" style="padding-left: 10px;">
@@ -556,7 +556,7 @@ function questionEvidenceText(candidate, videos) {
   const lines = []
   for (const item of questionEvidenceItems(candidate, videos)) {
     lines.push(`Q${item.num}: ${item.question}`)
-    lines.push(`AI score: ${item.score != null ? `${item.score}/5` : 'Pending'}`)
+    lines.push(`AI score: ${item.score != null ? `${item.score}/10` : 'Pending'}`)
     if (item.note) lines.push(`Score explanation: ${item.note}`)
     if (item.written) lines.push(`Written response: ${item.written}`)
     if (!item.written && item.transcript) lines.push(`Transcript excerpt: ${item.transcript}`)
@@ -568,7 +568,7 @@ function questionEvidenceText(candidate, videos) {
 
 function candidateV2CardHtml({ candidate, videos, trackUrl, rank }) {
   const score = scoreValue(candidate)
-  const band = scoreBand(score, 5)
+  const band = scoreBand(score, 10)
   const contactLine = candidateContactLine(candidate)
   return `
     <section style="border: 1px solid #d1d5db; border-radius: 14px; padding: 18px; margin: 0 0 16px; background: #ffffff;">
@@ -583,7 +583,7 @@ function candidateV2CardHtml({ candidate, videos, trackUrl, rank }) {
           <td valign="top" align="right" style="padding-left: 12px;">
             <div style="display: inline-block; background: ${band.bg}; border-radius: 12px; padding: 10px 12px; text-align: left; min-width: 96px;">
               <p style="margin: 0 0 3px; color: ${band.color}; font-size: 10px; font-weight: 800; text-transform: uppercase;">AI score</p>
-              <p style="margin: 0; color: #111827; font-size: 20px; font-weight: 800;">${escapeHtml(formatScore(score, 5))}</p>
+              <p style="margin: 0; color: #111827; font-size: 20px; font-weight: 800;">${escapeHtml(formatScore(score, 10))}</p>
               <p style="margin: 3px 0 0; color: ${band.color}; font-size: 11px; font-weight: 700;">${candidate.manualScore?.count ? `${candidate.manualScore.count} scored response${candidate.manualScore.count === 1 ? '' : 's'}` : 'Pending score'}</p>
             </div>
           </td>
@@ -652,7 +652,7 @@ function buildBulkEmailV2Text({ candidates, videosByCandidate, note, sharedBy, t
   lines.push('', 'Shortlist at a glance:')
   ranked.forEach((candidate, index) => {
     const videos = videosWithTrackedUrls(videosByCandidate.get(candidate.id) || [], trackUrl)
-    lines.push('', `${index + 1}. ${candidateName(candidate)} - ${formatScore(scoreValue(candidate), 5)}`)
+    lines.push('', `${index + 1}. ${candidateName(candidate)} - ${formatScore(scoreValue(candidate), 10)}`)
     lines.push(`   Why review: ${candidatePrimaryStrength(candidate)}`)
     lines.push(`   Evidence: ${evidenceSummaryLabel(candidate, videos)}`)
   })
@@ -677,7 +677,7 @@ function buildBulkEmailV2Text({ candidates, videosByCandidate, note, sharedBy, t
 function buildCandidatePacketText(candidate, videos, note = '') {
   const lines = []
   lines.push(`${candidateName(candidate)} - ${candidate.jobTitle || 'Open role'}`)
-  lines.push(`AI score: ${formatScore(candidate.manualScore?.avg, 5)}`)
+  lines.push(`AI score: ${formatScore(candidate.manualScore?.avg, 10)}`)
   if (candidate.manualScore?.count) lines.push(`Scored responses: ${candidate.manualScore.count}`)
   if (videos.length) lines.push(`Video responses: ${videos.length}`)
   if (candidate.email) lines.push(`Email: ${candidate.email}`)
@@ -695,7 +695,7 @@ function buildCandidatePacketText(candidate, videos, note = '') {
     const q = questions[qIndex]
     const num = Number(qIndex) + 1
     lines.push(`\nQ${num}: ${q.text || ''}`)
-    if (candidate.manualAnswerScores?.[qIndex]) lines.push(`AI score: ${candidate.manualAnswerScores[qIndex]}/5`)
+    if (candidate.manualAnswerScores?.[qIndex]) lines.push(`AI score: ${candidate.manualAnswerScores[qIndex]}/10`)
     if (candidate.manualAnswerNotes?.[qIndex]) lines.push(`Scoring note: ${candidate.manualAnswerNotes[qIndex]}`)
     if (candidate.textResponses?.[qIndex]) lines.push(`Written answer: ${candidate.textResponses[qIndex]}`)
     if (candidate.videoTranscripts?.[qIndex]?.transcript) lines.push(`Transcript: ${candidate.videoTranscripts[qIndex].transcript}`)
