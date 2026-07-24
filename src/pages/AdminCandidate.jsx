@@ -116,7 +116,7 @@ function buildSupportChecklist({ candidate, shares, effectiveScore }) {
     {
       label: 'AI score',
       done: scoreReady,
-      status: scoreReady ? `${Number(effectiveScore).toFixed(1)}/5` : 'Needs scoring',
+      status: scoreReady ? `${Number(effectiveScore).toFixed(1)}/10` : 'Needs scoring',
     },
     {
       label: 'Employer share',
@@ -157,7 +157,7 @@ function nextSupportAction(candidate, checklist, effectiveScore) {
 function ScoreButton({ value, selected, onClick }) {
   return (
     <button onClick={onClick}
-      className={`w-9 h-9 rounded-lg text-sm font-semibold transition-colors ${
+      className={`w-8 h-8 rounded-lg text-xs font-semibold transition-colors ${
         selected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
       }`}>
       {value}
@@ -468,7 +468,7 @@ export default function AdminCandidate() {
     Object.values(answerScoreMap).forEach(v => { if (v) allScores.push(v) })
     if (allScores.length === 0) return null
     const sum = allScores.reduce((a, b) => a + b, 0)
-    return { sum, count: allScores.length, avg: (sum / allScores.length).toFixed(1), max: allScores.length * 5 }
+    return { sum, count: allScores.length, avg: (sum / allScores.length).toFixed(1), max: allScores.length * 10 }
   }
 
   const calcCumulativeScore = () => calcCumulativeScoreFrom()
@@ -658,8 +658,8 @@ export default function AdminCandidate() {
   const nextAction = nextSupportAction(candidate, supportChecklist, effectiveScore)
   const scoreColor = (avg) => {
     if (avg == null) return 'text-gray-400'
-    if (avg >= 4) return 'text-green-600'
-    if (avg >= 3) return 'text-amber-600'
+    if (avg >= 8) return 'text-green-600'
+    if (avg >= 6) return 'text-amber-600'
     return 'text-red-600'
   }
 
@@ -788,7 +788,7 @@ export default function AdminCandidate() {
               <p className="text-xs text-gray-500 mt-0.5">Manual scoring below</p>
               {cumulative ? (
                 <div className="mt-2">
-                  <p className={`text-3xl font-bold ${scoreColor(cumulative.avg)}`}>{cumulative.avg}<span className="text-lg text-gray-400">/5</span></p>
+                  <p className={`text-3xl font-bold ${scoreColor(cumulative.avg)}`}>{cumulative.avg}<span className="text-lg text-gray-400">/10</span></p>
                   <p className="text-xs text-gray-500">{cumulative.sum} of {cumulative.max} points ({cumulative.count} items)</p>
                 </div>
               ) : (
@@ -907,13 +907,13 @@ export default function AdminCandidate() {
           )}
 
           <div className="border-t border-gray-100 pt-4">
-            <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Score Resume (1-5)</h3>
+            <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Score Resume (1-10)</h3>
             <div className="space-y-3">
               {RESUME_CRITERIA.map(({ key, label }) => (
                 <div key={key} className="flex items-center justify-between gap-4">
                   <p className="text-sm text-gray-700 flex-1">{label}</p>
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5].map(v => (
+                  <div className="flex gap-1 flex-wrap">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(v => (
                       <ScoreButton key={v} value={v} selected={resumeScores[key] === v} onClick={() => setResumeScore(key, v)} />
                     ))}
                   </div>
@@ -1042,12 +1042,12 @@ export default function AdminCandidate() {
                     <div className="ml-9 space-y-2">
                       <div className="flex items-center gap-3">
                         <span className="text-xs text-gray-500 font-medium">Score:</span>
-                        <div className="flex gap-1">
-                          {[1, 2, 3, 4, 5].map(v => (
+                        <div className="flex gap-1 flex-wrap">
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(v => (
                             <ScoreButton key={v} value={v} selected={answerScores[qIndex] === v} onClick={() => setAnswerScore(qIndex, v)} />
                           ))}
                         </div>
-                        {answerScores[qIndex] && <span className="text-xs text-gray-400">{answerScores[qIndex]}/5</span>}
+                        {answerScores[qIndex] && <span className="text-xs text-gray-400">{answerScores[qIndex]}/10</span>}
                       </div>
                       <label className="block">
                         <span className="block text-xs font-medium text-gray-500 mb-1">Scoring notes</span>
@@ -1105,8 +1105,8 @@ export default function AdminCandidate() {
                 <video controls src={url} className="w-full rounded-lg border border-gray-200" />
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-gray-500 font-medium">Score:</span>
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5].map(v => (
+                  <div className="flex gap-1 flex-wrap">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(v => (
                       <ScoreButton key={v} value={v} selected={answerScores[qIndex] === v} onClick={() => setAnswerScore(qIndex, v)} />
                     ))}
                   </div>

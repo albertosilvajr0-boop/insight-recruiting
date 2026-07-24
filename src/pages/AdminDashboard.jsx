@@ -206,13 +206,13 @@ function buildWorkQueue(candidates) {
       })
     }
 
-    if (!final && c.manualScore?.avg >= 4 && !hasSharedWithEmployer(c)) {
+    if (!final && c.manualScore?.avg >= 8 && !hasSharedWithEmployer(c)) {
       add(c, {
         type: "share",
         priority: "Medium",
         rank: 45,
         title: "High score not shared",
-        detail: `${c.manualScore.avg.toFixed(1)}/5 with ${hasVideoResponses(c) ? "video evidence" : "response evidence"} ready for employer review.`,
+        detail: `${c.manualScore.avg.toFixed(1)}/10 with ${hasVideoResponses(c) ? "video evidence" : "response evidence"} ready for employer review.`,
         action: "Share",
       })
     }
@@ -567,8 +567,8 @@ export default function AdminDashboard() {
                           <p className="text-xs text-gray-500 mt-0.5 truncate">{c.jobTitle}</p>
                           <div className="flex items-center gap-1 mt-1 flex-wrap">
                             {c.manualScore?.avg != null && (
-                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.manualScore.avg >= 4 ? "bg-green-100 text-green-800" : c.manualScore.avg >= 3 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>
-                                {c.manualScore.avg.toFixed(1)}/5
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.manualScore.avg >= 8 ? "bg-green-100 text-green-800" : c.manualScore.avg >= 6 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>
+                                {c.manualScore.avg.toFixed(1)}/10
                               </span>
                             )}
                             {isAging && (

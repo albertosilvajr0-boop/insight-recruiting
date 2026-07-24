@@ -25,7 +25,7 @@ function candidateName(candidate) {
 
 function scoreLabel(value) {
   const score = Number(value)
-  return Number.isFinite(score) ? `${score.toFixed(1)}/5` : 'Pending'
+  return Number.isFinite(score) ? `${score.toFixed(1)}/10` : 'Pending'
 }
 
 function activityDate(activity) {

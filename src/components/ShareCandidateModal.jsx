@@ -79,7 +79,7 @@ function buildEmailDraft({ candidate, note, links, includeResume, videoCount }) 
     `I pulled together ${name}'s candidate review for the ${jobTitle}. It includes the AI score, response evidence${videoEntries.length ? ', video responses' : ''}, and scoring notes so your team can decide whether to move forward.`,
     '',
     `${name} - ${candidate.jobTitle || 'Candidate'}`,
-    `AI score: ${formatScore(candidate.manualScore?.avg, 5)}`,
+    `AI score: ${formatScore(candidate.manualScore?.avg, 10)}`,
   ]
 
   if (candidate.manualScore?.count) lines.push(`Scored responses: ${candidate.manualScore.count}`)
@@ -109,7 +109,7 @@ function buildEmailDraft({ candidate, note, links, includeResume, videoCount }) 
       const transcript = candidate.videoTranscripts?.[qIndex]?.transcript
       const selectedVideo = selectedVideos.find(video => String(video.qIndex) === String(qIndex))
       lines.push('', `Q${num}: ${q.text || `Interview answer ${num}`}`)
-      if (score != null) lines.push(`AI score: ${score}/5`)
+      if (score != null) lines.push(`AI score: ${score}/10`)
       if (scoringNote) lines.push(`Scoring note: ${truncate(scoringNote, 1000)}`)
       if (written) lines.push(`Written answer: ${truncate(written, 1000)}`)
       if (!written && transcript) lines.push(`Transcript excerpt: ${truncate(transcript, 1000)}`)
