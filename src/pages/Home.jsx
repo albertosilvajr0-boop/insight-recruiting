@@ -147,6 +147,61 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Flagship offering: the Appointed-Interview Job Fair */}
+      <section className="max-w-5xl mx-auto px-4 py-12 md:py-16">
+        <div className="text-center max-w-3xl mx-auto">
+          <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Flagship offering for dealerships</p>
+          <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mt-2">
+            The Appointed-Interview Job Fair — three days of candidates worth meeting.
+          </h2>
+          <p className="text-gray-600 mt-3 leading-relaxed">
+            We fill your managers' calendars with pre-screened, camera-interviewed candidates —
+            briefed with footage, scores, and the exact questions to ask before every handshake.
+          </p>
+        </div>
+
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-10">
+          {[
+            ['🎬', 'Screened on camera first', 'Every attendee has already completed the full role-specific video battery — scripts read aloud, objection handling, timed cognitive tests, written samples — before they get a seat.'],
+            ['📅', 'Appointment-only calendars', 'No walk-in lines. Confirmed 25-minute appointments with automatic confirmations and 24-hour and 1-hour reminders; no-shows backfill from the pre-screened bench.'],
+            ['📋', 'Managers briefed in advance', 'Before each handshake: the candidate\'s profile and photo, playable footage, the scoring report with strengths and concerns, and 3–5 tailored follow-up questions.'],
+            ['🤝', 'Offers by Day 3', 'Same core questions and anchored 1–5 scorecards for every interviewer, end-of-day calibration huddles, and finalist interviews with offers extended on the spot.'],
+          ].map(([icon, title, body]) => (
+            <div key={title} className="border border-gray-200 rounded-2xl p-5">
+              <div className="text-2xl">{icon}</div>
+              <h3 className="font-semibold text-gray-900 mt-3">{title}</h3>
+              <p className="text-sm text-gray-500 mt-1.5 leading-relaxed">{body}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="border border-gray-200 rounded-2xl p-6 mt-6 grid md:grid-cols-3 gap-6">
+          {[
+            ['Day 1', 'First interviews at volume', 'Back-to-back appointed interviews — every one pre-screened, every manager briefed.'],
+            ['Day 2', 'Depth and same-day callbacks', 'Second looks for strong candidates, structured follow-ups, ratings reconciled against screening scores.'],
+            ['Day 3', 'Finalists and offers', 'GM interviews, written acknowledgment of company standards, and offers extended on the spot.'],
+          ].map(([day, title, body]) => (
+            <div key={day} className="space-y-1.5">
+              <div className="inline-block bg-blue-600 text-white text-xs font-bold px-2.5 py-1 rounded-full">{day}</div>
+              <h3 className="font-semibold text-gray-900">{title}</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">{body}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="text-center mt-8 space-y-3">
+          <p className="text-sm text-gray-500 max-w-2xl mx-auto">
+            You keep everything: a ranked shortlist per role, per-candidate evidence packets, the event
+            funnel report — and a standing bench of pre-screened runners-up for your next opening.
+            Top hires start development before day one through coached redos and pre-boarding.
+          </p>
+          <a href={`mailto:${DEFAULT_CONTACT_EMAIL}?subject=Job%20Fair%20%E2%80%94%20book%20a%20planning%20call`}
+            className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium px-8 py-3.5 rounded-xl">
+            Book a Job Fair planning call
+          </a>
+        </div>
+      </section>
+
       {/* CTA */}
       <section className="max-w-5xl mx-auto px-4 py-14 text-center space-y-4">
         <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Stop interviewing strangers.</h2>
