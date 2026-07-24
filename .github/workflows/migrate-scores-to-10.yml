@@ -36,20 +36,37 @@ jobs:
           EOF
 
       - name: Convert stored candidate scores from 5 to 10
+        id: migration
         shell: bash
         run: |
-          set -o pipefail
-          node migrate_scores_to_10.mjs | tee /tmp/score-migration-full.log
-          {
-            echo "Candidate score migration verification"
-            echo "Run: ${GITHUB_RUN_ID}"
-            echo "Commit: ${GITHUB_SHA}"
-            grep -E '^(Candidates:|Campaigns:|Done\.)' /tmp/score-migration-full.log
-          } > score-migration-status.txt
+          set +e
+          node migrate_scores_to_10.mjs > /tmp/score-migration-full.log 2>&1
+          code=$?
+
+          if [ "$code" -eq 0 ]; then
+            {
+              echo "Candidate score migration verification"
+              echo "Run: ${GITHUB_RUN_ID}"
+              echo "Commit: ${GITHUB_SHA}"
+              grep -E '^(Candidates:|Campaigns:|Done\.)' /tmp/score-migration-full.log
+            } > /tmp/score-migration-summary.txt
+          else
+            {
+              echo "Candidate score migration failed with exit code ${code}."
+              grep -Ei '(error|failed|credential|permission|denied|invalid|not found|project)' /tmp/score-migration-full.log | tail -n 20
+            } > /tmp/score-migration-summary.txt
+          fi
+
+          cat /tmp/score-migration-summary.txt
+          cp /tmp/score-migration-summary.txt score-migration-status.txt
+          echo "exit_code=${code}" >> "$GITHUB_OUTPUT"
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa-key.json
+          GOOGLE_CLOUD_PROJECT: insight-recruiting-d37dc
+          GCLOUD_PROJECT: insight-recruiting-d37dc
 
       - name: Commit non-sensitive migration status
+        if: steps.migration.outputs.exit_code == '0'
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
@@ -61,3 +78,7 @@ jobs:
             git commit -m "Record candidate score migration status [skip ci]"
             git push
           fi
+
+      - name: Fail when migration did not complete
+        if: steps.migration.outputs.exit_code != '0'
+        run: exit 1
