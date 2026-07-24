@@ -85,14 +85,30 @@ export default function AdminQuestions() {
     return unsub
   }, [])
 
+  // Next free order number WITHIN the given role's block — new questions
+  // should never default to the global count (which lands them nowhere
+  // meaningful). Roles with no questions yet start at 10, above the
+  // universal (roleKey "all") intro block at 0-3.
+  const nextOrderForRole = (roleKey) => {
+    const rows = questions.filter((q) => q.roleKey === roleKey)
+    if (!rows.length) return roleKey === "all" ? 4 : 10
+    return Math.max(...rows.map((q) => Number(q.order) || 0)) + 1
+  }
+
+  const roleOrderRange = (roleKey) => {
+    const rows = questions.filter((q) => q.roleKey === roleKey)
+    if (!rows.length) return null
+    const orders = rows.map((q) => Number(q.order) || 0)
+    return { min: Math.min(...orders), max: Math.max(...orders), count: rows.length }
+  }
+
   const resetForm = () => {
-    setForm({ text: "", type: "video_response", roleKey: "all", category: "intro", order: questions.length, active: true, timerType: "none", timerSeconds: 0 })
+    setForm({ text: "", type: "video_response", roleKey: "all", category: "intro", order: nextOrderForRole("all"), active: true, timerType: "none", timerSeconds: 0 })
     setEditing(null)
   }
 
   const openCreate = () => {
     resetForm()
-    setForm((f) => ({ ...f, order: questions.length }))
     setShowModal(true)
   }
 
@@ -234,7 +250,15 @@ export default function AdminQuestions() {
   }
 
   const clearAndReseed = async () => {
-    if (!window.confirm(`This will delete all ${questions.length} existing questions and replace them with the latest defaults. Continue?`)) return
+    // Hard stop against wiping the real seeded question library (158
+    // questions across 14 role batteries). The built-in starter set below
+    // covers only a handful of roles — restoring the full library requires
+    // re-running seed_interview_questions.mjs, not this button.
+    if (questions.length >= 50) {
+      alert("Blocked: the full question library is loaded. Resetting would replace all 14 role batteries with a small starter set. To rebuild the library, re-run the seed script instead.")
+      return
+    }
+    if (!window.confirm(`This will delete all ${questions.length} existing questions and replace them with the starter set. Continue?`)) return
     setClearing(true)
     try {
       const batch = writeBatch(db)
@@ -334,9 +358,9 @@ export default function AdminQuestions() {
                 {clearing ? "Clearing…" : "Clear all"}
               </button>
             )}
-            {questions.length > 0 && (
+            {questions.length > 0 && questions.length < 50 && (
               <button onClick={clearAndReseed} disabled={clearing || seeding} className="text-sm border border-amber-200 text-amber-700 px-3 py-1.5 rounded-lg hover:bg-amber-50">
-                {clearing || seeding ? "Reloading…" : "Reset to defaults"}
+                {clearing || seeding ? "Reloading…" : "Reset to starter set (dev only)"}
               </button>
             )}
             {questions.length === 0 && (
@@ -422,10 +446,10 @@ export default function AdminQuestions() {
           </div>
         )}
 
-        {questions.length > 0 && (
+        {questions.length > 0 && questions.length < 50 && (
           <div className="flex justify-center gap-4 pt-2">
             <button onClick={clearAndReseed} disabled={clearing || seeding} className="text-sm text-amber-600 hover:text-amber-800 font-medium">
-              {clearing || seeding ? "Reloading…" : "Reset to defaults"}
+              {clearing || seeding ? "Reloading…" : "Reset to starter set (dev only)"}
             </button>
             <button onClick={clearAllQuestions} disabled={clearing} className="text-sm text-red-500 hover:text-red-700 font-medium">
               {clearing ? "Clearing…" : "Clear all questions"}
@@ -456,7 +480,12 @@ export default function AdminQuestions() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                <select value={form.roleKey} onChange={(e) => setForm((f) => ({ ...f, roleKey: e.target.value }))}
+                <select value={form.roleKey}
+                  onChange={(e) => {
+                    const roleKey = e.target.value
+                    // New questions follow the selected role's block; edits keep their number.
+                    setForm((f) => ({ ...f, roleKey, ...(editing ? {} : { order: nextOrderForRole(roleKey) }) }))
+                  }}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                   {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
@@ -472,6 +501,16 @@ export default function AdminQuestions() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Sort Order</label>
                 <input type="number" value={form.order} onChange={(e) => setForm((f) => ({ ...f, order: Number(e.target.value) }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                {(() => {
+                  const range = roleOrderRange(form.roleKey)
+                  return (
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      {range
+                        ? `This role's ${range.count} question${range.count === 1 ? '' : 's'} use ${range.min}–${range.max}. Numbers only matter within a role.`
+                        : 'First question for this role — any number 10+ works.'}
+                    </p>
+                  )
+                })()}
               </div>
             </div>
 
