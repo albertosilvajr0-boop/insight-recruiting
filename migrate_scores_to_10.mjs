@@ -72,15 +72,24 @@ async function main() {
   for (const doc of campaigns.docs) {
     const data = doc.data()
     if (data.scoreScale === 10) { cSkipped++; continue }
-    const summaries = Array.isArray(data.candidateSummaries) ? data.candidateSummaries.map(s => ({
-      ...s,
-      aiScore: s.aiScore == null ? s.aiScore : doubleScore(s.aiScore),
-      evidence: Array.isArray(s.evidence) ? s.evidence.map(e => ({
-        ...e,
-        score: e.score == null ? e.score : doubleScore(e.score),
-      })) : s.evidence,
-    })) : data.candidateSummaries
-    await doc.ref.update({ candidateSummaries: summaries, scoreScale: 10 })
+
+    const update = { scoreScale: 10 }
+    if (Array.isArray(data.candidateSummaries)) {
+      update.candidateSummaries = data.candidateSummaries.map((summary) => {
+        const nextSummary = { ...summary }
+        if (summary.aiScore != null) nextSummary.aiScore = doubleScore(summary.aiScore)
+        if (Array.isArray(summary.evidence)) {
+          nextSummary.evidence = summary.evidence.map((evidence) => {
+            const nextEvidence = { ...evidence }
+            if (evidence.score != null) nextEvidence.score = doubleScore(evidence.score)
+            return nextEvidence
+          })
+        }
+        return nextSummary
+      })
+    }
+
+    await doc.ref.update(update)
     cMigrated++
   }
   console.log(`Campaigns: ${cMigrated} migrated, ${cSkipped} already on the 10 scale.`)
