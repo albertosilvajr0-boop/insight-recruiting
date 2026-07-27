@@ -4,6 +4,11 @@ import { collection, query, getDocs, orderBy } from 'firebase/firestore'
 import { ref, uploadBytesResumable } from 'firebase/storage'
 import { httpsCallable } from 'firebase/functions'
 import { db, storage, functions } from '../firebase'
+import {
+  buildCandidateResumePath,
+  inferResumeContentType,
+  resumeFileError,
+} from '../utils/resumeUpload'
 
 const EMPTY_FORM = { firstName: '', lastName: '', email: '', phone: '', jobId: '' }
 
@@ -41,14 +46,6 @@ function candidateSortTime(candidate) {
   )
 }
 
-function inferResumeContentType(fileName) {
-  const lower = String(fileName || '').toLowerCase()
-  if (lower.endsWith('.pdf')) return 'application/pdf'
-  if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  if (lower.endsWith('.doc')) return 'application/msword'
-  return 'application/octet-stream'
-}
-
 export default function AdminInvite() {
   const [jobs, setJobs] = useState([])
   const [form, setForm] = useState(EMPTY_FORM)
@@ -60,6 +57,7 @@ export default function AdminInvite() {
   const [peopleSearch, setPeopleSearch] = useState('')
   const [loadingPeople, setLoadingPeople] = useState(true)
   const [copied, setCopied] = useState(null)
+  const [resumeUpload, setResumeUpload] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -92,8 +90,64 @@ export default function AdminInvite() {
   const handleResumeSelect = (e) => {
     const file = e.target.files[0]
     if (!file) return
-    if (file.size > 10 * 1024 * 1024) { alert('Resume too large. Maximum 10MB.'); return }
+    const fileError = resumeFileError(file)
+    if (fileError) {
+      setError(fileError)
+      e.target.value = ''
+      return
+    }
+    setError(null)
     setResumeFile(file)
+  }
+
+  const uploadResume = async (candidate, file, onProgress) => {
+    const contentType = inferResumeContentType(file.name)
+    const resumePath = buildCandidateResumePath(candidate.id, file.name)
+    const uploadTask = uploadBytesResumable(ref(storage, resumePath), file, { contentType })
+    await new Promise((resolve, reject) => uploadTask.on(
+      'state_changed',
+      snapshot => onProgress?.(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)),
+      reject,
+      resolve
+    ))
+    const attachInviteResume = httpsCallable(functions, 'attachInviteResume')
+    await attachInviteResume({ candidateId: candidate.id, resumeUrl: resumePath })
+    return resumePath
+  }
+
+  const handleExistingResumeSelect = async (candidate, e) => {
+    const input = e.target
+    const file = input.files?.[0]
+    if (!file) return
+
+    const fileError = resumeFileError(file)
+    if (fileError) {
+      setResumeUpload({ candidateId: candidate.id, status: 'error', message: fileError })
+      input.value = ''
+      return
+    }
+
+    setResumeUpload({ candidateId: candidate.id, status: 'uploading', progress: 0 })
+    try {
+      const resumePath = await uploadResume(candidate, file, progress => {
+        setResumeUpload({ candidateId: candidate.id, status: 'uploading', progress })
+      })
+      setPeople(current => current.map(person => (
+        person.id === candidate.id
+          ? { ...person, resumeUrl: resumePath, resumeSkipped: false }
+          : person
+      )))
+      setResumeUpload({ candidateId: candidate.id, status: 'success', message: 'Résumé added.' })
+    } catch (err) {
+      console.error('Resume upload failed:', err)
+      setResumeUpload({
+        candidateId: candidate.id,
+        status: 'error',
+        message: 'Could not add the résumé. The interview may already be submitted; refresh and try again.',
+      })
+    } finally {
+      input.value = ''
+    }
   }
 
   const canSend = form.firstName.trim() && form.lastName.trim()
@@ -115,17 +169,13 @@ export default function AdminInvite() {
         jobId: form.jobId,
       })
 
+      let resumeError = null
       if (resumeFile) {
         try {
-          const contentType = resumeFile.type || inferResumeContentType(resumeFile.name)
-          const resumePath = `resumes/${data.candidateId}/${resumeFile.name}`
-          const uploadTask = uploadBytesResumable(ref(storage, resumePath), resumeFile, { contentType })
-          await new Promise((resolve, reject) => uploadTask.on('state_changed', null, reject, resolve))
-          const attachInviteResume = httpsCallable(functions, 'attachInviteResume')
-          await attachInviteResume({ candidateId: data.candidateId, resumeUrl: resumePath })
+          await uploadResume({ id: data.candidateId }, resumeFile)
         } catch (err) {
           console.error('Resume upload failed:', err)
-          alert('The invite was created, but the resume upload failed. You can retry from the candidate page.')
+          resumeError = 'The invite was created, but the résumé could not be added. Use “Add résumé” beside this person below to try again.'
         }
       }
 
@@ -134,6 +184,7 @@ export default function AdminInvite() {
         email: form.email.trim(),
         phone: form.phone.trim(),
         name: `${form.firstName.trim()} ${form.lastName.trim()}`,
+        resumeError,
       })
       setForm(EMPTY_FORM)
       setResumeFile(null)
@@ -198,6 +249,9 @@ export default function AdminInvite() {
                 </button>
               )}
             </div>
+            {result.resumeError && (
+              <p className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">{result.resumeError}</p>
+            )}
           </div>
         )}
 
@@ -280,6 +334,8 @@ export default function AdminInvite() {
               const stageLabel = STAGE_LABELS[c.stage] || c.stage || 'Unknown'
               const stageBadgeColor = STAGE_BADGE_COLORS[c.stage] || 'bg-gray-100 text-gray-600'
               const candidateJobTitle = c.jobTitle || jobTitle(c.jobId) || 'No job selected'
+              const candidateResumeUpload = resumeUpload?.candidateId === c.id ? resumeUpload : null
+              const resumeUploadInProgress = resumeUpload?.status === 'uploading'
 
               return (
               <div key={c.id} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between gap-4">
@@ -304,7 +360,7 @@ export default function AdminInvite() {
                     {c.accessCode && (c.firstSignInAt
                       ? <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">Signed in</span>
                       : <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Not opened yet</span>)}
-                    {c.resumeUrl && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Resume on file</span>}
+                    {c.resumeUrl && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Résumé on file</span>}
                   </div>
                 </div>
                 <div className="shrink-0 text-right space-y-1">
@@ -321,6 +377,29 @@ export default function AdminInvite() {
                   <button onClick={() => navigate(`/admin/candidates/${c.id}`)} className="block text-xs text-gray-500 hover:text-blue-600 hover:underline">
                     Open profile
                   </button>
+                  {c.stage === 'invited' && c.accessCode && !c.resumeUrl && (
+                    <label className={`block text-xs font-medium px-3 py-2 mt-2 rounded-lg transition-colors ${resumeUploadInProgress
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-blue-50 text-blue-700 hover:bg-blue-100 cursor-pointer'
+                    }`}>
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        disabled={resumeUploadInProgress}
+                        onChange={e => handleExistingResumeSelect(c, e)}
+                        className="hidden"
+                      />
+                      {candidateResumeUpload?.status === 'uploading'
+                        ? `Uploading ${candidateResumeUpload.progress || 0}%`
+                        : 'Add résumé'}
+                    </label>
+                  )}
+                  {candidateResumeUpload?.status === 'error' && (
+                    <p className="max-w-52 text-xs text-red-700 mt-2">{candidateResumeUpload.message}</p>
+                  )}
+                  {candidateResumeUpload?.status === 'success' && (
+                    <p className="text-xs text-green-700 mt-2">{candidateResumeUpload.message}</p>
+                  )}
                 </div>
               </div>
               )
