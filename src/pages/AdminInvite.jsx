@@ -375,7 +375,7 @@ export default function AdminInvite() {
                     <span className="text-xs text-gray-400">No code</span>
                   )}
                   <button onClick={() => navigate(`/admin/candidates/${c.id}`)} className="block text-xs text-gray-500 hover:text-blue-600 hover:underline">
-                    Open profile
+                    Open / edit profile
                   </button>
                   {c.stage === 'invited' && c.accessCode && !c.resumeUrl && (
                     <label className={`block text-xs font-medium px-3 py-2 mt-2 rounded-lg transition-colors ${resumeUploadInProgress
