@@ -29,6 +29,7 @@ import {
 import {
   createCandidateInviteHandler,
   attachInviteResumeHandler,
+  updateCandidateProfileHandler,
   getInviteSessionHandler,
   touchInvitePresenceHandler,
   submitInvitedInterviewHandler,
@@ -196,6 +197,10 @@ export const createCandidateInvite = onCall({ secrets: EMAIL_SECRETS }, async (r
 
 export const attachInviteResume = onCall(async (request) => {
   return attachInviteResumeHandler(request.data, request)
+})
+
+export const updateCandidateProfile = onCall(async (request) => {
+  return updateCandidateProfileHandler(request.data, request)
 })
 
 export const getInviteSession = onCall(async (request) => {

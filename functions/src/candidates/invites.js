@@ -45,6 +45,22 @@ function requireString(value, field, maxLength) {
   return value.trim()
 }
 
+function hasEntries(value) {
+  return Boolean(value && typeof value === 'object' && Object.keys(value).length)
+}
+
+function canChangeCandidateJob(candidate = {}) {
+  if (candidate.stage !== 'invited') return false
+  if (candidate.firstSignInAt || candidate.submittedAt || candidate.reopenedAt) return false
+
+  return ![
+    candidate.questions,
+    candidate.videoResponses,
+    candidate.textResponses,
+    candidate.timingData,
+  ].some(hasEntries)
+}
+
 async function hasCurrentSelectionCompliance(db, candidateId) {
   const snap = await db.collection('candidateCompliance').doc(candidateId).get()
   if (!snap.exists) return false
@@ -185,7 +201,7 @@ export async function createCandidateInviteHandler(data, request) {
 
 // ─── Admin: attach an uploaded resume to an invited candidate ───────────────
 export async function attachInviteResumeHandler(data, request) {
-  await assertPermission(request, PERMISSIONS.VIEW_CANDIDATES)
+  const profile = await assertPermission(request, PERMISSIONS.SCORE_CANDIDATES)
   const db = getFirestore()
 
   const candidateId = requireString(data.candidateId, 'candidateId', 80)
@@ -195,16 +211,95 @@ export async function attachInviteResumeHandler(data, request) {
   }
 
   const snap = await db.collection('candidates').doc(candidateId).get()
-  if (!snap.exists || snap.data().stage !== 'invited') {
-    throw new HttpsError('failed-precondition', 'Candidate is not an open invite.')
-  }
+  if (!snap.exists) throw new HttpsError('not-found', 'Candidate not found.')
+  const previousResumeUrl = snap.data().resumeUrl || null
 
   await db.collection('candidates').doc(candidateId).update({
     resumeUrl,
     resumeSkipped: false,
     updatedAt: FieldValue.serverTimestamp(),
+    updatedBy: request.auth.uid,
+    updatedByEmail: profile.email || request.auth.token?.email || null,
   })
+
+  await writeAuditLog({
+    actorUid: request.auth.uid,
+    actorEmail: profile.email || request.auth.token?.email || null,
+    action: previousResumeUrl ? 'candidate.resume_replaced' : 'candidate.resume_added',
+    targetType: 'candidate',
+    targetId: candidateId,
+    metadata: { previousResumeUrl, resumeUrl },
+  })
+
   return { success: true }
+}
+
+// Admin: correct the details originally entered on Invite Candidate. The job
+// can only change before the candidate opens the interview; after that point,
+// switching jobs would separate the profile from its recorded question set.
+export async function updateCandidateProfileHandler(data, request) {
+  const profile = await assertPermission(request, PERMISSIONS.SCORE_CANDIDATES)
+  const db = getFirestore()
+
+  const candidateId = requireString(data.candidateId, 'candidateId', 80)
+  const firstName = requireString(data.firstName, 'first name', 80)
+  const lastName = requireString(data.lastName, 'last name', 80)
+  const email = requireString(data.email, 'email', 160)
+  const phone = requireString(data.phone, 'phone', 40)
+  const jobId = requireString(data.jobId, 'job', 120)
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new HttpsError('invalid-argument', 'Invalid email address.')
+  }
+
+  const candidateRef = db.collection('candidates').doc(candidateId)
+  const candidateSnap = await candidateRef.get()
+  if (!candidateSnap.exists) throw new HttpsError('not-found', 'Candidate not found.')
+  const candidate = candidateSnap.data()
+  const jobChanged = jobId !== candidate.jobId
+
+  if (jobChanged && !canChangeCandidateJob(candidate)) {
+    throw new HttpsError(
+      'failed-precondition',
+      'The job cannot be changed after the candidate opens or submits the interview.'
+    )
+  }
+
+  const update = { firstName, lastName, email, phone }
+  if (jobChanged) {
+    const jobSnap = await db.collection('jobs').doc(jobId).get()
+    if (!jobSnap.exists) throw new HttpsError('not-found', 'Job not found.')
+    const job = { id: jobSnap.id, ...jobSnap.data() }
+    const clientName = getJobClientName(job)
+
+    update.jobId = job.id
+    update.jobTitle = requireString(job.title, 'job title', 160)
+    update.roleKey = requireString(job.roleKey, 'role type', 120)
+    update.clientName = clientName
+    update.organizationName = clientName
+    update.location = getJobLocation(job)
+  }
+
+  const changedFields = Object.keys(update).filter((field) => update[field] !== candidate[field])
+  if (changedFields.length) {
+    await candidateRef.update({
+      ...update,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: request.auth.uid,
+      updatedByEmail: profile.email || request.auth.token?.email || null,
+    })
+
+    await writeAuditLog({
+      actorUid: request.auth.uid,
+      actorEmail: profile.email || request.auth.token?.email || null,
+      action: 'candidate.profile_updated',
+      targetType: 'candidate',
+      targetId: candidateId,
+      metadata: { changedFields, previousJobId: candidate.jobId || null, jobId },
+    })
+  }
+
+  return { success: true, candidate: update, changedFields }
 }
 
 // ─── Public: exchange an access code for the interview session ──────────────

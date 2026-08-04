@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc, updateDoc, deleteDoc, setDoc, serverTimestamp, collection, query, where, getDocs, orderBy } from 'firebase/firestore'
-import { ref, getDownloadURL, listAll } from 'firebase/storage'
+import { ref, getDownloadURL, listAll, uploadBytesResumable } from 'firebase/storage'
 import { httpsCallable } from 'firebase/functions'
 import { auth, db, storage, functions } from '../firebase'
 import { format } from 'date-fns'
@@ -11,6 +11,17 @@ import { pickRecordingFile } from '../utils/videoFiles'
 import ShareCandidateModal from '../components/ShareCandidateModal'
 import { adminAuditFields } from '../security/auditFields'
 import { buildInitialOnboardingDoc } from '../onboarding/plan'
+import { getJobClientName, getJobLocation } from '../config/organization'
+import {
+  buildCandidateResumePath,
+  inferResumeContentType,
+  resumeFileError,
+} from '../utils/resumeUpload'
+import {
+  canChangeCandidateJob,
+  candidateProfileError,
+  candidateProfileForm,
+} from '../utils/candidateProfile'
 import {
   DECISION_OUTCOMES,
   buildDecisionEntry,
@@ -216,12 +227,126 @@ function DecisionModal({ modal, form, onChange, onCancel, onSubmit, loading }) {
   )
 }
 
+function ProfileEditModal({ candidate, jobs, form, onChange, onCancel, onSubmit, saving, error }) {
+  const jobLocked = !canChangeCandidateJob(candidate)
+  const currentJob = {
+    id: candidate.jobId,
+    title: candidate.jobTitle,
+    clientName: candidate.clientName,
+    organizationName: candidate.organizationName,
+    location: candidate.location,
+  }
+  const jobOptions = jobs.some(job => job.id === candidate.jobId)
+    ? jobs
+    : [currentJob, ...jobs].filter(job => job.id)
+  const selectedJob = jobOptions.find(job => job.id === form.jobId) || currentJob
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4 py-6" onClick={() => !saving && onCancel()}>
+      <form className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-xl max-h-full overflow-y-auto p-6 space-y-5" onSubmit={onSubmit} onClick={event => event.stopPropagation()}>
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">Edit candidate profile</h3>
+          <p className="text-sm text-gray-500 mt-1">Correct the information entered when this candidate was invited.</p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">First name</span>
+            <input
+              value={form.firstName}
+              onChange={event => onChange({ ...form, firstName: event.target.value })}
+              maxLength={80}
+              autoFocus
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Last name</span>
+            <input
+              value={form.lastName}
+              onChange={event => onChange({ ...form, lastName: event.target.value })}
+              maxLength={80}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            />
+          </label>
+        </div>
+
+        <label className="block">
+          <span className="block text-sm font-medium text-gray-700 mb-1">Email</span>
+          <input
+            type="email"
+            value={form.email}
+            onChange={event => onChange({ ...form, email: event.target.value })}
+            maxLength={160}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          />
+        </label>
+
+        <label className="block">
+          <span className="block text-sm font-medium text-gray-700 mb-1">Phone</span>
+          <input
+            type="tel"
+            value={form.phone}
+            onChange={event => onChange({ ...form, phone: event.target.value })}
+            maxLength={40}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          />
+        </label>
+
+        <label className="block">
+          <span className="block text-sm font-medium text-gray-700 mb-1">Job opening</span>
+          <select
+            value={form.jobId}
+            onChange={event => onChange({ ...form, jobId: event.target.value })}
+            disabled={jobLocked}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-500"
+          >
+            {jobOptions.map(job => (
+              <option key={job.id} value={job.id}>
+                {job.title || 'Untitled job'}{getJobClientName(job) ? ` - ${getJobClientName(job)}` : ''}
+              </option>
+            ))}
+          </select>
+          {jobLocked ? (
+            <span className="block text-xs text-amber-700 mt-1.5">
+              The job is locked after the candidate opens the interview so its questions and responses stay matched to the correct role.
+            </span>
+          ) : (
+            <span className="block text-xs text-gray-500 mt-1.5">
+              {getJobClientName(selectedJob)} · {getJobLocation(selectedJob)}
+            </span>
+          )}
+        </label>
+
+        <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3 text-xs text-gray-500 space-y-1">
+          <p>Interview code: <span className="font-mono font-semibold text-gray-700">{candidate.accessCode || 'Not applicable'}</span></p>
+          <p className="break-all">Candidate ID: <span className="font-mono text-gray-700">{candidate.id}</span></p>
+          <p>These system-managed identifiers cannot be changed.</p>
+        </div>
+
+        {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>}
+
+        <div className="flex items-center justify-end gap-3">
+          <button type="button" onClick={onCancel} disabled={saving} className="text-sm text-gray-600 font-medium px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-50">
+            Cancel
+          </button>
+          <button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium px-5 py-2.5 rounded-xl">
+            {saving ? 'Saving...' : 'Save profile'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 export default function AdminCandidate() {
   const { candidateId } = useParams()
   const navigate = useNavigate()
   const [candidate, setCandidate] = useState(null)
+  const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
   const [resumeDownloadUrl, setResumeDownloadUrl] = useState(null)
+  const [resumeUpload, setResumeUpload] = useState(null)
   const [videoUrls, setVideoUrls] = useState({})
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
@@ -236,6 +361,10 @@ export default function AdminCandidate() {
   const [reopenState, setReopenState] = useState(null) // null | 'confirm' | 'working' | 'done'
   const [deleteQuestionConfirm, setDeleteQuestionConfirm] = useState(null)
   const [deletingQuestion, setDeletingQuestion] = useState(null)
+  const [showProfileEditor, setShowProfileEditor] = useState(false)
+  const [profileForm, setProfileForm] = useState(candidateProfileForm())
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileError, setProfileError] = useState('')
 
   // Manual scores
   const [resumeScores, setResumeScores] = useState({})
@@ -244,6 +373,7 @@ export default function AdminCandidate() {
   const [expandedTranscripts, setExpandedTranscripts] = useState({})
   const [saveStatus, setSaveStatus] = useState('idle') // idle | saving | saved
   const videoElRefs = useRef({})
+  const resumeInputRef = useRef(null)
   const saveTimerRef = useRef(null)
   const dirtyRef = useRef(false)
 
@@ -261,6 +391,13 @@ export default function AdminCandidate() {
         setResumeScores(data.manualResumeScores || {})
         setAnswerScores(data.manualAnswerScores || {})
         setAnswerNotes(data.manualAnswerNotes || {})
+
+        try {
+          const jobSnap = await getDocs(query(collection(db, 'jobs'), orderBy('createdAt', 'desc')))
+          setJobs(jobSnap.docs.map(jobDoc => ({ id: jobDoc.id, ...jobDoc.data() })))
+        } catch (err) {
+          console.error('Failed to load jobs for profile editing:', err)
+        }
 
         if (data.resumeUrl) {
           try {
@@ -325,6 +462,82 @@ export default function AdminCandidate() {
     uid: auth.currentUser?.uid || null,
     email: auth.currentUser?.email || null,
   })
+
+  const openProfileEditor = () => {
+    setProfileForm(candidateProfileForm(candidate))
+    setProfileError('')
+    setShowProfileEditor(true)
+  }
+
+  const saveCandidateProfile = async (event) => {
+    event.preventDefault()
+    const validationError = candidateProfileError(profileForm)
+    if (validationError) {
+      setProfileError(validationError)
+      return
+    }
+
+    setProfileSaving(true)
+    setProfileError('')
+    try {
+      const updateCandidateProfile = httpsCallable(functions, 'updateCandidateProfile')
+      const result = await updateCandidateProfile({ candidateId, ...profileForm })
+      setCandidate(current => ({ ...current, ...result.data.candidate }))
+      setShowProfileEditor(false)
+    } catch (err) {
+      console.error('Failed to update candidate profile:', err)
+      setProfileError(err.message || 'Could not save this profile. Please try again.')
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  const uploadCandidateResume = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    const fileError = resumeFileError(file)
+    if (fileError) {
+      setResumeUpload({ status: 'error', error: fileError, progress: 0 })
+      return
+    }
+
+    setResumeUpload({ status: 'uploading', error: '', progress: 0 })
+    try {
+      const resumePath = buildCandidateResumePath(candidateId, file.name)
+      const uploadTask = uploadBytesResumable(ref(storage, resumePath), file, {
+        contentType: inferResumeContentType(file.name),
+      })
+
+      await new Promise((resolve, reject) => {
+        uploadTask.on(
+          'state_changed',
+          snapshot => setResumeUpload({
+            status: 'uploading',
+            error: '',
+            progress: Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100),
+          }),
+          reject,
+          resolve
+        )
+      })
+
+      const attachInviteResume = httpsCallable(functions, 'attachInviteResume')
+      await attachInviteResume({ candidateId, resumeUrl: resumePath })
+      const downloadUrl = await getDownloadURL(ref(storage, resumePath))
+      setCandidate(current => ({ ...current, resumeUrl: resumePath, resumeSkipped: false }))
+      setResumeDownloadUrl(downloadUrl)
+      setResumeUpload({ status: 'done', error: '', progress: 100 })
+    } catch (err) {
+      console.error('Failed to upload candidate resume:', err)
+      setResumeUpload({
+        status: 'error',
+        error: err.message || 'Could not upload this resume. Please try again.',
+        progress: 0,
+      })
+    }
+  }
 
   const buildDecisionFields = ({ outcome, stage, reasonCode, note }) => {
     const entry = buildDecisionEntry({
@@ -671,20 +884,25 @@ export default function AdminCandidate() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="max-w-4xl mx-auto flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button onClick={() => navigate('/admin/dashboard')} className="text-sm text-gray-500 hover:text-gray-900">&larr; Back</button>
             <span className="text-sm font-medium text-gray-900">{candidate.firstName} {candidate.lastName}</span>
             <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STAGE_COLORS[candidate.stage] || 'bg-gray-100 text-gray-600'}`}>
               {STAGE_LABELS[candidate.stage] || candidate.stage}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {saveStatus !== 'idle' && (
               <span className={`text-[11px] px-2 py-1 rounded-full font-medium ${saveStatus === 'saving' ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-700'}`}>
                 {saveStatus === 'saving' ? 'Saving…' : 'Saved'}
               </span>
             )}
+            <button onClick={openProfileEditor}
+              title="Correct this candidate's contact details or job opening"
+              className="text-xs font-medium px-3 py-1.5 rounded-lg border bg-white text-gray-700 border-gray-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">
+              Edit profile
+            </button>
             <button onClick={handleDownload} disabled={!!downloadStatus}
               title="Download resume + videos + summary as a ZIP you can email"
               className="text-xs font-medium px-3 py-1.5 rounded-lg border bg-white text-gray-700 border-gray-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 disabled:opacity-60 disabled:cursor-wait">
@@ -890,10 +1108,40 @@ export default function AdminCandidate() {
         <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-gray-900">Resume Review</h2>
-            {resumeDownloadUrl && (
-              <a href={resumeDownloadUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">Download</a>
-            )}
+            <div className="flex items-center gap-3">
+              {resumeDownloadUrl && (
+                <a href={resumeDownloadUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">Download</a>
+              )}
+              <input
+                ref={resumeInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={uploadCandidateResume}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => resumeInputRef.current?.click()}
+                disabled={resumeUpload?.status === 'uploading'}
+                className="text-xs font-medium px-3 py-1.5 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+              >
+                {resumeUpload?.status === 'uploading'
+                  ? `Uploading ${resumeUpload.progress}%`
+                  : resumeDownloadUrl ? 'Replace resume' : 'Add resume'}
+              </button>
+            </div>
           </div>
+          {resumeUpload?.status === 'uploading' && (
+            <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+              <div className="h-full bg-blue-600 transition-all" style={{ width: `${resumeUpload.progress}%` }} />
+            </div>
+          )}
+          {resumeUpload?.status === 'done' && (
+            <p className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2">Resume saved to this profile.</p>
+          )}
+          {resumeUpload?.status === 'error' && (
+            <p className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{resumeUpload.error}</p>
+          )}
           {resumeDownloadUrl && (
             <ResumeViewer url={resumeDownloadUrl} fileName={candidate.resumeUrl} />
           )}
@@ -1261,6 +1509,19 @@ export default function AdminCandidate() {
           </div>
         )}
       </div>
+
+      {showProfileEditor && (
+        <ProfileEditModal
+          candidate={candidate}
+          jobs={jobs}
+          form={profileForm}
+          onChange={setProfileForm}
+          onCancel={() => setShowProfileEditor(false)}
+          onSubmit={saveCandidateProfile}
+          saving={profileSaving}
+          error={profileError}
+        />
+      )}
 
       {/* Decision rationale modal */}
       {decisionModal && (
